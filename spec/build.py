@@ -54,11 +54,24 @@ def main():
     defs = []
     if os.environ.get('NEM_PACE') == 'palmix':
         defs.append('-DPACE_PAL_MIX=1')
-    # Pacing: by default one tick in two is drawn (NEM_DRAW_EVERY, 2); NEM_EXTRA
-    # instead selects the older scheme, one undrawn tick after every N drawn
-    # (NEM_EXTRA=0: every tick drawn, for bench.py); NEM_DRAW_EVERY=0 that
-    # scheme with its default of 4.
-    draw_every = int(os.environ.get('NEM_DRAW_EVERY', '0' if os.environ.get('NEM_EXTRA') else '2'))
+    # Pacing.  By default (0.110) adaptive: every tick drawn unless the game is
+    # behind a rhythm of T eighths of a frame a tick by more than SLACK eighths,
+    # never two ticks in a row undrawn (pace_adapt, page C); T,SLACK = 15,8
+    # unless NEM_ADAPT=T,SLACK says otherwise, NEM_ADAPT=0 to turn it off.
+    # Setting NEM_DRAW_EVERY or NEM_EXTRA selects the fixed schemes instead:
+    # NEM_DRAW_EVERY=N, one tick in N drawn (2: the fast edition of 0.98-0.109);
+    # NEM_DRAW_EVERY=0, one undrawn tick after every four drawn (the smooth
+    # edition); NEM_EXTRA=N, one undrawn tick after every N drawn (NEM_EXTRA=0:
+    # every tick drawn, for bench.py).
+    adapt = os.environ.get('NEM_ADAPT')
+    if adapt == '0' or (adapt is None and ('NEM_DRAW_EVERY' in os.environ or 'NEM_EXTRA' in os.environ)):
+        adapt = None
+    elif adapt is None:
+        adapt = '15,8'
+    if adapt:
+        t, slack = (int(x) for x in adapt.split(','))
+        defs += ['-DADAPT=1', '-DPACE_T=%d' % t, '-DPACE_SLACK=%d' % slack, '-DLOGIC_EXTRA=0']
+    draw_every = 0 if adapt else int(os.environ.get('NEM_DRAW_EVERY', '0' if os.environ.get('NEM_EXTRA') else '2'))
     if draw_every:
         defs.append('-DDRAW_EVERY=%d' % draw_every)
         defs.append('-DLOGIC_EXTRA=0')
@@ -74,10 +87,11 @@ def main():
         defs.append('-DNO_INVERT=1')    # dense tiles stored as converted (not inverted)
     if os.environ.get('NEM_HOLD'):
         defs.append('-DHOLD_TICKS=%d' % int(os.environ['NEM_HOLD']))   # fire held this long: power-up too
-    # The version on the title (0.100): VERSION, then S (smooth) or F (fast),
+    # The version on the title (0.100): VERSION, then A (adaptive, 0.110), S
+    # (smooth) or F (fast),
     # top right (0.101), in Konami's font (ASCII - 0x20; its digits are
     # 0x10-0x19, and tile 0E is given a full stop by title_dot).
-    ver = 'V' + open(os.path.join(HERE, 'VERSION')).read().strip() + ('F' if draw_every else 'S')
+    ver = 'V' + open(os.path.join(HERE, 'VERSION')).read().strip() + ('A' if adapt else 'F' if draw_every else 'S')
     codes = [0x0E if ch == '.' else ord(ch) - 0x20 for ch in ver]
     assert all(0x10 <= c <= 0x3A or c == 0x0E for c in codes), ver
     open(os.path.join(HERE, 'version.inc'), 'w').write(

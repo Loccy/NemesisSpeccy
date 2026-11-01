@@ -41,13 +41,12 @@ Departures from the MSX original are all deliberate:
 * The front end goes straight to the title screen: no Konami logo, no
   attract cycle (demo play and the illustration).  The title carries the
   controls and a credit line. This is to save on space - it was a tight fit!
-* It runs slower than the PAL MSX overall, and comes in two editions that
-  differ only in how often the screen is drawn (technical description,
-  section 6.8).  Over the
-  first two stages, *fast* (one tick in two drawn) takes 94% of the MSX's
-  time, at 12 screens a second and an input lag of about 7 frames against
-  the MSX's 3; *smooth* (four in five) 88%, at 18 screens a second and
-  about 6 frames.
+* It runs a little slower than the PAL MSX, and draws the screen less
+  often: every game tick when there is time, one in two when the game is
+  busy (technical description, section 6.8).  Over the first two stages in
+  light play it runs at 96% of the MSX's speed, at about 16 screens a
+  second; over the whole first loop with every weapon, at 86%.  Input lag
+  is about 6 frames, against the MSX's 3.
 * Colours are chosen for the Spectrum's attribute cells: tiles are fitted to
   two colours per cell, sprites take one ink per cell, and a few objects get
   colours of their own (technical description, sections 6.6 and 6.7). Where the automatic fit made a
@@ -93,20 +92,16 @@ your prerogative, but perhaps then this project is not for you.
 * **Emulators:** the `.tap` files load like a real tape; the `.sna` files are
   128K snapshots that start straight away.
 
-### Fast or smooth
+### One edition
 
-There are two editions, the same game drawn two ways. Try both and keep the
-one you prefer.
+Since 0.110 there is one edition. It draws every game tick while the game
+keeps up with the MSX's pace, and skips drawing one tick in two (no more)
+when it falls behind, so quiet stretches move smoothly and busy ones keep
+their speed. The title screen shows the version in the top right corner,
+ending in A: V0.110A.
 
-* **Fast** (files ending `_fast`): close to the MSX's speed, about 6%
-  slower overall. The screen is redrawn about 12 times a second, so
-  movement is jerkier, and the controls respond a little later.
-* **Smooth** (files ending `_smooth`): the screen is redrawn about 18 times
-  a second and the controls respond sooner, but the game runs about 12%
-  slower than the MSX.
-
-The title screen shows which one you have, in the top right corner after
-the version number: V0.109F for fast, V0.109S for smooth.
+Versions 0.98 to 0.109 came in two editions, fast (one tick in two drawn)
+and smooth (four in five). Both can still be built (see Building).
 
 ### Controls
 
@@ -163,13 +158,15 @@ It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3 and sjasmplus
 1.21.0. Then, in `spec/`:
 
 ```
-python3 build.py              # nemesis.sna, the fast edition
+python3 build.py              # nemesis.sna
 python3 make_tap.py           # nemesis.tap from it
-sh release.sh 0.109           # both editions, tape and snapshot, in release/
+sh release.sh 0.110           # the release, tape and snapshot, in release/
 sh verify.sh                  # the regression checks
 ```
 
 Built this way, the files in `release/` are identical to the published ones.
+The editions of 0.98 to 0.109 are build options: `NEM_DRAW_EVERY=2 python3
+build.py` for fast, `NEM_DRAW_EVERY=0 python3 build.py` for smooth.
 The first run of `verify.sh` also captures Konami's graphics from the ROM
 for the colour-converter test (`spec/vram_states.pkl`, kept out of the
 repository). Section 3 of the technical description has the details and the

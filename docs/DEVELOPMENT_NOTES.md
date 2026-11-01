@@ -863,6 +863,38 @@ copy, the bulk upload among them; and a leaner star-list rebuild (about 125
 a tick) would drop the guard that keeps a stale star bit from corrupting
 another list's counters.
 
+## 0.110: one edition, adaptive pacing
+
+The two editions had grown close in play, and a full profile was made to
+choose between them.  The measurements of 0.95-0.100 had been made with
+scripts that were never kept; they were recovered from an earlier session's
+workspace and are now kept in the linked clone (`local/tools/measure/`),
+where the MSX run reproduced its saved data row for row.  Over the first
+two stages in light play, 0.109's fast edition ran at 98% of the MSX's
+speed and the smooth one at 91%; but the smooth edition's extra screens
+came unevenly (one in four jumped two ticks, the gaps between screens ran
+from 1 to 4 frames), so it looked little smoother than the fast one.
+
+A third scheme was tried: draw every tick while the game keeps up with a
+rhythm near the MSX's, leave a tick undrawn while it is behind by more than
+a slack, never two in a row (`pace_adapt`, bank C).  Five settings of rhythm
+and slack were measured; all fell between the two editions in light play.
+Over the whole first loop with every weapon, though, the smooth edition
+fell to 77% of the MSX's speed while the adaptive rule held the fast
+edition's (86% against 87%): under load it falls back to one tick in two,
+and where there is room (stage 2, stage 8) it draws up to about two ticks
+in three.  In play it looked better than either, since steady motion shows
+most in quiet stretches, and it became the only edition (rhythm 15 eighths
+of a frame a tick, slack one frame; the title shows A).  The fast and smooth
+schemes remain build options, so the change is easy to reverse if players
+prefer them.
+
+Input lag on the MSX had been quoted as about 3.2 frames from a different
+method (24 presses, no beam term); measured exactly as the port is, it is
+3.1 to 3.2.  The Spectrum figures of a first profile were a frame too high
+(the screen flips in the interrupt at a frame's start, not its end) and
+were corrected before use.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -876,7 +908,7 @@ part of the game that changed (0.107's dissolves).  The released files are
 compared byte for byte with the builds that were checked, and the source
 package is rebuilt from scratch to make sure it reproduces them.
 
-## Where it stands (0.109)
+## Where it stands (0.110)
 
 * The test build matches the MSX original in Konami's RAM and video memory
   with all weapons through the whole first loop and well into the second,
@@ -889,11 +921,9 @@ package is rebuilt from scratch to make sure it reproduces them.
   +2A and +3.  The second fire button and hold-to-select work on real
   hardware.
 * Konami's stack has 22 bytes of headroom at its deepest.
-* About 1,600 bytes of memory are free, most of it in the switched banks
+* About 1,540 bytes of memory are free, most of it in the switched banks
   (technical description, section 5).
-* Speed over the first two stages, against the simulated 50 Hz MSX (measured
-  on 0.100; 0.108 and 0.109 are each about 1.5% faster): the fast edition takes 94% of the
-  MSX's time, at 24.1 ticks and 12 screens a second, with input lag of about
-  6.6 frames; the smooth edition 88%, 22.3 ticks and 17.9 screens, about 6.0
-  frames.  The MSX runs at 26.5 ticks a second with about 3.2 frames of
-  lag.
+* Speed against the simulated 50 Hz MSX (technical description, section
+  6.8): 96% over the first two stages in light play, at about 16 screens a
+  second and an input lag of about 6 frames (the MSX's: 3.15); 86% over
+  the whole first loop with every weapon.

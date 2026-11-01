@@ -1926,6 +1926,10 @@ pm_tick:
     call m0_4045                ; one game tick (MSX interrupcion after the sound part)
 pm_tiles:
     call tick_tiles
+    ifdef ADAPT
+    call far_pace               ; (0.110) behind the rhythm: no drawing this tick
+    jr c,plat_main.loop
+    endif
     if LOGIC_EXTRA
     ld hl,logic_ctr             ; after every LOGIC_EXTRA drawn ticks, one more
     dec (hl)                    ; tick without drawing: the game runs nearer the
@@ -1947,6 +1951,12 @@ pm_flip:
     call request_flip
     jr plat_main.loop
 
+    ifdef ADAPT
+far_pace:                       ; far_go returns to this stub's caller
+    call far_go
+    db PAGE_C
+    dw pace_adapt
+    endif
 ; Pacing.  The screen just drawn is shown by the interrupt on the frame it
 ; is due, FRAMES_PER_TICK frames after the previous flip, while the next
 ; tick's game logic already runs; only drawing waits for the flip.  A late
@@ -2400,6 +2410,58 @@ logo_tile:
     ld a,PAGE_7
     jp set_page
     assert (cv_pat >> 8) == ((cv_out + 8) >> 8)
+    ifdef ADAPT
+; Adaptive pacing (0.110, experimental): called after each tick; carry: do
+; not draw this tick.  pace_debt is how far the game is behind a rhythm of
+; PACE_T eighths of a frame a tick (clamped to -32..64 eighths); a tick is
+; left undrawn when that is more than PACE_SLACK, but never two in a row.
+pace_last:  db 0
+pace_debt:  db 0
+pace_prev:  db 0
+pace_adapt:
+    ld hl,pace_last
+    ld a,(frames)
+    ld b,(hl)
+    ld (hl),a
+    sub b                       ; frames since the last tick's decision
+    cp 9
+    jr c,.d
+    ld a,8
+.d:
+    add a,a
+    add a,a
+    add a,a
+    sub PACE_T
+    inc hl                      ; pace_debt
+    add a,(hl)
+    bit 7,a
+    jr z,.pos
+    cp 0xe0                     ; at least -32
+    jr nc,.st
+    ld a,0xe0
+    jr .st
+.pos:
+    cp 65                       ; at most 64
+    jr c,.st
+    ld a,64
+.st:
+    ld (hl),a
+    inc hl                      ; pace_prev: was the last tick undrawn?
+    bit 7,a
+    jr nz,.draw
+    cp PACE_SLACK+1
+    jr c,.draw
+    ld a,(hl)
+    or a
+    jr nz,.draw                 ; never two in a row
+    ld (hl),1
+    scf
+    ret
+.draw:
+    ld (hl),0
+    or a
+    ret
+    endif
 rules_end:
     assert rules_end <= COL_SHADOW
 

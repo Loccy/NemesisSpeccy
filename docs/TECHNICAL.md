@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 0.109 (1 November 2026). 
+Version 0.110 (1 November 2026). 
 
 ## 1. What it is
 
@@ -82,7 +82,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the fast edition
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 0.109           # both editions, tape and snapshot, in release/
+sh release.sh 0.110           # the release, tape and snapshot, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 
@@ -417,8 +417,8 @@ B  bank 3  MSX bank 4 (graphics source) C000-DFFF and bank 5's used part
            cache FE00-FFFF
 C  bank 4  MSX bank 3 (game code) C000-E061; the title's full stop and
            text E062-E0EE; the stage colour rules, the dissolve's colour
-           chunks and logo_tile E0EF-E75C; copy of the MSX colour table
-           E800-FFFF
+           chunks and logo_tile E0EF-E75C; the adaptive pacing (pace_adapt,
+           0.110) E75D-E79D; copy of the MSX colour table E800-FFFF
 D  bank 6  MSX banks 7 and 8 (sound driver and tunes, E000-E3DC); the
            full map comparison E400-E7FF; copy of the MSX pattern table
            E800-FFFF
@@ -444,23 +444,23 @@ Konami's TwinBee cartridge (RC-740) in another slot, which it cannot here
 A758-AAA5 is the high-score table screen of the attract cycle.  Bank 12
 past B64B is padding.  Banks 6 and 13-15 are empty (all FF) and never read.
 
-Free space (0.109), about 1,600 bytes in all:
+Free space (0.110), about 1,540 bytes in all:
 
 | Where | Bytes | |
 |---|---|---|
-| Fixed 8000-ACFF | 60 | padding before page-aligned tables and buffers: 96D8-96FF (40, after `dz_flag`, before `tables.asm`), A173-A17F (13, before `ship_pat`'s 32-byte alignment), AAFD-AAFF (3, after the two 3-instruction ways into bank C), A2FE-A2FF (2), A8FE-A8FF (2, after `conv_dz`) |
+| Fixed 8000-ACFF | 63 | padding before page-aligned tables and buffers: 96D5-96FF (43, after `dz_flag`, before `tables.asm`), A173-A17F (13, before `ship_pat`'s 32-byte alignment), AAFD-AAFF (3, after the two 3-instruction ways into bank C), A2FE-A2FF (2), A8FE-A8FF (2, after `conv_dz`) |
 | Low fixed area | 38 | 7B31-7B3F (15), 7FF3-7FFF (13), 7BF8-7BFF (8, after `spr_edge`), 7C5E-7C5F (2) |
 | Bank 0 (page A) | 290 | FEDE-FFFF (it holds sjasmplus's default UDGs at FF58, which nothing uses) |
 | Bank 1 (page E) | 677 | F101-F20E (270), F9F2-FB03 (274), FF7B-FFFF (133) |
 | Bank 3 (page B) | 130 | F8B9-F8FF (71), FDC5-FDFF (59) |
-| Bank 4 (page C) | 163 | E75D-E7FF |
+| Bank 4 (page C) | 98 | E79E-E7FF |
 | Bank 6 (page D) | 232 | E718-E7FF |
 | Bank 7 (page 7) | 0 | `dz_flag7` fills it to F7FF |
 
 Bank 3's padding (MSX 3:BE66-BFF4, 399 bytes, carried in bank C) could be
 dropped too, a generator change.  Fixed memory is where space is tight: what
 it has is in pieces between aligned tables, so new code there has to be
-placed by address around them (the 40 bytes before `tables.asm` are now
+placed by address around them (the 43 bytes before `tables.asm` are now
 the largest piece).  The 0.94 count (505 bytes in fixed memory) had gone stale: 0.95 to
 0.99 used 94 of the bytes before `tables.asm`, and 0.100 took 191 (the
 ship's selector and patterns, with 13 bytes lost to their alignment, and
@@ -469,7 +469,9 @@ the title's full stop); 0.102 took 87 more (the title's tune), and 0.107
 `ensure_tile`, `tick_tiles` and the decompressor), with about 770 more in
 banks B, C, D and 7.  0.109 moved the title's full stop (46 bytes) to bank C
 and `far_dz_pat` to the low area, and spent the room on the scroll and sprite
-changes and `spr_vis` (the 32 bytes at A1E0).  Anything that need not be fast
+changes and `spr_vis` (the 32 bytes at A1E0).  0.110's adaptive pacing is
+in bank C (65 bytes) with a 6-byte stub in fixed memory; the fast edition's
+counter, no longer assembled, gave back 3 bytes more than that cost.  Anything that need not be fast
 goes into a switched bank with a call from fixed code, or takes over an
 existing instruction.
 
@@ -883,44 +885,72 @@ misses one frame takes two), the port's does not, so where the MSX's ticks
 are only just over a frame the port can run a little faster (the stage 2
 boss: 30-33 ticks a second against the MSX's 27-29).
 
-Not every tick is drawn, and the two editions differ only there:
+Not every tick is drawn.  Since 0.110 the release decides tick by tick
+(`pace_adapt`, bank C, called after each tick through `far_pace`): every
+tick is drawn while the game keeps up with a rhythm of 15 eighths of a frame
+a tick (about 26.7 ticks a second, near the MSX's), and a tick is left
+undrawn while the game is behind that rhythm by more than a frame, but never
+two in a row.  The balance (`pace_debt`, in eighths of a frame) is clamped
+to between 4 frames ahead and 8 behind, so a slow stretch does not leave a
+debt that makes a quiet one skip.  Screens are at least one frame apart.  In
+busy play this falls back to one tick in two, as the fast edition of
+0.98-0.109 drew all the time; where there is room it draws every tick.  The
+title shows the version ending in A.  Build options: `NEM_ADAPT=T,SLACK` for
+another rhythm and slack (eighths of a frame), and the fixed schemes of
+0.98-0.109, selected by setting either of:
 
-* **Fast**: one tick in two drawn (`DRAW_EVERY`, build option
-  `NEM_DRAW_EVERY`, default 2), screens at least 3 frames apart
-  (`NEM_FLIP`, default 3; 2 would follow the MSX's bursts more closely, but
-  ran the stage 2 boss 30% fast).
-* **Smooth** (`NEM_DRAW_EVERY=0`): one undrawn tick after every four drawn
-  (`LOGIC_EXTRA`; `NEM_EXTRA=N` for another N, `NEM_EXTRA=0` to draw every
-  tick, as `bench.py` wants), screens at least one frame apart.
+* `NEM_DRAW_EVERY=N`: one tick in N drawn (`DRAW_EVERY`), screens at least
+  `NEM_FLIP` frames apart (default 3; 2 would follow the MSX's bursts more
+  closely, but ran the stage 2 boss 30% fast).  `NEM_DRAW_EVERY=2` is the
+  former fast edition (title F); `NEM_DRAW_EVERY=0`, one undrawn tick after
+  every four drawn, the former smooth edition (title S).
+* `NEM_EXTRA=N`: one undrawn tick after every N drawn (`LOGIC_EXTRA`;
+  `NEM_EXTRA=0` draws every tick, as `bench.py` wants).
 
 An undrawn tick's changes are simply caught up by the next drawing, and the
 game itself is unchanged (the lockstep still matches).  `release.sh
-VERSION` builds both editions into `release/`.
+VERSION` builds the release into `release/`.
 
 Measured against the MSX original, simulated at 50 Hz with the same front
 end and the same scripted play (invulnerable, fire tapped; its BIOS calls,
-stubs in the simulator, charged an estimate of the real BIOS's time), over
-the first two stages:
+stubs in the simulator, charged an estimate of the real BIOS's time;
+`local/tools/measure/msx50.py` and `specrun.py` in the linked clone), over
+the first two stages (percentages: the MSX's time over the build's, so
+speed against the MSX):
 
-| | MSX 50 Hz | 0.100 smooth | 0.100 fast | 0.99a smooth | 0.99a fast |
-|---|---|---|---|---|---|
-| Stage 1 | 199 s | 238 s (84%) | 215 s (93%) | 242 s (82%) | 215 s (93%) |
-| Stage 2 | 199 s | 215 s (93%) | 208 s (96%) | 221 s (90%) | 207 s (96%) |
-| Both | 398 s | 453 s (88%) | 423 s (94%) | 463 s (86%) | 422 s (94%) |
-| Ticks a second | 26.5 | 22.3 | 24.1 | 22.0 | 24.2 |
-| Screens a second | 25-50 | 17.9 | 12.0 | 17.6 | 12.1 |
-| Input lag (frames, mean) | about 3.2 | 6.0 | 6.6 | 5.7 | 6.8 |
+| | MSX 50 Hz | 0.110 | 0.109 fast | 0.109 smooth | 0.100 fast | 0.100 smooth |
+|---|---|---|---|---|---|---|
+| Stage 1 | 199 s | 209 s (95%) | 206 s (97%) | 230 s (87%) | 215 s (93%) | 238 s (84%) |
+| Stage 2 | 199 s | 205 s (97%) | 199 s (100%) | 208 s (96%) | 208 s (96%) | 215 s (93%) |
+| Both | 398 s | 414 s (96%) | 405 s (98%) | 438 s (91%) | 423 s (94%) | 453 s (88%) |
+| Ticks a second | 26.9 | 25.8 | 26.5 | 24.5 | 24.1 | 22.3 |
+| Screens a second | 25-50 | 16.1 | 12.6 | 18.5 | 12.0 | 17.9 |
+| Input lag (frames, mean) | 3.15 | 6.0 | 6.4 | 5.5 | 6.6 | 6.0 |
 
-0.100 stops drawing the ship's second sprite (6.7).  The smooth edition
-gains about 1.5% from it; the fast one, whose screens are held at least
-three frames apart, does not show it.  Differences of a few seconds are
-within run-to-run noise: 0.99a, measured again alongside 0.100, took 461 s
-(smooth) and 424 s (fast); and the lag figures for 0.100 come from 160
-presses over two runs, whose means for one edition differ by up to 0.6.
+That play is light: no power-ups, so few sprites.  Over the whole first
+loop with every weapon (Konami's own cheat, as the checkers' all-stages
+runs; `msx_loop.py` and `perfprofile.py`), where many more sprites are
+drawn, every build falls further behind the MSX:
+
+| Stage | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | Loop |
+|---|---|---|---|---|---|---|---|---|---|
+| MSX 50 Hz | 182 s | 196 s | 190 s | 204 s | 244 s | 156 s | 142 s | 183 s | 1,496 s |
+| 0.110 | 83% | 91% | 83% | 90% | 87% | 80% | 86% | 85% | 86% |
+| 0.109 fast | 84% | 94% | 82% | 89% | 88% | 84% | 86% | 87% | 87% |
+| 0.109 smooth | 78% | 87% | 75% | 81% | 76% | 71% | 73% | 75% | 77% |
+| 0.110: ticks not drawn | 41% | 31% | 44% | 41% | 44% | 44% | 47% | 35% | |
+
+(The fast edition left 50% of ticks undrawn throughout, the smooth one
+20%.)  The project's `performance-profile-0.109.md` has the screens a second
+and motion evenness by stage, and the trial of the adaptive rule's settings.
 
 The lag is counted from a press at the start of a frame to the frame whose
 displayed screen first shows the ship moved, plus the beam's time to reach
-the ship (200 presses each, over three runs).  (Versions up to 0.94a quoted
+the ship (`lag2.py`, 70 presses in each of three runs).  The MSX is measured
+the same way (`msx_lag3.py`): the video chip's frame interrupt comes at the
+end of the last active line (TI, VDP Programmer's Guide, p. 5-5), so with
+313 lines a frame the beam reaches a sprite at Y (122 + Y) / 313 of a frame
+after it.  (Versions up to 0.94a quoted
 24.3 ticks a second, from 90 seconds that were mostly the quiet opening of
 stage 1: 0.94a measures 19.8 over the stage.)  In busy play the CPU is
 never idle.  A tick costs about 189,000 T-states against a budget of
@@ -1018,7 +1048,7 @@ now goes through `title_tick`, which requests A6 (through Konami's own
 frames (3 seconds) have passed since it fell silent, then does what
 estado_1 did.  `title_start`, called when the title is drawn, makes the
 first play start at once.  The gap is counted in frames because the
-title's ticks run at different rates in the two editions.  When a game
+title's ticks run at different rates under different pacing.  When a game
 starts, estado_3 (0:537F) goes through `title_end`, which stops A6 with
 Konami's silence request (CD): otherwise the tune would play on into the
 stage and hold the stage's music back, since Konami starts that only on a
@@ -1107,7 +1137,7 @@ In `spec/` unless shown otherwise.
 | `tables.py` -> `tables.asm` | Colour tables, sprite inks, keyboard decoder. |
 | `convert.py`, `extract.py`, `emu_bench.py` | The colour fit's Python model (used by `tables.py` and the checks), Konami's graphics read from the ROM, and the simulator's screen grabs. |
 | `konami_spec.asm`, `konami_spec_stubs.asm` | Konami's code, generated by `reloc/gen.py`. |
-| `build.py`, `make_tap.py`, `verify.sh`, `release.sh` | Build, tape, regression checks, both editions. |
+| `build.py`, `make_tap.py`, `verify.sh`, `release.sh` | Build, tape, regression checks, the release. |
 | `lockstep_spec.py`, `check_*.py`, `test_*.py` | The checks of section 4. |
 | `tape/` | Loader source (generated), loading screen and its converter, ZX0 unpacker and licence. |
 | `../reloc/` | The relocator (`gen.py`) and its disassembly parser. |
