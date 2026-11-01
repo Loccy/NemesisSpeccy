@@ -257,6 +257,15 @@ HOLD_TICKS equ 12               ; fire held this many ticks: power-up as well (f
 
     include "konami_spec.asm"
 
+; The dissolve's pattern chunks (0.107), here since 0.109 to make room in
+; 8000-96FF: rarely run, so contended memory does not matter.
+    org 0x7C58
+    assert section_fixed2_end <= far_dz_pat
+far_dz_pat:
+    call far_go
+    db PAGE_D
+    dw dz_pat
+    assert $ <= 0x7C60
 ; ===========================================================================
 ; Low fixed RAM after Konami's moved data (7C58-7FFF).
     org 0x7C60
@@ -669,7 +678,7 @@ spec_title:
     call set_page
     ld de,ctl_text
     call m0_4998                ; escribe_caracteres
-    call title_dot              ; the version's full stop
+    call title_dot              ; the version's full stop (page C)
     call title_start            ; the title's tune, at once
     pop af
     call set_page
@@ -1454,9 +1463,18 @@ nm_r21_hl_c:
     NM_AT_HL 0x0201
     ld (hl),c
     ret
-nm_r11_hl_a:
-    NM_AT_HL 0x0101
-    ld (hl),a
+nm_r11_hl_a:                    ; the new column and its stars: on a scroll the
+    ld (hl),a                   ; shift has already asked for a full comparison,
+    push af                     ; so the cell need not be noted (0.109)
+    ld a,(nm_full)
+    or a
+    jr nz,.full
+    push de
+    ld de,0x0101
+    call nm_rec
+    pop de
+.full:
+    pop af
     ret
 nm_69e1:
     ld h,(ix+0x1f)
@@ -2029,26 +2047,6 @@ isr_flip:
     include "convert.asm"
     include "render.asm"
     include "vbulk.asm"         ; bulk VRAM writes, the native decompressor
-; Konami's font has no full stop: the title's version (ctl_text, top right)
-; uses tile 0E (ASCII '.' - 0x20, blank in the font) of the top third, given
-; one here, white like the rest of the title's text (MSX colour F0).
-title_dot:
-    ld hl,0x2070                ; pattern table 2000 + third 0 + 0E * 8
-    ld (vdp_addr),hl
-    ld hl,.glyph
-    ld bc,8
-    call vbulk
-    ld hl,0x0070                ; colour table 0000 + third 0 + 0E * 8
-    ld (vdp_addr),hl
-    ld hl,.colour
-    ld bc,8
-    jp vbulk
-.glyph:  db 0,0,0,0,0,0,0x18,0x18
-.colour: db 0xF0,0xF0,0xF0,0xF0,0xF0,0xF0,0xF0,0xF0
-far_dz_pat:                     ; the dissolve's pattern chunks (0.107)
-    call far_go
-    db PAGE_D
-    dw dz_pat
 dz_flag:                        ; tick_tiles (0.107): dz_flag7 in page 7
     ld a,PAGE_7
     call borrow_page
@@ -2057,6 +2055,8 @@ dz_flag:                        ; tick_tiles (0.107): dz_flag7 in page 7
     include "tables.asm"
     include "konami_spec_stubs.asm"
     include "ship.asm"          ; the ship's patterns (0.100), in the gap before the buffers
+spr_vis:    ds 32               ; draw_sprites (0.109): the list's entries on screen
+    assert (spr_vis & 0xff) <= 0xe0
 
 ; ---- buffers (page aligned) -------------------------------------------------
     align 256
@@ -2228,6 +2228,22 @@ page_fit_end:
     slot 3
     page PAGE_C
     org section_C_end
+; Konami's font has no full stop: the title's version (ctl_text, top right)
+; uses tile 0E (ASCII '.' - 0x20, blank in the font) of the top third, given
+; one here, white like the rest of the title's text (MSX colour F0).
+; In page C since 0.109 (spec_title maps it; vbulk's borrowed pages come
+; back to it), to make room in fixed memory.
+title_dot:                      ; through LDIRVM, which copies via dc_buf: the
+    ld hl,.glyph                ; source is in page C, which vbulk's borrowed
+    ld de,0x2070                ; pages would hide
+    ld bc,8                     ; pattern table 2000 + third 0 + 0E * 8
+    call bios_005C
+    ld hl,.colour
+    ld de,0x0070                ; colour table 0000 + third 0 + 0E * 8
+    ld bc,8
+    jp bios_005C
+.glyph:  db 0,0,0,0,0,0,0x18,0x18
+.colour: db 0xF0,0xF0,0xF0,0xF0,0xF0,0xF0,0xF0,0xF0
 ctl_text:
     dw 0x39A3
     db 0x31,0x21,0x2F,0x30,0x00,0x00,0x33,0x30,0x21,0x23,0x25,0x00,0x26,0x29,0x32,0x25,0x00,0x00,0x2D,0x00,0x33,0x25,0x2C,0x25,0x23,0x34

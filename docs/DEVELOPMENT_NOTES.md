@@ -818,6 +818,51 @@ dropped: pre-shifted sprites (skipping all shifting saved only 5% of the
 sprites' time), and converting each stage's tiles as soon as they load
 (pauses of 8 to 9 seconds; the lazy converter never touches most of them).
 
+## 0.109: the scroll tick and the sprite list
+
+A scroll tick cost about 135,000 T-states more than an ordinary one (284,000
+against 149,000 on bench.py's workload, every tick drawn).  Measured routine
+by routine, most of that is work that has to be done: the full map
+comparison's floor (an unchanged cell costs about 34 T-states, plus about 9
+of group overhead), redrawing the changed cells (`draw_cells` is within
+about 130 T-states a cell of a bare copy), converting the terrain characters
+that arrive with the new column, and Konami's row shift (682 LDIs).  Three
+things were not:
+
+* After the shift has asked for a full comparison, Konami writes the new
+  column through `nm_r11_hl_a`, which noted every cell as a region: about
+  6,700 T-states a scroll for notes the full comparison made pointless.  It
+  now skips the note when a full comparison is due (about 4,850 saved a
+  scroll; outside scroll ticks the routine is hardly used).
+* The generated comparison took a jump on every unchanged cell.  A changed
+  cell's work is now out of line, so the usual case falls through (about 560
+  a scroll, less than estimated: stars make many cells count as changed).
+* Konami's sprite list is usually full, with about 29 of its 32 entries
+  parked below the screen, and it was walked twice: once to find its end,
+  once backwards to draw.  One pass now collects the entries on screen into
+  `spr_vis` (32 bytes) and the drawing works back through those (about 810 a
+  drawn screen).  The ship's second colour (patterns 4, 12, 20, never drawn
+  since 0.100) is now dropped before its colour is looked up, not after.
+  The sprite list cannot simply lose that entry: it is Konami's, written
+  every tick, and the lockstep compares it with the MSX.
+
+To make room in fixed memory, the title's full stop (`title_dot`, 46 bytes)
+moved to bank C, which `spec_title` already maps.  It now writes through the
+LDIRVM stand-in rather than `vbulk` directly: `vbulk` borrows the shadows'
+banks into C000 while it reads its source, so a source in bank C would have
+been hidden.  `far_dz_pat` moved to the low area (7C58).
+
+Over 300 seconds of the scripted play (`pacing.py`), against 0.108: the fast
+edition from 27.6 to 28.0 ticks a second (13.8 to 14.0 screens), the smooth
+one from 27.4 to 27.8 (21.9 to 22.2 screens), about 1.5%.
+
+Considered and left: interleaving the sprite patterns (left and right halves
+alternating) would save `set 4,l` and `res 4,l` on each of a sprite's 16
+rows, about 1,000 T-states a tick, but ten places touch the sprite pattern
+copy, the bulk upload among them; and a leaner star-list rebuild (about 125
+a tick) would drop the guard that keeps a stale star bit from corrupting
+another list's counters.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -831,7 +876,7 @@ part of the game that changed (0.107's dissolves).  The released files are
 compared byte for byte with the builds that were checked, and the source
 package is rebuilt from scratch to make sure it reproduces them.
 
-## Where it stands (0.108)
+## Where it stands (0.109)
 
 * The test build matches the MSX original in Konami's RAM and video memory
   with all weapons through the whole first loop and well into the second,
@@ -844,10 +889,10 @@ package is rebuilt from scratch to make sure it reproduces them.
   +2A and +3.  The second fire button and hold-to-select work on real
   hardware.
 * Konami's stack has 22 bytes of headroom at its deepest.
-* About 1,650 bytes of memory are free, most of it in the switched banks
+* About 1,600 bytes of memory are free, most of it in the switched banks
   (technical description, section 5).
 * Speed over the first two stages, against the simulated 50 Hz MSX (measured
-  on 0.100; 0.108 is about 1.5% faster): the fast edition takes 94% of the
+  on 0.100; 0.108 and 0.109 are each about 1.5% faster): the fast edition takes 94% of the
   MSX's time, at 24.1 ticks and 12 screens a second, with input lag of about
   6.6 frames; the smooth edition 88%, 22.3 ticks and 17.9 screens, about 6.0
   frames.  The MSX runs at 26.5 ticks a second with about 3.2 frames of

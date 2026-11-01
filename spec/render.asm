@@ -669,36 +669,54 @@ draw_sprites:
     ld a,(spr_on)               ; Konami hid them all (a 0xD0 at VRAM 3B00)
     or a
     ret z
-    ; find the end of the list, then draw from the last sprite to the first,
-    ; so that on shared cells the higher-priority (earlier) sprite's colour wins
+    ; one pass (0.109): the entries on screen, up to the end marker, into
+    ; spr_vis; then they are drawn from the last to the first, so that on
+    ; shared cells the higher-priority (earlier) sprite's colour wins.
+    ; Konami's list is usually full, with most entries parked below the screen.
     ld hl,SPR_ATTR
+    ld de,spr_vis
     ld b,32
-.count:
-    ld a,(hl)
-    cp 0xd0
-    jr z,.counted
-    ld a,l
-    add a,4
-    ld l,a
-    djnz .count
-.counted:
-    ld a,l
-    sub SPR_ATTR&0xff
-    ret z
-    rrca
-    rrca
-    ld b,a                      ; sprites in the list
-.spr:
-    ld a,l
-    sub 4
-    ld l,a
+.scan:
     ld a,(hl)
     inc a                       ; the TMS9918 shows a sprite one line below Y
     cp 177
-    jr nc,.next                 ; off the bottom, or above the top (not clipped yet)
+    jr c,.vis
+    cp 0xd1                     ; the end marker (0xD0)
+    jr z,.scanned
+.skip:
+    ld a,l
+    add a,4
+    ld l,a
+    djnz .scan
+.scanned:
+    ld a,e
+    sub spr_vis&0xff
+    ret z
+    ld b,a                      ; sprites on screen
+    jr .spr
+.vis:                           ; on screen (above the top: not clipped yet)
+    ld a,l
+    ld (de),a
+    inc e
+    jr .skip
+.spr:
+    ld a,b
+    add a,(spr_vis&0xff)-1
+    ld l,a
+    ld h,spr_vis>>8
+    ld l,(hl)
+    ld h,SPR_ATTR>>8
+    ld a,(hl)
+    inc a
     ld (sp_y),a
     inc l
     inc l
+    ld a,(hl)                   ; pattern: 4-7, 12-15, 20-23 are the ship's
+    cp 24                       ; second colour, never drawn (ship.asm), so
+    jr nc,.drawn                ; not worth a colour either (0.109)
+    and 4
+    jr nz,.next
+.drawn:
     inc l
     ld a,(hl)                   ; colour
     dec l

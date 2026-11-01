@@ -106,7 +106,7 @@ one you prefer.
   slower than the MSX.
 
 The title screen shows which one you have, in the top right corner after
-the version number: V0.108F for fast, V0.108S for smooth.
+the version number: V0.109F for fast, V0.109S for smooth.
 
 ### Controls
 
@@ -165,7 +165,7 @@ It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3 and sjasmplus
 ```
 python3 build.py              # nemesis.sna, the fast edition
 python3 make_tap.py           # nemesis.tap from it
-sh release.sh 0.108           # both editions, tape and snapshot, in release/
+sh release.sh 0.109           # both editions, tape and snapshot, in release/
 sh verify.sh                  # the regression checks
 ```
 

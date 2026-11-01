@@ -21,13 +21,12 @@ w('full_cmp:')
 w("    ex af,af'")
 w('    push af')
 w('    ld ixl,256-88')
-w('.group:')
-w('    ld bc,0')
-w('    ld ixh,b')
-for n in range(8):
-    w('    ld a,(de)')
-    w('    cp (hl)')
-    w('    jr z,.b%d' % n)
+w('    jr .group')
+# A changed cell's work is out of line (0.109), so an unchanged one, the
+# usual case, falls through its jr nz: cells 0-3 jump back to blocks before
+# the loop, cells 4-7 forward to blocks after it, all within jr range.
+def changed(n):
+    w('.c%d:' % n)
     w("    ex af,af'                   ; the old tile")
     w('    ld a,(hl)')
     w('    ld (de),a')
@@ -35,6 +34,16 @@ for n in range(8):
     w('    add a,10                    ; 0, F6, F7 (and F8, F9, FE, FF, 01) -> Z')
     w('    and 0xf4')
     w('    call z,.s%d' % n)
+    w('    jr .b%d' % n)
+for n in range(4):
+    changed(n)
+w('.group:')
+w('    ld bc,0')
+w('    ld ixh,b')
+for n in range(8):
+    w('    ld a,(de)')
+    w('    cp (hl)')
+    w('    jr nz,.c%d' % n)
     w('.b%d:' % n)
     w('    inc l')
     w('    inc e')
@@ -50,6 +59,8 @@ w('    jp nz,.group')
 w('    pop af')
 w("    ex af,af'")
 w('    ret')
+for n in range(4, 8):
+    changed(n)
 for n in range(8):
     b = 1 << n
     w('.s%d:' % n)                         # new may be empty or a star; A' = old

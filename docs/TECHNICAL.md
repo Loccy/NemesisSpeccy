@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 0.108 (1 November 2026). 
+Version 0.109 (1 November 2026). 
 
 ## 1. What it is
 
@@ -82,7 +82,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the fast edition
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 0.108           # both editions, tape and snapshot, in release/
+sh release.sh 0.109           # both editions, tape and snapshot, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 
@@ -395,11 +395,12 @@ Fixed memory:
 5B00-7B30  MSX bank 0 code, relocated
 7B40-7BFB  sprites crossing the left and right edges (spr_edge, edge_pat)
 7C00-7C58  data moved out of bank 0
+7C58-7C5D  far_dz_pat (the dissolve's far call)
 7C60-7FFF  rarely run code (contended memory): BIOS stand-ins, keyboard,
            boot, the title text writer, Kempston, hold-to-select
 8000-ACFF  platform: paging, mapper emulation, VDP stand-ins, map tracking,
            interrupt, main loop, pacing, tile conversion, renderer, bulk
-           VRAM writes, the title's full stop, tables, far-call stubs, the
+           VRAM writes, tables, far-call stubs, the
            ship's patterns, buffers (name_shadow, dirty bitmaps, region
            lists, star lists, DRAWN)
 AD00-AE00  IM2 vector table; AEAE jp isr; stack below AEA0
@@ -414,9 +415,10 @@ A  bank 0  MSX banks 1 and 2 (game code)
 B  bank 3  MSX bank 4 (graphics source) C000-DFFF and bank 5's used part
            (8000-98B8) E000-F8B8; the colour fitter F900-FD03; conversion
            cache FE00-FFFF
-C  bank 4  MSX bank 3 (game code) C000-E014; the title's text E015-E066;
-           the stage colour rules and logo_tile E067-E521; copy of the
-           MSX colour table E800-FFFF
+C  bank 4  MSX bank 3 (game code) C000-E061; the title's full stop and
+           text E062-E0EE; the stage colour rules, the dissolve's colour
+           chunks and logo_tile E0EF-E75C; copy of the MSX colour table
+           E800-FFFF
 D  bank 6  MSX banks 7 and 8 (sound driver and tunes, E000-E3DC); the
            full map comparison E400-E7FF; copy of the MSX pattern table
            E800-FFFF
@@ -442,31 +444,34 @@ Konami's TwinBee cartridge (RC-740) in another slot, which it cannot here
 A758-AAA5 is the high-score table screen of the attract cycle.  Bank 12
 past B64B is padding.  Banks 6 and 13-15 are empty (all FF) and never read.
 
-Free space (0.108), about 1,650 bytes in all:
+Free space (0.109), about 1,600 bytes in all:
 
 | Where | Bytes | |
 |---|---|---|
-| Fixed 8000-ACFF | 69 | padding before page-aligned tables and buffers: A1E0-A1FF (32, after `ship_pat`), 96EF-96FF (17, after `dz_flag`, before `tables.asm`), A173-A17F (13, before `ship_pat`'s 32-byte alignment), AAFD-AAFF (3, after the two 3-instruction ways into bank C), A2FE-A2FF (2), A8FE-A8FF (2, after `conv_dz`) |
-| Low fixed area | 44 | 7B31-7B3F (15), 7FF3-7FFF (13), 7C58-7C5F (8), 7BF8-7BFF (8, after `spr_edge`) |
+| Fixed 8000-ACFF | 60 | padding before page-aligned tables and buffers: 96D8-96FF (40, after `dz_flag`, before `tables.asm`), A173-A17F (13, before `ship_pat`'s 32-byte alignment), AAFD-AAFF (3, after the two 3-instruction ways into bank C), A2FE-A2FF (2), A8FE-A8FF (2, after `conv_dz`) |
+| Low fixed area | 38 | 7B31-7B3F (15), 7FF3-7FFF (13), 7BF8-7BFF (8, after `spr_edge`), 7C5E-7C5F (2) |
 | Bank 0 (page A) | 290 | FEDE-FFFF (it holds sjasmplus's default UDGs at FF58, which nothing uses) |
 | Bank 1 (page E) | 677 | F101-F20E (270), F9F2-FB03 (274), FF7B-FFFF (133) |
 | Bank 3 (page B) | 130 | F8B9-F8FF (71), FDC5-FDFF (59) |
-| Bank 4 (page C) | 195 | E73D-E7FF |
+| Bank 4 (page C) | 163 | E75D-E7FF |
 | Bank 6 (page D) | 232 | E718-E7FF |
 | Bank 7 (page 7) | 0 | `dz_flag7` fills it to F7FF |
 
 Bank 3's padding (MSX 3:BE66-BFF4, 399 bytes, carried in bank C) could be
 dropped too, a generator change.  Fixed memory is where space is tight: what
 it has is in pieces between aligned tables, so new code there has to be
-placed by address around them (the 32 bytes at A1E0 are now the largest
-piece).  The 0.94 count (505 bytes in fixed memory) had gone stale: 0.95 to
+placed by address around them (the 40 bytes before `tables.asm` are now
+the largest piece).  The 0.94 count (505 bytes in fixed memory) had gone stale: 0.95 to
 0.99 used 94 of the bytes before `tables.asm`, and 0.100 took 191 (the
 ship's selector and patterns, with 13 bytes lost to their alignment, and
 the title's full stop); 0.102 took 87 more (the title's tune), and 0.107
 94 (the dissolve: `conv_dz`, `far_dz_pat`, `dz_flag` and the hooks in
 `ensure_tile`, `tick_tiles` and the decompressor), with about 770 more in
-banks B, C, D and 7.  Anything that need not be fast goes into a switched bank with a
-call from fixed code, or takes over an existing instruction.
+banks B, C, D and 7.  0.109 moved the title's full stop (46 bytes) to bank C
+and `far_dz_pat` to the low area, and spent the room on the scroll and sprite
+changes and `spr_vis` (the 32 bytes at A1E0).  Anything that need not be fast
+goes into a switched bank with a call from fixed code, or takes over an
+existing instruction.
 
 ## 6. How it works
 
@@ -641,7 +646,8 @@ every weapon (`census.py`, `census_check.py`); if a writer were missed, its
 changes would not be drawn.  The big rewrites (start of play, a new stage,
 the scroll) ask for a full comparison instead (`fullcmp_gen.asm`, an unrolled
 routine generated by `gen_fullcmp.py`), and a full comparison also runs
-every 64 ticks as a safety net.
+every 64 ticks as a safety net.  In the comparison an unchanged cell, the
+usual case, falls straight through; a changed one's work is out of line.
 
 Text and the status lines are written to the name table directly, through
 the stand-ins for the BIOS video routines, which update `name_shadow` and
@@ -652,7 +658,10 @@ mark the cells dirty.
 The scroll moves the whole map one character to the left every 8 ticks.  On
 that tick nearly every non-empty cell changes and must be redrawn on both
 screens, which makes it the most expensive tick in the game.  The row copies
-of the shift are unrolled, and the shift asks for a full comparison.
+of the shift are unrolled, and the shift asks for a full comparison.  The
+new column that Konami then writes (`nm_r11_hl_a`) is not noted region by
+region when a full comparison is already due (0.109): the comparison will
+find it anyway, and the notes cost about 4,800 T-states a scroll.
 
 Most of the cells that change on a scroll are stars.  Stars are characters
 F6 and F7, and Konami's star "twinkle" (`parpadea_dos_caracteres`) is
@@ -789,7 +798,10 @@ three bytes, which halves the shifting).  Erasing marks each row of a
 sprite's cells in the dirty bitmap with one mask.  The cells it touches take its colour as their ink (over black
 paper they also take its brightness; over coloured paper, an inverted tile,
 they keep their own).  Sprites are drawn from the last to the first, so that
-where two share a cell, the higher-priority one's colour wins.
+where two share a cell, the higher-priority one's colour wins.  Konami's list
+is usually full, with most entries parked below the screen, so one pass
+collects the entries on screen (up to an end marker) into `spr_vis`, and
+the drawing works back through those (0.109).
 
 A sprite's ink is chosen from its MSX colour (`spr_ink`, in `tables.py`; the
 MSX's light blue, light red and light yellow are mapped to bright cyan, red
@@ -804,7 +816,8 @@ the same place, Konami's patterns 0/4 (level), 8/12 (diving) and 16/20
 a second one-colour sprite, the only way an MSX1 sprite gets a second
 colour.  Here the cells take one ink, so the second sprite cost a draw and
 an erase for nothing.  The renderer gets every pattern's bytes from
-`spr_patsel`: patterns 4, 12 and 20 are not drawn at all, and 0, 8 and 16
+`spr_patsel`: patterns 4, 12 and 20 are not drawn at all (since 0.109
+`draw_sprites` drops them before looking up their colour), and 0, 8 and 16
 come from `ship_pat` instead of Konami's table.  Since 0.105 these are
 Konami's own outlines with the second colour shown in one colour: on the
 level and diving frames, the red canopy becomes a black line inside the
@@ -990,7 +1003,9 @@ space that the stage 6 boss's graphics needed.  Konami's title font has
 letters and digits only, so the text has no punctuation, except the
 version's full stop (the version is at the top right, row 0, from 0.101;
 0.100 had it after the copyright): `title_dot` gives the font's blank tile
-0E, in the top third, a full stop, white like the rest of the text.  Row 0
+0E, in the top third, a full stop, white like the rest of the text (in bank C
+since 0.109, written through the LDIRVM stand-in, which copies via a buffer
+in fixed memory, because its source is paged).  Row 0
 is cleared when play starts, and the title writes it again after a game
 over.
 
