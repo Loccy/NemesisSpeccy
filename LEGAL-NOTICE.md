@@ -20,6 +20,10 @@ support](https://eu-support.konami.com/hc/en-gb/articles/9648771731479-Copyright
 files in `spec/` other than the generated `konami_spec*.asm`), the relocating
 generator and its tables (`reloc/`), the MSX simulator and test tools
 (`msxsim/`, the `.py` files), the tape loader, and the documentation.
+These are published under the MIT licence in [LICENSE](LICENSE). The
+licence covers nothing of Konami's: not the game's code, graphics, music or
+sound, whether in the ROM, in the files the build generates, or in the
+tapes and snapshots.
 
 ## What is in this project
 
@@ -46,7 +50,7 @@ generator and its tables (`reloc/`), the MSX simulator and test tools
   parses and which explained much of how the game works: the bonus stages,
   the hidden targets, the checkpoints, the cartridge's search for TwinBee.
   Its tools, comments and documentation are published by its authors under
-  the MIT licence; like this project, it does not cover the game itself.
+  the MIT licence, which like this project's does not cover the game itself.
 * **ZX0** by Einar Saukas (https://github.com/einar-saukas/ZX0), which packs
   the tape's blocks; its unpacker is included in `tape/` under its own
   licence (`tape/ZX0_LICENSE`).

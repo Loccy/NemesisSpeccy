@@ -182,6 +182,8 @@ build options.
 * [Development notes](docs/DEVELOPMENT_NOTES.md): the history of the
   project, what was tried, kept and dropped, and the bugs found on the way.
 * [Legal notice](LEGAL-NOTICE.md): who owns what.
+* [Licence](LICENSE): the MIT licence, which covers the port's own work
+  and none of Konami's.
 
 ## Credits
 

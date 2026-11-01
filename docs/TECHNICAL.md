@@ -1094,5 +1094,5 @@ In `spec/` unless shown otherwise.
 | `../reloc/` | The relocator (`gen.py`) and its disassembly parser. |
 | `../msxsim/` | The MSX simulator used by the checks. |
 | `mask7.asm`, `attic/` | Rejected prototypes, kept for reference. |
-| `../README.md`, `../LEGAL-NOTICE.md` | The front page (background, playing, building); who owns what. |
+| `../README.md`, `../LEGAL-NOTICE.md`, `../LICENSE` | The front page (background, playing, building); who owns what; the MIT licence for the port's own work. |
 | `../docs/` | This description, the development notes, and screenshots. |
