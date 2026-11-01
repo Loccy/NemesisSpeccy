@@ -8,7 +8,6 @@ plat_boot the memory must equal nemesis.sna's outside the screens.
 usage: test_tape_trap.py ret|sald"""
 import os, sys, re, subprocess, tempfile
 NEM_ROOT = os.environ.get('NEM_ROOT') or os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-sys.path.insert(0, NEM_ROOT + '/w31/tools')
 from skoolkit.snapshot import Snapshot
 from skoolkit.simutils import from_snapshot
 from skoolkit import CCMIOSimulator

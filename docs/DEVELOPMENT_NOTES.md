@@ -206,7 +206,8 @@ A build option draws a sprite with terrain under it through a mask, a halo
 one pixel wider than the sprite, so that it stands out from the ground.  It
 cost about 11% in speed, and screenshots of the same ticks barely differed:
 the ugliness on the ground is the attribute clash (solid terrain cells take
-the sprite's ink), which a halo cannot fix.  Not enabled; kept as an option.
+the sprite's ink), which a halo cannot fix.  It was never enabled, and once bank 7 filled up
+it no longer fitted; it was removed in the clear-out after 0.107.
 
 ## Dense tiles stored inverted
 
@@ -774,6 +775,19 @@ stage 7's blue band white and cyan).
 
 It is still about twice the MSX: what remains is redrawing every changed
 character on screen, and the whole screen, on each drawn tick.
+
+## After 0.107: a clear-out
+
+With the source going on GitHub, every file was checked for a remaining
+use: a trace of the files a full release build and the regression checks
+open, short runs of every tool the technical description documents, and a
+search of both documents.  Forty-five files had none and were removed: the
+tools of the 0.31 hand port (only three of its modules were still in use,
+and they moved into `spec/`), the relocator's development aids including
+the first generator, one-off investigations in `spec/`, the rejected scroll
+prototypes, and the masked-sprite prototype.  An assembler warning (a
+repeat block closed with `endm`) was fixed at the same time.  The release
+builds came out unchanged, byte for byte.
 
 ## How releases are checked
 

@@ -271,7 +271,7 @@ convert_tile:
     add a,a
     jr nc,$+3
     add hl,de
-    endm
+    edup
     ex de,hl                    ; DE = n * d
     ld a,(cv_wlo)
     ld l,a

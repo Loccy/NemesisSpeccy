@@ -2,7 +2,6 @@
 import os as _os
 NEM_ROOT = _os.environ.get('NEM_ROOT') or _os.path.normpath(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))  # the tree's root
 import sys, collections
-sys.path.insert(0, NEM_ROOT + '/w31/tools')
 from convert import colour_fit, PALETTES, dist2
 from extract import TMS
 SH = 8

@@ -74,8 +74,6 @@ def main():
         defs.append('-DNO_INVERT=1')    # dense tiles stored as converted (not inverted)
     if os.environ.get('NEM_HOLD'):
         defs.append('-DHOLD_TICKS=%d' % int(os.environ['NEM_HOLD']))   # fire held this long: power-up too
-    if os.environ.get('NEM_MASK') == '1':
-        defs.append('-DSPR_MASK=1')     # sprites over terrain drawn with a masked halo
     # The version on the title (0.100): VERSION, then S (smooth) or F (fast),
     # top right (0.101), in Konami's font (ASCII - 0x20; its digits are
     # 0x10-0x19, and tile 0E is given a full stop by title_dot).

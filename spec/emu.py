@@ -6,7 +6,6 @@ usage: emu.py SECONDS [png_every_seconds] [prefix]
 import os as _os
 NEM_ROOT = _os.environ.get('NEM_ROOT') or _os.path.normpath(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))  # the tree's root
 import sys, os
-sys.path.insert(0, NEM_ROOT + '/w31/tools')
 from emu_bench import scr_png, FRAME
 from skoolkit.snapshot import Snapshot
 from skoolkit.simutils import from_snapshot

@@ -1,3 +1,6 @@
+"""Who calls a routine: over SECONDS of play (after 22 seconds of the title
+and start), count the calling routines of each call to ROUTINE, per second.
+usage: callers.py ROUTINE SECONDS"""
 import os as _os
 NEM_ROOT = _os.environ.get('NEM_ROOT') or _os.path.normpath(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))  # the tree's root
 import sys, re, os, collections, bisect

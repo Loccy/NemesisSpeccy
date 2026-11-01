@@ -2554,10 +2554,6 @@ attrs_keep:
     jr nz,.row
     jp draw_sprite16.arec
     assert (name_shadow & 0xff) == 0
-    ifdef SPR_MASK
-    include "mask7.asm"
-    assert (mk_pix >> 8) == ((mk_pix + 53) >> 8)
-    endif
 ; The dissolve's tiles (0.107): every tile with a bit in tile_cdirty gets its
 ; attribute's flag (bit 7: convert before drawing), as mark_tile would have.
 dz_flag7:

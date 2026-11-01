@@ -817,9 +817,6 @@ draw_sprite16:
     add a,a
     or c
     ld e,a
-    ifdef SPR_MASK
-    call mask_check             ; over terrain: drawn masked (mask7.asm), on to .attrs
-    endif
     ld ixl,16
     ld a,(sp_x)
     and 7
