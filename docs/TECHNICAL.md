@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 0.107 (31 October 2026). 
+Version 0.108 (1 November 2026). 
 
 ## 1. What it is
 
@@ -82,7 +82,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the fast edition
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 0.107           # both editions, tape and snapshot, in release/
+sh release.sh 0.108           # both editions, tape and snapshot, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 
@@ -442,11 +442,11 @@ Konami's TwinBee cartridge (RC-740) in another slot, which it cannot here
 A758-AAA5 is the high-score table screen of the attract cycle.  Bank 12
 past B64B is padding.  Banks 6 and 13-15 are empty (all FF) and never read.
 
-Free space (0.107), about 1,650 bytes in all:
+Free space (0.108), about 1,650 bytes in all:
 
 | Where | Bytes | |
 |---|---|---|
-| Fixed 8000-ACFF | 67 | padding before page-aligned tables and buffers: A1E0-A1FF (32, after `ship_pat`), 96F1-96FF (15, after `dz_flag`, before `tables.asm`), A173-A17F (13, before `ship_pat`'s 32-byte alignment), AAFD-AAFF (3, after the two 3-instruction ways into bank C), A2FE-A2FF (2), A8FE-A8FF (2, after `conv_dz`) |
+| Fixed 8000-ACFF | 69 | padding before page-aligned tables and buffers: A1E0-A1FF (32, after `ship_pat`), 96EF-96FF (17, after `dz_flag`, before `tables.asm`), A173-A17F (13, before `ship_pat`'s 32-byte alignment), AAFD-AAFF (3, after the two 3-instruction ways into bank C), A2FE-A2FF (2), A8FE-A8FF (2, after `conv_dz`) |
 | Low fixed area | 44 | 7B31-7B3F (15), 7FF3-7FFF (13), 7C58-7C5F (8), 7BF8-7BFF (8, after `spr_edge`) |
 | Bank 0 (page A) | 290 | FEDE-FFFF (it holds sjasmplus's default UDGs at FF58, which nothing uses) |
 | Bank 1 (page E) | 677 | F101-F20E (270), F9F2-FB03 (274), FF7B-FFFF (133) |
@@ -560,8 +560,12 @@ sites pinned in the test build, 4.3).
 
 The game switches cartridge banks by writing a bank number to 6000, 8000 or
 A000.  In the port those writes are calls to `map_6000`, `map_8000` and
-`map_a000`, which record what the game believes is mapped and call
-`map_update`.
+`map_a000`, which record what the game believes is mapped; `map_a000` then
+calls `map_update`.  Every write to 6000 or 8000 in Konami's code is
+followed, in straight-line code with no read through a window, by a write
+to A000 (all 78 mapper writes were checked for 0.108), so the page is worked
+out once, at that last write: about 13 mapper writes a tick in play, 5 of
+them to A000.
 
 Most of these switches need no action at all, because the code has already
 been placed where it will run and the far stubs bring in the right bank.

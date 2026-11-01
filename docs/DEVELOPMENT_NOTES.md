@@ -789,6 +789,35 @@ prototypes, and the masked-sprite prototype.  An assembler warning (a
 repeat block closed with `endm`) was fixed at the same time.  The release
 builds came out unchanged, byte for byte.
 
+## 0.108: Konami's mapper writes
+
+A study of what a port would gain by translating the MSX hardware ahead of
+time, instead of standing in for it while Konami's code runs, found one
+saving that needs no change to Konami's code.  The game switches its
+cartridge banks by writing to 6000, 8000 and A000, about 13 times a tick in
+play, and each write ran the whole page decision (`map_update`).  All 78
+mapper writes in Konami's code were checked: every write to 6000 or 8000 is
+followed, in straight-line code with no branch and no read through a
+window, by a write to A000.  So the first writes now only record their
+value, and the page is worked out once, at the write to A000 (about 5 a
+tick).  It saves about 1,950 T-states a tick, and 2 bytes of fixed memory.
+
+Over 300 seconds of the scripted play (`pacing.py`), the fast edition went
+from 27.2 to 27.6 ticks a second (13.6 to 13.8 screens) and the smooth one
+from 27.0 to 27.4 (21.6 to 21.9 screens): about 1.5%, too little to see in
+play.  The builds do not play exactly the same game (the game's randomness
+depends on instruction timing), so a few tenths either way are noise; that
+script's play includes deaths and quiet stretches, so its rates run higher
+than the figures over stages 1 and 2 below.
+
+The same study measured where a tick's time goes with every tick drawn
+(mean about 165,500 T-states on bench.py's workload): Konami's logic 34%,
+the sprites 18%, the cells 16%, map tracking with the full comparison 11%,
+paging 9%, the stars 7%, tile conversion 2%.  Two ideas were measured and
+dropped: pre-shifted sprites (skipping all shifting saved only 5% of the
+sprites' time), and converting each stage's tiles as soon as they load
+(pauses of 8 to 9 seconds; the lazy converter never touches most of them).
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -802,7 +831,7 @@ part of the game that changed (0.107's dissolves).  The released files are
 compared byte for byte with the builds that were checked, and the source
 package is rebuilt from scratch to make sure it reproduces them.
 
-## Where it stands (0.107)
+## Where it stands (0.108)
 
 * The test build matches the MSX original in Konami's RAM and video memory
   with all weapons through the whole first loop and well into the second,
@@ -817,8 +846,9 @@ package is rebuilt from scratch to make sure it reproduces them.
 * Konami's stack has 22 bytes of headroom at its deepest.
 * About 1,650 bytes of memory are free, most of it in the switched banks
   (technical description, section 5).
-* Speed over the first two stages, against the simulated 50 Hz MSX: the
-  fast edition takes 94% of the MSX's time, at 24.1 ticks and 12 screens a
-  second, with input lag of about 6.6 frames; the smooth edition 88%, 22.3
-  ticks and 17.9 screens, about 6.0 frames.  The MSX runs at 26.5 ticks a
-  second with about 3.2 frames of lag.
+* Speed over the first two stages, against the simulated 50 Hz MSX (measured
+  on 0.100; 0.108 is about 1.5% faster): the fast edition takes 94% of the
+  MSX's time, at 24.1 ticks and 12 screens a second, with input lag of about
+  6.6 frames; the smooth edition 88%, 22.3 ticks and 17.9 screens, about 6.0
+  frames.  The MSX runs at 26.5 ticks a second with about 3.2 frames of
+  lag.

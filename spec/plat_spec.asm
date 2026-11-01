@@ -956,12 +956,15 @@ out_page_end:
 
 ; Konami mapper writes (ld (6000/8000/A000),a).  Data banks get their page;
 ; when Konami returns to its normal 1,2,3 set, the page in use before is back.
+; Every write to 6000 or 8000 in Konami's code is followed, in straight-line
+; code with no read through a window, by a write to A000 (all 78 mapper
+; writes checked, 0.108), so only that last write works out the page.
 map_6000:
     ld (win6),a
-    jr map_update
+    ret
 map_8000:
     ld (win8),a
-    jr map_update
+    ret
 map_a000:
     ld (winA),a
 map_update:
