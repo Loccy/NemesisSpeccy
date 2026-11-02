@@ -40,8 +40,10 @@ OBJ_MAX     equ 22
     jp lo_stage                 ; 011B: in place of Konami's calls to 0:422A
     jp lo_marcador              ; 011E: at the start of 0:5851
     jp lo_prestage              ; 0121: in place of 0:53C8's call to 0:5874
+    jp lo_shipst                ; 0124: in place of 2:99A1's and 2:99C3's ld a,(E200)
 
 lo_off:     db 0
+lo_p30:     db 3
 lo_nobj:    db 0
 
 ; Hook: replaces `ld a,(E100)` at the start of se_corre_con_el_scroll_ocho,
@@ -76,6 +78,16 @@ lo_gnd:
 ; After each tick (from nx_tick, page C in), A = the offset just set.
 lo_tick:
     ld (lo_off),a
+    ifdef PACE_30
+    ld hl,lo_p30                ; NEM_PACE=30: screens 2, 2, 1 frames apart,
+    dec (hl)                    ; at most 30 ticks a second at 50 Hz however
+    ld a,2                      ; fast the machine (request_flip takes
+    jr nz,.n3                   ; pace_need)
+    ld (hl),3
+    dec a
+.n3:
+    ld (pace_need),a
+    endif
     ; ground flags: the objects Konami moved with the scroll this tick
     ; (an object can do so only some of the time: a walker, when it stops)
     ld hl,LO_GSET

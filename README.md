@@ -81,8 +81,8 @@ The same game also builds for the ZX Spectrum Next, as a `.nex` file. It
 runs the same Konami code on the same platform layer, and uses the Next's
 hardware where the 128K has to make do:
 
-* It runs at 28 MHz and draws every game tick, at a steady 25 ticks a
-  second.
+* It runs at 28 MHz and at 30 game ticks a second, the speed of the
+  original on a 60 Hz MSX, drawing every tick when there is time.
 * The background is drawn on Layer 2, a byte per pixel, so the MSX's tiles
   keep their own colours instead of being fitted to attribute cells.
 * The sprites are the Next's hardware sprites, in their MSX colours.

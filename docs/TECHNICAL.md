@@ -97,6 +97,7 @@ Build options (environment variables):
 | `NEM_EXTRA=n` | One undrawn tick after every n drawn (with `NEM_DRAW_EVERY` 0 or unset; default 4; 0 draws every tick). |
 | `NEM_INVERT=0` | Dense tiles stored as converted, not inverted (6.6). |
 | `NEM_PACE=palmix` | Experimental 2,2,2,2,1 frame pacing. |
+| `NEM_PACE=25` (`nxbuild.sh`) | The Next build at the earlier pacing, about 26.7 ticks a second instead of 30 (9.2). |
 | `NEM_TAP_RAW=1` | (make_tap.py) an uncompressed tape. |
 | `NEM_ANY_DISASM=1` | Build from a disassembly other than the pinned version. |
 | `NEM_NEXT=1` | The Spectrum Next build (`nxbuild.sh` sets it): assembles with `NEXT` defined, writes `nemesis_next.sna`, and the title's letter is N (section 9). |
@@ -1161,9 +1162,10 @@ hardware sprites, a hardware scroll and a large memory) replaces the
 
 ### 9.1 How the build is made
 
-`nxbuild.sh OUT.nex` runs `build.py` with `NEM_NEXT=1` and `NEM_FPT=2`.
+`nxbuild.sh OUT.nex` runs `build.py` with `NEM_NEXT=1`, `NEM_FPT=2` and
+`NEM_ADAPT=14,8` (9.2).
 The shared files (`plat_spec.asm`, `render.asm`, `convert.asm`) differ for
-the Next only inside `ifdef NEXT` blocks, and the six places where the
+the Next only inside `ifdef NEXT` blocks, and the eight places where the
 Next build takes over one of Konami's instructions are `reloc/gen.py`'s
 `NEXT_PATCH` (9.4), so the 128K builds are byte for byte what they were
 without the Next.  The result is `nemesis_next.sna` (never `nemesis.sna`,
@@ -1185,8 +1187,18 @@ the patch's data bytes into it.
 * Layer 2's two screens are banks 9-11 and 13-15, flipped by NEXTREG 12h
   where the 128K flips its screens.
 * Banks 16-31 hold the MSX2 graphics (9.5) when they are in the `.nex`.
-* The CPU runs at 28 MHz (NEXTREG 07h).  A game tick takes two frames, so
-  the game runs at 25 ticks a second and every tick is drawn.
+* The CPU runs at 28 MHz (NEXTREG 07h).  The game runs at 30 ticks a
+  second, the original's rate on a 60 Hz MSX (two frames a tick at
+  59.94 Hz): screens are at most 2, 2, 1 frames apart in turn (`lo_tick`,
+  `PACE_30`), and the 128K's adaptive pacing (6.8) leaves a tick undrawn
+  only when the game falls behind 14 eighths of a frame a tick (28.6 ticks
+  a second).  The cap matters: without it a fast enough machine runs a
+  tick every frame.  `NEM_PACE=25` builds the earlier pacing (screens at
+  least two frames apart, the 128K's rhythm of 15 eighths, about 26.7 ticks
+  a second).  In ZEsarUX at 28 MHz the game keeps up only with some ticks
+  undrawn (about 22 screens a second); JNEXT runs it faster.  ZEsarUX by
+  default holds this `.nex` at 14 MHz (its turbo limit applies when the
+  file is loaded); `--allowturbotbbluerom` lifts it.
 
 ### 9.3 Drawing
 
@@ -1221,6 +1233,7 @@ the patch's data bytes into it.
 | 0:4100, 0:414B | `call 422A` (carga_los_graficos_de_la_fase) | `lo_stage`, which calls it and then puts in the MSX2 graphics | 9.5. |
 | 0:5851 | `ld de,5906` (carga_el_marcador) | `lo_marcador`, which restores the TMS9918 colours and does the same | Screens that are not a stage. |
 | 0:544F | `call 5874` (the screen before each stage, 0:53C8) | `lo_prestage`, which calls it and then puts in the coming stage's palette and bottom third | 9.5. |
+| 2:99A1, 2:99C3 | `ld a,(E200)` (the ship's state, choosing its sprites) | `lo_shipst`: with the MSX2 graphics, always the plain ship, as the patch's code does | 9.5 (the shield). |
 
 Each runs Konami's own instruction or routine, so the game's logic is
 unchanged.  `gen.py` checks Konami's bytes at each site and stops if one
@@ -1271,7 +1284,16 @@ gives its palette Layer 2 entries 10h-1Fh; `lo_logocell` then draws the
 logo over rows 3-8 in place of Konami's (rows 4-8), and the text is
 Konami's, unchanged.  A column of the logo shows while any of Konami's
 logo cells in that column is not blank, so the logo leaves column by
-column with Konami's curtain at the start of a game.  The replay was checked against video memory
+column with Konami's curtain at the start of a game.
+
+The shield: Konami draws it by replacing the ship's second sprite, its
+white layer, with the barrier, 8 pixels ahead.  The patch changes that code
+(2:99A1, 2:99CF) so the ship always keeps its own two sprites, and draws
+the barrier as a separate sprite, white and grey on alternate screens.  With
+the MSX2 graphics the Next does the same: `lo_shipst` gives Konami's code
+the plain ship's state, and `lo_shield` adds the barrier (Konami's pattern
+for it, by the stick and the blink, at the ship's Y and X + 8).  Without
+them the shield is Konami's.  The replay was checked against video memory
 captured from the patched cartridge in openMSX at the end of each stage
 load: every byte it writes matches, apart from characters Konami animates
 in play.  Sprite colours follow the patch's: fixed colours for most of

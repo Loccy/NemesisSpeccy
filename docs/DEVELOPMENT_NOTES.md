@@ -901,7 +901,8 @@ What began as a question about what a Next could add became a second build
 of the same tree.
 
 * **Speed first.**  At 28 MHz the 128K build ran far too fast, even at
-  7 MHz, so the Next build takes two frames a tick, 25 ticks a second.
+  7 MHz, so the Next build took screens at least two frames apart (with
+  the 128K's adaptive pacing, about 26.7 ticks a second).
   The first `.tap` hung a Next emulator, which expects `.nex` files, so the
   snapshot is packed into a `.nex` (`sna2nex.py`).
 * **Paging.**  Any write to port 7FFD on the Next also puts the ROM back at
@@ -949,6 +950,21 @@ of the same tree.
   its title screen to a bitmap mode, so the stage replay never saw it; it
   is stored as it is in the patched ROM.  The Next now draws it on Layer 2
   in place of Konami's, leaving the text as it was (Paul's choice).
+* **The shield** broke the ship up: Konami draws it in place of the
+  ship's white layer, and the patch, whose graphics assume its own code,
+  keeps the layer and draws the barrier separately.  Found by Paul in
+  JNEXT, compared with the patched cartridge in openMSX; the Next now does
+  what the patch does.
+* **30 ticks a second.**  Paul found the Next a little slow against the
+  MSX.  The original runs at 30 ticks a second on a 60 Hz machine (measured
+  from Paul's video) and about 27 on a 50 Hz one.  A first 30-tick build
+  only set the adaptive rhythm and let screens come a frame apart: in
+  ZEsarUX the processor held it near 31, but JNEXT, which runs the build
+  faster, ran it far too fast, since the pacing only ever skips drawing and
+  never holds the game back.  Screens are now capped at 2, 2, 1 frames
+  apart, exactly 30 a second, which Paul liked.  The measurements also
+  showed that ZEsarUX runs this `.nex` at 14 MHz unless told otherwise,
+  and that even at 28 MHz it leaves some ticks undrawn.
 * **One tree.**  The Next's changes to shared files are under `ifdef NEXT`,
   its takeovers of Konami's instructions are in `gen.py` with the 128K's,
   and the 128K builds are byte for byte those of 0.110.  `verify.sh` builds

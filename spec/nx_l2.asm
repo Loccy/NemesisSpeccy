@@ -1081,6 +1081,7 @@ lo_sprites:
     jr .hideall
 .cobj:
     call lo_mdone
+    call lo_shield
     ; the character enemies: sprites 32 on, patterns 64 on, colours as drawn
     ld a,(lo_nobj)
     or a
@@ -1142,6 +1143,77 @@ lo_sprites:
 .rh1:
     call lo_hide
     jr .rh
+
+; The ship's shield with the MSX2 graphics.  Konami draws it by replacing
+; the ship's second sprite (its white layer) with the barrier, 8 pixels
+; ahead; the patch keeps the ship whole (its code always takes the plain
+; ship's sprites: 2:99A1 and 2:99CF) and draws the barrier as a sprite of
+; its own, white and grey on alternate screens.  lo_shipst stands in for
+; Konami's two reads of the ship's state there: the plain ship (1) when the
+; MSX2 graphics are in.  Preserves all but AF.
+lo_shipst:
+    ld a,(lo_enh)
+    or a
+    ld a,1
+    ret nz
+    ld a,(0xE200-0x3100)
+    ret
+
+; The barrier as one more sprite at DE (moved on), when the ship has the
+; shield (E200 = 3) and the MSX2 graphics are in: Konami's pattern for it
+; (2C, 24 with the stick down; 4 more on the blink's ticks, E003 bit 2),
+; at the ship's Y and its X + 8.
+lo_shield:
+    ld a,(lo_enh)
+    or a
+    ret z
+    ld a,(spr_on)
+    or a
+    ret z
+    ld a,(0xE200-0x3100)
+    cp 3
+    ret nz
+    ld hl,0xEC80-0x3100         ; the ship's entry
+    ld a,(hl)
+    cp 0xD0
+    ret z
+    ld (lo_shent),a
+    inc hl
+    ld a,(hl)
+    add a,8
+    ret c
+    ld (lo_shent+1),a
+    ld hl,0xE009-0x3100         ; the stick (in pause, E10D), as 2:99AB
+    ld a,(0xE10B-0x3100)
+    rra
+    jr nc,.st
+    ld hl,0xE10D-0x3100
+.st:
+    ld a,(hl)
+    and 3
+    cp 2
+    ld b,0x2C
+    jr nz,.p
+    ld b,0x24
+.p:
+    ld a,(0xE003-0x3100)
+    and 4
+    ld a,b
+    jr z,.nb
+    add a,4
+.nb:
+    ld (lo_shent+2),a
+    ld a,(lo_par)
+    or a
+    ld a,0x0F
+    jr z,.c
+    dec a
+.c:
+    ld (lo_shent+3),a
+    ld hl,lo_shent
+    ld c,10                     ; coloured as Konami's objects: its own colour
+    jp lo_attr
+lo_shent:   ds 4
 
 ; Note Konami pattern C as changed.  Preserves BC, DE, HL.
 lo_pflag:
