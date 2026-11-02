@@ -517,6 +517,11 @@ plat_boot:
     jp p,.ay
     ld a,0x10
     ld (port_bits),a
+    ifdef NEXT
+    ld a,PAGE_D                 ; Next: 28 MHz, the copper (page D)
+    call set_page
+    call nx_init
+    endif
     ld a,PAGE_A
     call set_page
     xor a
@@ -571,8 +576,13 @@ render_init:
     ld a,PAGE_A
     call set_page
     ld a,0xff
+    ifndef NEXT
     ld (erase0),a
     ld (erase1),a
+    else
+    ld (0x3D00),a               ; Next: nx_low.asm's erase lists
+    ld (0x3E00),a
+    endif
     ld hl,tile_cdirty           ; every tile converts on first use
     ld de,tile_cdirty+1
     ld bc,95
@@ -957,8 +967,16 @@ out_page:                       ; A = page; preserves BC, DE, HL (not AF)
     ld a,(port_bits)
     or b
     ld (port_now),a
+    ifndef NEXT
     ld bc,0x7ffd
     out (c),a
+    else
+    ld a,b                      ; Next: MMU6/MMU7 (NEXTREG 56h, 57h), not port
+    add a,a                     ; 7FFD, whose writes put the ROM back at 0000
+    db 0xED,0x92,0x56           ; nextreg 0x56,a
+    inc a
+    db 0xED,0x92,0x57           ; nextreg 0x57,a
+    endif
 out_page_end:
     pop bc
     ret
@@ -1865,6 +1883,12 @@ frames: db 0
 isr:
     push af
     push bc
+    ifdef NEXT
+    ld a,(nx_tog)               ; Next: frame and line interrupts alternate
+    xor 1                       ; (nx_frame keeps this in step)
+    ld (nx_tog),a
+    jr z,.line
+    endif
     push de
     push hl
     ex af,af'
@@ -1875,12 +1899,19 @@ isr:
     push hl
     push ix
     push iy
+    ifndef NEXT
     ifndef TEST
     call run_sound
+    endif
     endif
     ld hl,frames
     inc (hl)
     call isr_flip
+    ifdef NEXT
+    ifndef TEST
+    call 0x010C                 ; Next: lo_snd, run_sound with the ordinary map
+    endif
+    endif
     pop iy
     pop ix
     pop hl
@@ -1891,10 +1922,18 @@ isr:
     ex af,af'
     pop hl
     pop de
+    ifdef NEXT
+.x:
+    endif
     pop bc
     pop af
     ei
     reti
+    ifdef NEXT
+.line:                          ; Next: line 176, the status lines: ULA X
+    db 0xED,0x92,0x16           ; Layer 2 X scroll 0 (nextreg 0x16,a; A is 0)
+    jr .x
+    endif
 
 ; Konami's sound driver (MSX bank 7), once: page D in, then the page that
 ; was in before (from port_now; the screen bit as it is now).  Through
@@ -1906,6 +1945,9 @@ run_sound:
     ld a,PAGE_D
     call out_page
     call m7_8063
+    ifdef NEXT
+    call nx_frame               ; Next: the shown screen's scroll, the clip window
+    endif
     pop af
     and 7
     jp out_page
@@ -1946,7 +1988,11 @@ pm_tiles:
 pm_wait:
     call wait_shown
 pm_render:
+    ifndef NEXT
     call render_frame
+    else
+    call 0x010F                 ; Next: lo_render (Layer 2, sprites)
+    endif
 pm_flip:
     call request_flip
     jr plat_main.loop
@@ -1955,7 +2001,11 @@ pm_flip:
 far_pace:                       ; far_go returns to this stub's caller
     call far_go
     db PAGE_C
+    ifndef NEXT
     dw pace_adapt
+    else
+    dw nx_tick
+    endif
     endif
 ; Pacing.  The screen just drawn is shown by the interrupt on the frame it
 ; is due, FRAMES_PER_TICK frames after the previous flip, while the next
@@ -1969,6 +2019,11 @@ logic_ctr:  db LOGIC_EXTRA+1
 logic_ctr:  db DRAW_EVERY
     endif
 flip_pending: db 0
+    ifdef NEXT
+nx_off:     db 0                ; Next: scroll offset (pixels right, 0-7), set per tick
+nx_pend:    db 0                ; Next: offset of the screen waiting to be shown
+nx_tog:     db 0                ; Next: 1 after a frame interrupt, 0 after a line one
+    endif
 flip_due:   db 0
 last_flip:  db 0
     ifdef DRAW_EVERY
@@ -2050,8 +2105,15 @@ isr_flip:
     ld a,(port_now)
     xor 8
     ld (port_now),a
+    ifndef NEXT
     ld bc,0x7ffd
     out (c),a
+    else
+    and 8                       ; Next: the Layer 2 screen shown (NEXTREG 12h):
+    rrca                        ; bank 9 for screen 0, 13 for screen 1
+    add a,9
+    db 0xED,0x92,0x12           ; nextreg 0x12,a
+    endif
     ret
 
     include "convert.asm"
@@ -2415,6 +2477,46 @@ logo_tile:
 ; not draw this tick.  pace_debt is how far the game is behind a rhythm of
 ; PACE_T eighths of a frame a tick (clamped to -32..64 eighths); a tick is
 ; left undrawn when that is more than PACE_SLACK, but never two in a row.
+    ifdef NEXT
+; Next smooth scroll: after each tick.  Konami's map moves a whole character
+; on a scroll step (distance E063 up by one); the screen is then shown 7
+; pixels right of it, and the gap closes by a pixel a tick, so the scenery
+; moves a pixel a tick and settles when the scroll stops.  Steps in other
+; modes (E1C0 = 2: one every tick) only let the gap close; a jump in the
+; distance (a new stage, a restart) clears it.  Sprites are drawn the same
+; distance left (render.asm), so they stay where Konami puts them.
+nx_prev:    dw 0
+nx_tick:
+    ld hl,(0xE063-0x3100)
+    ld de,(nx_prev)
+    ld (nx_prev),hl
+    or a
+    sbc hl,de
+    ld a,h
+    or l
+    jr z,.decay
+    dec hl
+    ld a,h
+    or l
+    jr nz,.zero
+    ld a,(0xE1C0-0x3100)
+    or a
+    jr nz,.decay
+    ld a,7
+    jr .set
+.zero:
+    xor a
+    jr .set
+.decay:
+    ld a,(nx_off)
+    or a
+    jr z,.set
+    dec a
+.set:
+    ld (nx_off),a
+    call 0x0100                 ; lo_tick (nx_low.asm): sprites, character enemies
+    jp pace_adapt
+    endif
 pace_last:  db 0
 pace_debt:  db 0
 pace_prev:  db 0
@@ -2690,11 +2792,108 @@ page_d_code:
     include "fullcmp_gen.asm"
 dz_pat:                         ; dz_chunk's pattern half (rules.asm), 0.107
     DZ_CHUNK PAT_SHADOW, 0x2000, tile_pdirty
+    ifdef NEXT
+; Spectrum Next (nextreg.txt): 28 MHz; the low area (nx_low.asm) at
+; 0000-3FFF; Layer 2 shown, the ULA not; sprites on, sprite 0 on top as on
+; the TMS9918; Layer 2's clip window hides the left 8 pixels (the column that
+; wraps round when the screen is scrolled); a line interrupt at line 176 puts
+; Layer 2's X scroll back to 0 for the status lines (isr), and nx_frame sets
+; it for the play area.  Then lo_init (palettes, screens, sprites).
+nx_init:
+    ld bc,0x243B
+    ld hl,nx_regs
+    ld e,(nx_regs_end-nx_regs)/2
+.r:
+    ld a,(hl)
+    out (c),a
+    inc hl
+    inc b
+    ld a,(hl)
+    out (c),a
+    inc hl
+    dec b
+    dec e
+    jr nz,.r
+    jp 0x0109                   ; lo_init
+nx_regs:
+    db 0x07,3                   ; CPU speed: 28 MHz
+    db 0x62,0                   ; copper stopped
+    db 0x50,16                  ; MMU0, MMU1: Next RAM (the .NEX's bank 8,
+    db 0x51,17                  ; nx_low.asm) at 0000-3FFF in place of the ROM
+    db 0x23,176                 ; line interrupt at line 176
+    db 0x22,2                   ; line interrupt on (and the frame one)
+    db 0x68,0x80                ; ULA off
+    db 0x69,0x80                ; Layer 2 on
+    db 0x70,0                   ; Layer 2 256x192, palette offset 0
+    db 0x12,9                   ; Layer 2 shown: screen 0 (banks 9-11)
+    db 0x16,0                   ; Layer 2 X scroll 0
+    db 0x15,0x41                ; sprites on, sprite 0 on top, S over L2
+    db 0x4B,0                   ; sprite colour index 0 transparent
+    db 0x1C,0x0F                ; clip indices reset
+    db 0x18,8                   ; Layer 2 clip X1 = 8 (X2, Y1, Y2 as reset)
+    db 0x18,255
+    db 0x18,0
+    db 0x18,191
+nx_regs_end:
+nx_shown:   db 0
+nx_lastbit: db 0
+nx_frame:                       ; from the frame interrupt, page D in
+    ld bc,0x243B
+    ld a,0x1E                   ; the line now: if it is the line interrupt's,
+    out (c),a                   ; the frame/line toggle was out of step
+    inc b
+    in a,(c)
+    dec b
+    or a
+    jr nz,.ok
+    ld a,0x1F
+    out (c),a
+    inc b
+    in a,(c)
+    dec b
+    sub 176
+    cp 8
+    jr nc,.ok
+    xor a
+    ld (nx_tog),a               ; the next one is a frame interrupt
+.ok:
+    ld a,(port_bits)            ; a flip since the last frame: the new
+    and 8                       ; screen's offset
+    ld hl,nx_lastbit
+    cp (hl)
+    jr z,.same
+    ld (hl),a
+    ld a,(nx_pend)
+    ld (nx_shown),a
+    push bc
+    call 0x0115                 ; lo_sprflip: this screen's sprites
+    pop bc
+.same:
+    ld a,0x16                   ; Layer 2 X scroll: lo_render's value
+    out (c),a
+    inc b
+    ld a,(nx_shown)
+    out (c),a
+    ret
+    endif
 page_d_end:
     assert page_d_end <= PAT_SHADOW
+    ifdef NEXT
+
+; Next: Konami's own instructions that call into nx_low.asm (0:46A1, 2:9251,
+; 0:4100, 0:414B, 0:5851) are reloc/gen.py's NEXT_PATCH entries, under
+; ifdef NEXT in konami_spec.asm.  (Page A at C000 when the snapshot is
+; saved, as the .NEX's entry bank, as before.)
+    slot 3
+    page PAGE_A
+    endif
 
     ifdef TEST
     savesna "nemesis_test.sna", plat_boot
     else
+    ifdef NEXT
+    savesna "nemesis_next.sna", plat_boot
+    else
     savesna "nemesis.sna", plat_boot
+    endif
     endif

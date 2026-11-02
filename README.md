@@ -75,6 +75,33 @@ your prerogative, but perhaps then this project is not for you.
 ![Stage 3: the Moai](docs/images/09_stage3_moai.png)
 ![Stage 8: the brain](docs/images/18_stage8_brain.png)
 
+## The Spectrum Next version
+
+The same game also builds for the ZX Spectrum Next, as a `.nex` file. It
+runs the same Konami code on the same platform layer, and uses the Next's
+hardware where the 128K has to make do:
+
+* It runs at 28 MHz and draws every game tick, at a steady 25 ticks a
+  second.
+* The background is drawn on Layer 2, a byte per pixel, so the MSX's tiles
+  keep their own colours instead of being fitted to attribute cells.
+* The sprites are the Next's hardware sprites, in their MSX colours.
+* The screen scrolls smoothly, a pixel at a time, where the MSX moves the
+  scenery a character (8 pixels) at a time. Enemies that Konami draws with
+  characters are lifted out and drawn as sprites, so they move smoothly
+  too.
+* The graphics are those of the MSX2 patch "Nemesis - Gradius ENHANCED"
+  (V1.01, by Victor Martinez and Toni Galvez, based on SHALOM's): new
+  tiles, sprites, status bar and title logo, and a palette for each
+  stage. Building it
+  needs the patch's IPS file as well as the ROM (see Building from source);
+  without the IPS the build has the original MSX graphics.
+* The options and the ship's explosion are drawn in red, orange and yellow,
+  after the arcade game. That is our own change, not the patch's.
+
+The title screen shows the version ending in N: V0.110N. So far the Next
+version has been tested in emulators.
+
 ## Playing it
 
 ### What you need
@@ -84,6 +111,7 @@ your prerogative, but perhaps then this project is not for you.
 * Tested on a real 128K and a real +3 (from tape, through a Retroleum
   SmartCard and through a DivMMC Future), and in emulators as a 128K, +2A
   and +3.
+* For the `.nex` file: a ZX Spectrum Next, or an emulator of one.
 
 ### Loading
 
@@ -91,6 +119,8 @@ your prerogative, but perhaps then this project is not for you.
   The loading screen builds up, then the game starts by itself.
 * **Emulators:** the `.tap` files load like a real tape; the `.sna` files are
   128K snapshots that start straight away.
+* **Spectrum Next:** open the `.nex` file from the Next's browser, or load it
+  in a Next emulator.
 
 ### One edition
 
@@ -98,7 +128,7 @@ Since 0.110 there is one edition. It draws every game tick while the game
 keeps up with the MSX's pace, and skips drawing one tick in two (no more)
 when it falls behind, so quiet stretches move smoothly and busy ones keep
 their speed. The title screen shows the version in the top right corner,
-ending in A: V0.110A.
+ending in A: V0.110A. (The Spectrum Next version ends in N.)
 
 Versions 0.98 to 0.109 came in two editions, fast (one tick in two drawn)
 and smooth (four in five). Both can still be built (see Building).
@@ -165,6 +195,26 @@ sh verify.sh                  # the regression checks
 ```
 
 Built this way, the files in `release/` are identical to the published ones.
+
+### The Spectrum Next version
+
+The Next build needs one more input: the IPS file of the MSX2 patch
+"Nemesis - Gradius ENHANCED" V1.01, in the root beside `nem.rom`, under its
+own name, `Nemesis - Gradius ENHANCED V101.ips`. Its SHA-256 should be
+`46cda91d5bab061a580aae9aeed34e7ef253da9a128d3b92289e5a240a811b47`. Like
+the ROM, it is not part of this project. The build applies it to `nem.rom`
+(making `nemmsx2.rom`, also left out of the repository) and reads the
+patch's graphics from the result. Then, in `spec/`:
+
+```
+sh nxbuild.sh nemesis.nex     # the Spectrum Next build
+```
+
+Without the IPS, `nxbuild.sh` makes a `.nex` with the original MSX graphics.
+`release.sh` makes the `.nex` as well as the tape and snapshot, so it needs
+the IPS; if ZEsarUX is on the PATH (or named by the `ZESARUX` environment
+variable), it also plays the `.nex` for a minute to check that it starts.
+`verify.sh` ends by checking that the Next build still assembles.
 The editions of 0.98 to 0.109 are build options: `NEM_DRAW_EVERY=2 python3
 build.py` for fast, `NEM_DRAW_EVERY=0 python3 build.py` for smooth.
 The first run of `verify.sh` also captures Konami's graphics from the ROM
@@ -189,6 +239,10 @@ build options.
   annotated disassembly of the cartridge by antxiko
   (https://github.com/antxiko/Nemesis-disassembly).
 * Tape compression: ZX0 by Einar Saukas.
+* The Spectrum Next version's graphics: the MSX2 patch "Nemesis - Gradius
+  ENHANCED" V1.01, programmed by Victor Martinez with new graphics and
+  colours by Toni Galvez, based on the patched version by SHALOM (with FRS's
+  turbo fix and WYZ/ARTRAG's voice set).
 
-Nemesis and Gradius belong to Konami. This is an unofficial fan
-project. See [LEGAL-NOTICE.md](LEGAL-NOTICE.md) for who owns what.
+Nemesis and Gradius belong to Konami. The MSX2 graphics belong to their
+authors. This is an unofficial fan project. See [LEGAL-NOTICE.md](LEGAL-NOTICE.md) for who owns what.

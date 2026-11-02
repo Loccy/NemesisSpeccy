@@ -261,7 +261,11 @@ tick_tiles:
     jr .done1
 .other:
     ld a,c
+    ifndef NEXT
     call redraw_tile_row
+    else
+    call 0x0112                 ; Next: lo_rowmark (Layer 2 cells marked)
+    endif
     jr .done1
 .whole:
     call invalidate_tile
@@ -933,8 +937,14 @@ blink_native:
     ld c,(hl)
     inc hl
     ld b,(hl)
+    ifndef NEXT
     ld a,(0xE062+KRAM)
     ld e,a
+    else
+    ld a,0x10                   ; Next: the star stays mid-cell; the hardware
+    nop                         ; scroll moves it (on the MSX, E062's rotating
+    ld e,a                      ; bit did, a pixel a tick)
+    endif
     and c
     ld (bl_v6),a
     ld a,e

@@ -210,6 +210,25 @@ for _h, _ss in NM_SITES.items():
     for _s in _ss:
         SPEC_PATCH[_s] = ['    call ' + _h]
 
+# Spectrum Next only (assembled under NEXT; the Spectrum build keeps the
+# instruction or its SPEC_PATCH entry): calls into nx_low.asm's jump table at
+# 0100, each the same size as what it replaces, so both builds keep one
+# layout.  Each still runs Konami's own instruction or routine.
+NEXT_PATCH = {
+    (0, 0x46A1): ['    call 0x0118'],    # the scroll's row moves: lo_shiftrow (Layer 2's circular buffer), not nm_ldi31_full
+    (2, 0x9251): ['    call 0x0106'],    # se_corre_con_el_scroll_ocho's ld a,(E100): lo_gnd notes the object, then does it
+    (0, 0x4100): ['    call 0x011B'],    # carga_los_graficos_de_la_fase (new game): lo_stage, then the MSX2 graphics
+    (0, 0x414B): ['    call 0x011B'],    # the same (each stage)
+    (0, 0x5851): ['    call 0x011E'],    # carga_el_marcador's ld de,5906: lo_marcador (TMS9918 colours back), then it
+    (0, 0x544F): ['    call 0x0121'],    # the screen before each stage (0:53C8), its call to 0:5874: lo_prestage, the stage's colours and status line
+}
+# What Konami has at each of them (checked when generating, so a moved or
+# changed site stops the build instead of being overwritten).
+NEXT_PATCH_WAS = {
+    (0, 0x46A1): 'edb0', (2, 0x9251): '3a00e1', (0, 0x4100): 'cd2a42',
+    (0, 0x414B): 'cd2a42', (0, 0x5851): '110659', (0, 0x544F): 'cd7458',
+}
+
 # Relative jumps that the patches above push out of range: emitted as jp.
 JR_LONG = set([(0, 0x46B7)])
 
@@ -366,6 +385,21 @@ class Gen:
     def emit_item(self, b, it, sec, out):
         raw = self.raw[b]; org = ORG[b]; I = self.identity
         a, n = it[0], it[1]
+        if not I and TARGET == 'spec' and (b, a) in NEXT_PATCH and not getattr(self, 'in_next', False):
+            was = raw[a - org:a - org + n].hex()
+            assert was == NEXT_PATCH_WAS[(b, a)], 'Next hook %d:%04X is %s, not %s' % (b, a, was, NEXT_PATCH_WAS[(b, a)])
+            spec = []
+            self.in_next = True
+            self.emit_item(b, it, sec, spec)
+            self.in_next = False
+            out.append(spec[0])                     # the label
+            out.append('    ifdef NEXT')
+            out += NEXT_PATCH[(b, a)]
+            out.append('    else')
+            out += spec[1:]
+            out.append('    endif')
+            self.report['next patched'] += 1
+            return
         byts = raw[a - org:a - org + n]
         out.append('m%d_%04X:' % (b, a))
         if not I and b == 1 and a == 0x7FFE:
@@ -654,3 +688,5 @@ if __name__ == '__main__':
     g.generate(NEM_ROOT + '/reloc/konami_reloc.asm' if TARGET == 'sim' else NEM_ROOT + '/spec/konami_spec.asm')
     for k, v in sorted(g.report.items()): print(k, v)
     print('far stubs:', len(g.stubs))
+    if TARGET == 'spec':
+        assert g.report['next patched'] == len(NEXT_PATCH), 'a Next hook site is not an item start'

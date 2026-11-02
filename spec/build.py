@@ -91,7 +91,11 @@ def main():
     # (smooth) or F (fast),
     # top right (0.101), in Konami's font (ASCII - 0x20; its digits are
     # 0x10-0x19, and tile 0E is given a full stop by title_dot).
-    ver = 'V' + open(os.path.join(HERE, 'VERSION')).read().strip() + ('A' if adapt else 'F' if draw_every else 'S')
+    # NEM_NEXT=1: the Spectrum Next build (nxbuild.sh), letter N.
+    nxt = os.environ.get('NEM_NEXT') == '1'
+    if nxt:
+        defs.append('-DNEXT=1')
+    ver = 'V' + open(os.path.join(HERE, 'VERSION')).read().strip() + ('N' if nxt else 'A' if adapt else 'F' if draw_every else 'S')
     codes = [0x0E if ch == '.' else ord(ch) - 0x20 for ch in ver]
     assert all(0x10 <= c <= 0x3A or c == 0x0E for c in codes), ver
     open(os.path.join(HERE, 'version.inc'), 'w').write(
@@ -99,7 +103,7 @@ def main():
     test = os.environ.get('NEM_PIN_R') == '1'
     if test:
         defs.append('-DTEST=1')
-    name = 'nemesis_test' if test else 'nemesis'
+    name = 'nemesis_test' if test else 'nemesis_next' if nxt else 'nemesis'
     log = run(['sjasmplus', '--nologo', '--msg=war', '--sym=%s.sym' % name, '--lst=%s.lst' % name] + defs
               + ['plat_spec.asm'], HERE)
     if log.strip():

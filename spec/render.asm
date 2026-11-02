@@ -8,7 +8,11 @@
 ; its tile is re-converted, and in one screen when a sprite covered it there.
 ; Sprites are ORed in, and their cells take the sprite's colour as ink.
 
+    ifndef NEXT
 SPR_ATTR equ 0xEC80+KRAM
+    else
+SPR_ATTR equ 0x3F80              ; Next: lo_sat (nx_low.asm), Konami's list with X corrected
+    endif
 
 r_scr_hi:   db 0                ; hidden screen pixel high byte base (0x40 / 0xC0)
 r_dirty:    db 0                ; its dirty bitmap low byte (0x00 / 0x80)
@@ -71,11 +75,19 @@ render_frame:
     and 8
     ld a,0x40
     ld b,0
+    ifndef NEXT
     ld hl,erase0
+    else
+    ld hl,0x3D00                ; Next: nx_low.asm's erase lists (more rects)
+    endif
     jr nz,.set
     ld a,0xC0
     ld b,0x80
+    ifndef NEXT
     ld hl,erase1
+    else
+    ld hl,0x3E00
+    endif
 .set:
     ld (r_scr_hi),a
     ld a,b
@@ -88,7 +100,11 @@ rf_erased:
     call draw_cells
 rf_cells:
     push ix
+    ifndef NEXT
     call draw_sprites
+    else
+    call 0x0103                 ; Next: lo_draw, then draw_sprites
+    endif
     pop ix
 rf_sprites:
     pop af
@@ -730,9 +746,26 @@ draw_sprites:
     ld a,(hl)                   ; X
     dec l
     bit 7,c                     ; early clock: 32 pixels to the left
+    ifndef NEXT
     jr z,.x
+    else
+    jr z,.xp
+    endif
     sub 32
+    ifndef NEXT
     jp c,spr_edge               ; partly off the left edge (or wholly)
+    else
+    jr nc,.xp
+.sx1:
+    sub 0                       ; Next: the screen's scroll offset (nx_tick)
+    jp spr_edge                 ; partly off the left edge (or wholly)
+.xp:
+.sx2:
+    sub 0
+    jr nc,.x
+    set 7,c                     ; now off the left edge: spr_edge's left case
+    jp spr_edge
+    endif
 .x:
     cp 241
     jp nc,spr_edge              ; partly off the right edge

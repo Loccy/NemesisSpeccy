@@ -895,6 +895,66 @@ method (24 presses, no beam term); measured exactly as the port is, it is
 (the screen flips in the interrupt at a frame's start, not its end) and
 were corrected before use.
 
+## After 0.110: the Spectrum Next build
+
+What began as a question about what a Next could add became a second build
+of the same tree.
+
+* **Speed first.**  At 28 MHz the 128K build ran far too fast, even at
+  7 MHz, so the Next build takes two frames a tick, 25 ticks a second.
+  The first `.tap` hung a Next emulator, which expects `.nex` files, so the
+  snapshot is packed into a `.nex` (`sna2nex.py`).
+* **Paging.**  Any write to port 7FFD on the Next also puts the ROM back at
+  0000, where the Next build keeps its own code, so the Next pages through
+  its MMU registers instead.
+* **Layer 2 and hardware sprites** replaced the 128K's renderer: the MSX's
+  tiles in their own colours, and the sprites in theirs.
+* **Smooth scrolling.**  The screen is shown up to 7 pixels to the right of
+  Konami's map and the gap closes a pixel a tick, using Layer 2's hardware
+  scroll as a circular buffer.  Things that then looked wrong were fixed
+  one by one: capsules and walkers hopping in 8-pixel steps (they move with
+  the scenery through a Konami helper, which the Next now notes), enemies
+  drawn with characters (lifted out and drawn as sprites), the stars
+  twinkling in only half their cells, stray graphics on the title and after
+  a death's wipe.
+* **The MSX2 graphics.**  The patch "Nemesis - Gradius ENHANCED" turned out
+  to keep Konami's tile layout and loader and change the data, so its
+  graphics drop into the Next's drawing unchanged.  They were first taken
+  from video memory captured in openMSX; the Next build now reads them from
+  the patched ROM itself (`msx2_pack.py`), which needs the patch's IPS just
+  as the build needs the ROM.  Running the patched cartridge in the
+  project's own simulator was tried first and dropped: its start-up copies
+  the BIOS into RAM, searches the slots for a sound chip and unpacks code
+  over page 0, far more than the simulator models.
+* **Colours.**  Paul spotted blobs in the stage 1 ceiling (the patch also
+  changes some map pieces, now taken too) and doubted the ship's and the
+  options' colours.  The patch sets sprite colours line by line in its own
+  code, so the Next follows its tables; the options and the explosion were
+  then given red, orange and yellow, after the arcade game.
+* **A black block over OPTION**, at a boss, was first blamed on the
+  patch's boss colour tables, wrongly: it was the Next's handling of
+  enemies drawn with characters, which also took them out of the status
+  rows, where there is no background to put back, and wrote character 0
+  over the power-up bar (seen when stage 1's volcano rocks fall to the
+  bottom).  Found by watching the status row's characters change in
+  ZEsarUX.
+* **The status line in the old graphics.**  At a new game and after a
+  life is lost, the screen before the stage showed the status line and
+  score in the original graphics and colours for a moment, until the stage
+  loaded: Konami loads them there, and the patch loads its own.  The Next
+  now gives that screen the coming stage's palette and bottom third, and
+  takes the patch's font, so it matches from the start.
+* **The title logo.**  Paul asked about the logo on the title screen,
+  still Konami's.  The patch's is a bitmap, shown by switching the top of
+  its title screen to a bitmap mode, so the stage replay never saw it; it
+  is stored as it is in the patched ROM.  The Next now draws it on Layer 2
+  in place of Konami's, leaving the text as it was (Paul's choice).
+* **One tree.**  The Next's changes to shared files are under `ifdef NEXT`,
+  its takeovers of Konami's instructions are in `gen.py` with the 128K's,
+  and the 128K builds are byte for byte those of 0.110.  `verify.sh` builds
+  the `.nex` too, and `release.sh` makes it and, with ZEsarUX, plays it for
+  a minute.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:

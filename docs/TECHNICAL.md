@@ -99,9 +99,11 @@ Build options (environment variables):
 | `NEM_PACE=palmix` | Experimental 2,2,2,2,1 frame pacing. |
 | `NEM_TAP_RAW=1` | (make_tap.py) an uncompressed tape. |
 | `NEM_ANY_DISASM=1` | Build from a disassembly other than the pinned version. |
+| `NEM_NEXT=1` | The Spectrum Next build (`nxbuild.sh` sets it): assembles with `NEXT` defined, writes `nemesis_next.sna`, and the title's letter is N (section 9). |
 
 The version is kept in the file `VERSION`; `build.py` puts it at the top
-right of the title screen, followed by F (fast) or S (smooth), as
+right of the title screen, followed by A (adaptive, the default since
+0.110), F (fast), S (smooth) or N (the Spectrum Next build), as
 `version.inc` for `ctl_text`.  `release.sh` refuses a version that does not
 match the file.
 
@@ -1144,3 +1146,163 @@ In `spec/` unless shown otherwise.
 | `../msxsim/` | The MSX simulator used by the checks. |
 | `../README.md`, `../LEGAL-NOTICE.md`, `../LICENSE` | The front page (background, playing, building); who owns what; the MIT licence for the port's own work. |
 | `../docs/` | This description, the development notes, and screenshots. |
+| `nx_low.asm`, `nx_l2.asm` | The Spectrum Next's own code (section 9): Layer 2, hardware sprites, the smooth scroll, the MSX2 graphics. |
+| `nxbuild.sh`, `sna2nex.py` | The Next build, and the snapshot made into a `.nex`. |
+| `msx2_pack.py`, `msx2_ranges.txt`, `enh_patch.py` | The MSX2 graphics read from the patched ROM, the data ranges taken from it, and those bytes put into the `.nex`. |
+| `nx_smoke.py` | A minute of the `.nex` in ZEsarUX (`release.sh`). |
+
+## 9. The Spectrum Next build
+
+The Next build is the same port with a different drawing end.  Konami's
+code, the platform layer and its map tracking are shared with the 128K
+build; what the Next has that the 128K lacks (a fast CPU, a bitmap layer,
+hardware sprites, a hardware scroll and a large memory) replaces the
+128K's renderer and its colour fit.
+
+### 9.1 How the build is made
+
+`nxbuild.sh OUT.nex` runs `build.py` with `NEM_NEXT=1` and `NEM_FPT=2`.
+The shared files (`plat_spec.asm`, `render.asm`, `convert.asm`) differ for
+the Next only inside `ifdef NEXT` blocks, and the six places where the
+Next build takes over one of Konami's instructions are `reloc/gen.py`'s
+`NEXT_PATCH` (9.4), so the 128K builds are byte for byte what they were
+without the Next.  The result is `nemesis_next.sna` (never `nemesis.sna`,
+so `release.sh` cannot package it by mistake).  sjasmplus then assembles
+`nx_low.asm`, which includes `nx_l2.asm`, against that build's symbols
+(`nx_syms.inc`), as a separate 16K block.  `msx2_pack.py` makes the MSX2
+graphics (9.5) if the IPS is there, `sna2nex.py` packs the snapshot, the
+block and the graphics into a `.nex` (format V1.2), and `enh_patch.py` puts
+the patch's data bytes into it.
+
+### 9.2 Memory and paging
+
+* Port 7FFD is never written: on the Next it also puts the ROM back at
+  0000-3FFF.  Paging goes through NEXTREG 56h/57h (MMU6/MMU7, C000-FFFF)
+  instead, with the same page numbers.
+* 16K bank 8 is mapped at 0000-3FFF (MMU0/MMU1) and holds `nx_low.asm`:
+  its code and buffers, reached from the shared code only through a jump
+  table at 0100.
+* Layer 2's two screens are banks 9-11 and 13-15, flipped by NEXTREG 12h
+  where the 128K flips its screens.
+* Banks 16-31 hold the MSX2 graphics (9.5) when they are in the `.nex`.
+* The CPU runs at 28 MHz (NEXTREG 07h).  A game tick takes two frames, so
+  the game runs at 25 ticks a second and every tick is drawn.
+
+### 9.3 Drawing
+
+* **The background** is drawn on Layer 2 from the port's copies of the MSX
+  pattern and colour tables: each pixel is its MSX colour number, and the
+  Layer 2 palette's first 16 entries are the TMS9918's colours (or, with
+  the MSX2 graphics, the stage's palette).  Only the cells that changed are
+  drawn, as on the 128K.
+* **The smooth scroll.**  When Konami's map moves a character, the screen is
+  shown 7 pixels to the right of it, and the gap closes by a pixel a tick
+  through Layer 2's X scroll (NEXTREG 16h).  Layer 2 is used as a circular
+  buffer: Konami's row moves (0:46A1) turn the port's copy of the map and
+  its dirty bitmaps instead of redrawing.  A line interrupt at line 176
+  resets the scroll for the status rows, and the left 8 pixels are clipped.
+* **Sprites** are the Next's: Konami's 64 patterns as 4-bit patterns, each
+  sprite's MSX colour as its palette offset, with attributes and changed
+  patterns sent when the screen they belong to is shown.  Sprites are drawn
+  the scroll's distance to the left so they stay where Konami puts them;
+  objects Konami moves with the scenery (its helper at 2:9251, which the
+  Next notes) move with it instead.
+* **Enemies drawn with characters** (Konami's objects with byte 11 set) are
+  taken out of the map copy, the background put back under them, and drawn
+  as sprites at their pixel positions.  Only rows 0-21 are handled: the map
+  has no background for the status rows.
+
+### 9.4 Konami's instructions the Next build takes over
+
+| Site | Konami's | The Next's | Why |
+|---|---|---|---|
+| 0:46A1 | `ldir` (the scroll's row moves; the 128K's `nm_ldi31_full`) | `lo_shiftrow` | The circular buffer (9.3). |
+| 2:9251 | `ld a,(E100)` (se_corre_con_el_scroll_ocho) | `lo_gnd`, which notes the object and does the same | Objects moved with the scenery. |
+| 0:4100, 0:414B | `call 422A` (carga_los_graficos_de_la_fase) | `lo_stage`, which calls it and then puts in the MSX2 graphics | 9.5. |
+| 0:5851 | `ld de,5906` (carga_el_marcador) | `lo_marcador`, which restores the TMS9918 colours and does the same | Screens that are not a stage. |
+| 0:544F | `call 5874` (the screen before each stage, 0:53C8) | `lo_prestage`, which calls it and then puts in the coming stage's palette and bottom third | 9.5. |
+
+Each runs Konami's own instruction or routine, so the game's logic is
+unchanged.  `gen.py` checks Konami's bytes at each site and stops if one
+has moved or changed.
+
+### 9.5 The MSX2 graphics
+
+The patch "Nemesis - Gradius ENHANCED" V1.01 keeps Konami's game and its
+stage loader, and changes the data: new characters per stage (the play
+area is still the MSX's Graphic mode 2 layout, two colours per row of 8
+pixels, so the Next draws it the same way), new sprites, a 16-colour
+palette per stage, a new status bar font, colour changes, and sprite
+colours set line by line by its own code (it runs the MSX2's sprite mode
+2).  `msx2_pack.py`:
+
+1. applies the IPS to `nem.rom` (checking both by SHA-256) to make
+   `nemmsx2.rom`;
+2. replays the patched cartridge's stage loader for each of the 8 stages
+   with `extract.py`'s replay of Konami's (plus the patch's status-bar font
+   routine and its sprite load), recording which bytes of video memory the
+   load writes;
+3. reads the stage palettes (patched ROM 2E400h + 32 per stage) and the
+   sprite line-colour tables (2E600h) straight from the ROM;
+4. writes `msx2_stages.dat`: a 16K bank per stage (video memory 0000-37FF,
+   the palette as Next 9-bit colours, the line-colour tables, and a write
+   mask, a bit per byte), then a 16K bank per stage of the sprites in fire
+   colours (9.6), the first of which also holds the patch's title logo and
+   its palette; and `msx2_patches.txt`, the patch's values in the data
+   ranges listed in `msx2_ranges.txt` (the font and its colours, object
+   and shot colours, the bosses' colour tables, map pieces).
+
+After each stage load, `lo_stage` copies the masked bytes into the port's
+tables, as the patch's own load would have written them, and sets the
+palette; bytes the load does not write keep what earlier screens left,
+as they do on the MSX2.  The screen before each stage (at a new game and
+after a life is lost) shows only the status line, which Konami loads
+there; `lo_prestage` gives it the coming stage's palette and that stage's
+bottom third, so the status line is not shown in the TMS9918's graphics
+until the stage loads.  It leaves the other two thirds alone: they still
+hold the font for the two-player turn message.
+
+The patch's title logo is not made of characters: it is a 16-colour
+bitmap (256 by 48 pixels, stored as it is in the patched ROM at 30000h,
+its palette at 2E520h), which the patch shows by switching the top of its
+title screen to a bitmap mode.  On the Next, `lo_marcador` recognises the
+title screen by its caller (0:5B4D) and, when the logo is in the `.nex`,
+gives its palette Layer 2 entries 10h-1Fh; `lo_logocell` then draws the
+logo over rows 3-8 in place of Konami's (rows 4-8), and the text is
+Konami's, unchanged.  A column of the logo shows while any of Konami's
+logo cells in that column is not blank, so the logo leaves column by
+column with Konami's curtain at the start of a game.  The replay was checked against video memory
+captured from the patched cartridge in openMSX at the end of each stage
+load: every byte it writes matches, apart from characters Konami animates
+in play.  Sprite colours follow the patch's: fixed colours for most of
+Konami's entries (alternating screen by screen where the patch's two
+sprite lists differ), Konami's colour for enemies, and line-by-line colours
+for the ship and some capsules, drawn as 4-bit patterns.
+
+### 9.6 Departures from the patch
+
+* The options and the ship's explosion are drawn in red, orange and
+  yellow, after the arcade game: the patch's green and brown options, and
+  its explosion in the ship's colours, were not liked.  The fire copies
+  colour each sprite pixel by its depth: the edge red, the next pixel in
+  orange, deeper yellow.
+* The stars still twinkle; the patch stops them.
+
+### 9.7 Checks
+
+`verify.sh` ends by building the `.nex`, which takes seconds.  `release.sh`
+needs the IPS, builds the `.nex` as well as the tape and snapshot, and, if
+ZEsarUX is available, plays it for a minute (`nx_smoke.py`: the game must
+start, its scroll must move, and the MSX2 graphics must be in).  The
+lockstep checks of section 4 cover Konami's logic, which the two builds
+share.
+
+### 9.8 Known limitations
+
+* Konami's collisions with the scenery work on whole characters, while the
+  scenery is shown up to 7 pixels to the right of where Konami has it, so a
+  collision can look up to 7 pixels off.
+* Objects Konami moves 8 pixels at a time by its own code, rather than
+  through its scroll helper, still move in steps.
+* A second Konami cartridge (F0F4) is not supported, so its extra sprites
+  are not loaded.

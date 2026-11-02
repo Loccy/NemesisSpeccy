@@ -7,6 +7,8 @@
 #   test_convert: convert_tile against the Python model
 #   test_kempston: the Kempston interface (both buttons) and hold-to-select
 #   lockstep_spec: Konami RAM against the MSX original (test build)
+#   nxbuild: the Spectrum Next build still assembles (seconds; with the MSX2
+#     graphics if the IPS is there)
 cd "$(dirname "$0")"
 set -e
 # test_convert reads Konami's graphics captured from the ROM; make the capture on first use
@@ -21,3 +23,4 @@ python3 check_tiles.py 60 0 15 | tail -1
 python3 test_convert.py | tail -1
 NEM_PIN_R=1 python3 build.py > /dev/null
 python3 lockstep_spec.py ${LOCK_TICKS:-3000} | tail -1
+sh nxbuild.sh nemesis_next.nex > /dev/null && echo "nxbuild: nemesis_next.nex built"
