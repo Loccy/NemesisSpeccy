@@ -1165,7 +1165,7 @@ hardware sprites, a hardware scroll and a large memory) replaces the
 `nxbuild.sh OUT.nex` runs `build.py` with `NEM_NEXT=1`, `NEM_FPT=2` and
 `NEM_ADAPT=14,8` (9.2).
 The shared files (`plat_spec.asm`, `render.asm`, `convert.asm`) differ for
-the Next only inside `ifdef NEXT` blocks, and the eight places where the
+the Next only inside `ifdef NEXT` blocks, and the nine places where the
 Next build takes over one of Konami's instructions are `reloc/gen.py`'s
 `NEXT_PATCH` (9.4), so the 128K builds are byte for byte what they were
 without the Next.  The result is `nemesis_next.sna` (never `nemesis.sna`,
@@ -1174,7 +1174,9 @@ so `release.sh` cannot package it by mistake).  sjasmplus then assembles
 (`nx_syms.inc`), as a separate 16K block.  `msx2_pack.py` makes the MSX2
 graphics (9.5) if the IPS is there, `sna2nex.py` packs the snapshot, the
 block and the graphics into a `.nex` (format V1.2), and `enh_patch.py` puts
-the patch's data bytes into it.
+the patch's data bytes into it.  Two build switches, read by
+`msx2_pack.py`, leave out the redrawn enemies (9.6): `NEM_ARC_SPR=0` those
+drawn as sprites, `NEM_ARC_CHR=0` those Konami draws with characters.
 
 ### 9.2 Memory and paging
 
@@ -1213,6 +1215,11 @@ the patch's data bytes into it.
   buffer: Konami's row moves (0:46A1) turn the port's copy of the map and
   its dirty bitmaps instead of redrawing.  A line interrupt at line 176
   resets the scroll for the status rows, and the left 8 pixels are clipped.
+  The frame and line interrupts are told apart by alternation, so nothing
+  that runs during play may disable interrupts for long: an interrupt that
+  comes then is lost on the Next, the alternation goes out of step, and the
+  status rows take the play area's scroll.  (The Big Core's patterns, sent
+  from the main program, once did; see below.)
 * **Sprites** are the Next's: Konami's 64 patterns as 4-bit patterns, each
   sprite's MSX colour as its palette offset, with attributes and changed
   patterns sent when the screen they belong to is shown.  Sprites are drawn
@@ -1223,6 +1230,28 @@ the patch's data bytes into it.
   taken out of the map copy, the background put back under them, and drawn
   as sprites at their pixel positions.  Only rows 0-21 are handled: the map
   has no background for the status rows.
+* **The Big Core** (the boss of stages 1-6) is drawn with characters,
+  11 by 8, and Konami moves it a whole character at a time: in from the
+  right one step every 8 ticks, then up or down a step every 3 to 5 ticks
+  (by the difficulty) in runs.  `lo_boss` takes its characters out of the
+  Next's copy of the screen the same way, keeps them as 24 sprites of
+  16 by 16 (made again only where its characters change: a face, the eye),
+  and shows them as far towards Konami's next step as the step's countdown
+  has come (E78A in the run, E003 on the way in).  On the way in, Konami
+  clips the boss at the right edge (0:48F7), so the columns still past it
+  are in no screen copy; `lo_bfill` builds the whole boss from Konami's own
+  tables (the body 1:7EE6, the eye 1:7F3E by E789, the mouth 1:7F62 by the
+  face in E786, placed as 1:7E70 places them) and those cells are taken from
+  it, so the gliding boss reaches the edge instead of stopping short of it
+  by the glide.  Its patterns are made (in `lo_btmp`, its own buffer) and
+  sent from the main program with interrupts on: the frame interrupt makes
+  and sends patterns of its own (`lo_sprflip`, through `lo_tmp` and
+  `lo_conv`, which keeps its row in its own code), so it sets `lo_brst` and
+  the pattern is made and sent again; `lo_sprflip` leaves pattern 103
+  (unused) selected, so the rest of an interrupted send lands there.  The
+  next step is always
+  known then, so the boss glides without falling behind the game; Konami's
+  collisions still use its whole-character position.
 
 ### 9.4 Konami's instructions the Next build takes over
 
@@ -1233,7 +1262,7 @@ the patch's data bytes into it.
 | 0:4100, 0:414B | `call 422A` (carga_los_graficos_de_la_fase) | `lo_stage`, which calls it and then puts in the MSX2 graphics | 9.5. |
 | 0:5851 | `ld de,5906` (carga_el_marcador) | `lo_marcador`, which restores the TMS9918 colours and does the same | Screens that are not a stage. |
 | 0:544F | `call 5874` (the screen before each stage, 0:53C8) | `lo_prestage`, which calls it and then puts in the coming stage's palette and bottom third | 9.5. |
-| 2:99A1, 2:99C3 | `ld a,(E200)` (the ship's state, choosing its sprites) | `lo_shipst`: with the MSX2 graphics, always the plain ship, as the patch's code does | 9.5 (the shield). |
+| 2:99A1, 2:99C3, 3:A19B | `ld a,(E200)` (the ship's state, choosing its sprites and where its second goes) | `lo_shipst`: with the MSX2 graphics, always the plain ship, as the patch's code does | 9.5 (the shield). |
 
 Each runs Konami's own instruction or routine, so the game's logic is
 unchanged.  `gen.py` checks Konami's bytes at each site and stops if one
@@ -1261,7 +1290,8 @@ colours set line by line by its own code (it runs the MSX2's sprite mode
    the palette as Next 9-bit colours, the line-colour tables, and a write
    mask, a bit per byte), then a 16K bank per stage of the sprites in fire
    colours (9.6), the first of which also holds the patch's title logo and
-   its palette; and `msx2_patches.txt`, the patch's values in the data
+   its palette, and the second our own drawings of the enemies (9.6,
+   Next 8K page 51); and `msx2_patches.txt`, the patch's values in the data
    ranges listed in `msx2_ranges.txt` (the font and its colours, object
    and shot colours, the bosses' colour tables, map pieces).
 
@@ -1288,7 +1318,8 @@ column with Konami's curtain at the start of a game.
 
 The shield: Konami draws it by replacing the ship's second sprite, its
 white layer, with the barrier, 8 pixels ahead.  The patch changes that code
-(2:99A1, 2:99CF) so the ship always keeps its own two sprites, and draws
+(2:99A1, 2:99CF, and 3:A19B, which with the shield puts the second sprite
+8 pixels right) so the ship always keeps its own two sprites, and draws
 the barrier as a separate sprite, white and grey on alternate screens.  With
 the MSX2 graphics the Next does the same: `lo_shipst` gives Konami's code
 the plain ship's state, and `lo_shield` adds the barrier (Konami's pattern
@@ -1309,6 +1340,47 @@ for the ship and some capsules, drawn as 4-bit patterns.
   colour each sprite pixel by its depth: the edge red, the next pixel in
   orange, deeper yellow.
 * The stars still twinkle; the patch stops them.
+* The rocks the volcanoes throw in stages 1 and 4 are drawn in the same
+  fire colours (`lo_rock`: Konami's objects of type 0Fh with sprite pattern
+  CCh, all sharing one converted pattern).  The patch instead switches to
+  a red palette for the volcano sections, which recolours the terrain as
+  well; that is not done.
+* **Stage 1's enemies are redrawn** after the arcade game's sprites, which
+  the patch's single-coloured sprites (one colour a line) cannot match.
+  Each drawing is Konami's MSX frame (from the original ROM, not the
+  patch's), 16 by 16, redrawn or recoloured after the arcade sprite that
+  plays its part, 4-bit, in sprite palettes 2-10 (entries 2-15; entry 1 of
+  every palette is a Konami sprite colour's).  The sprites: the explosion
+  (Konami's patterns 30-33), the shot (34), the pod (35-39: Konami plays
+  its frames forwards then back), the robot (40-43), the jet (44-46) and
+  the walking cannon (52-63: three drawings, each also upside down, mirrored,
+  and both).  The enemies Konami draws with characters (frames of its table
+  at 5:91D1, four characters each): the fans, the hatch saucers, the
+  turrets on the ground and on the ceiling (six aims each), and the two
+  capsules.  Those that leave a capsule are red, as in the arcade: a sprite
+  of the pod, jet, robot or walker with byte 14 set (Konami's colour 8)
+  takes the next palette, its red twin; Konami draws such ground turrets
+  with red characters of their own (frames 09-0E, which repeat one aim),
+  matched to the ordinary turret's drawing in the red palette.
+  `local/tools/arcade/gen_art.py` made the drawings from the arcade sprite
+  sheets once; they are kept as data in `spec/nx_art.py`, so the build does
+  not need the sheets.  `msx2_pack.py` stores them in bank 25's second 8K
+  (page 51) with a map for each stage: a stage has an enemy's drawings
+  where all that enemy's patterns or characters are stage 1's in both
+  Konami's load and the patch's (so no enemy is drawn half ours, half
+  Konami's).  On the Next, `lo_apply` loads the palettes and the stage's
+  map (`LO_OVR`, `LO_CHEN`, with the character table `LO_CHT`, in bank 8 at
+  3B00-3C55); `lo_sprflip` sends our drawing in place of a mapped Konami
+  pattern, and `lo_arc` (from `lo_ecol`) gives any sprite showing one its
+  palette; `lo_artch` (from `lo_sprites`) gives a character enemy whose four
+  characters are in the table our drawing instead of the conversion of its
+  characters, and `.co` its palette (`LO_OPAL`).  `lo_marcador` clears the
+  map for screens that are not a stage.  Konami's colour changes (a flash)
+  do not show on our drawings, and the capsules' glint (Konami animates
+  their characters) is not drawn.
+* The patch recolours the Big Core at each boss (it switches pattern
+  table and rewrites colours there); the Next keeps the stage's colours
+  for it, which were liked better.
 
 ### 9.7 Checks
 
@@ -1325,6 +1397,7 @@ share.
   scenery is shown up to 7 pixels to the right of where Konami has it, so a
   collision can look up to 7 pixels off.
 * Objects Konami moves 8 pixels at a time by its own code, rather than
-  through its scroll helper, still move in steps.
+  through its scroll helper, still move in steps (the Big Core excepted,
+  9.3).
 * A second Konami cartridge (F0F4) is not supported, so its extra sprites
   are not loaded.

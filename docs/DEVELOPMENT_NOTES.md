@@ -927,9 +927,9 @@ of the same tree.
   project's own simulator was tried first and dropped: its start-up copies
   the BIOS into RAM, searches the slots for a sound chip and unpacks code
   over page 0, far more than the simulator models.
-* **Colours.**  Paul spotted blobs in the stage 1 ceiling (the patch also
-  changes some map pieces, now taken too) and doubted the ship's and the
-  options' colours.  The patch sets sprite colours line by line in its own
+* **Colours.**  Blobs showed in the stage 1 ceiling (the patch also
+  changes some map pieces, now taken too), and the ship's and the options'
+  colours looked doubtful.  The patch sets sprite colours line by line in its own
   code, so the Next follows its tables; the options and the explosion were
   then given red, orange and yellow, after the arcade game.
 * **A black block over OPTION**, at a boss, was first blamed on the
@@ -945,26 +945,90 @@ of the same tree.
   loaded: Konami loads them there, and the patch loads its own.  The Next
   now gives that screen the coming stage's palette and bottom third, and
   takes the patch's font, so it matches from the start.
-* **The title logo.**  Paul asked about the logo on the title screen,
-  still Konami's.  The patch's is a bitmap, shown by switching the top of
+* **The title logo.**  The logo on the title screen was still Konami's.  The patch's is a bitmap, shown by switching the top of
   its title screen to a bitmap mode, so the stage replay never saw it; it
   is stored as it is in the patched ROM.  The Next now draws it on Layer 2
-  in place of Konami's, leaving the text as it was (Paul's choice).
+  in place of Konami's, leaving the text as it was.
 * **The shield** broke the ship up: Konami draws it in place of the
   ship's white layer, and the patch, whose graphics assume its own code,
-  keeps the layer and draws the barrier separately.  Found by Paul in
-  JNEXT, compared with the patched cartridge in openMSX; the Next now does
-  what the patch does.
-* **30 ticks a second.**  Paul found the Next a little slow against the
-  MSX.  The original runs at 30 ticks a second on a 60 Hz machine (measured
-  from Paul's video) and about 27 on a 50 Hz one.  A first 30-tick build
+  keeps the layer and draws the barrier separately.  Found in JNEXT and
+  compared with the patched cartridge in openMSX; the Next now does what
+  the patch does.
+* **30 ticks a second.**  The Next felt a little slow against the MSX.
+  The original runs at 30 ticks a second on a 60 Hz machine (measured from
+  a video) and about 27 on a 50 Hz one.  A first 30-tick build
   only set the adaptive rhythm and let screens come a frame apart: in
   ZEsarUX the processor held it near 31, but JNEXT, which runs the build
   faster, ran it far too fast, since the pacing only ever skips drawing and
   never holds the game back.  Screens are now capped at 2, 2, 1 frames
-  apart, exactly 30 a second, which Paul liked.  The measurements also
+  apart, exactly 30 a second.  The measurements also
   showed that ZEsarUX runs this `.nex` at 14 MHz unless told otherwise,
   and that even at 28 MHz it leaves some ticks undrawn.
+* **Comparing with the MSX2 patch.**  Both played through every stage,
+  invulnerable and with every weapon, the patched cartridge in openMSX and
+  the Next in ZEsarUX, captured at the same map distances (E063).  openMSX's
+  screenshots lag the emulation when it runs unthrottled (the first pairs
+  looked a screen apart), so the MSX2 side was rendered from its video
+  memory instead.  Everything matched except the patch's palette changes
+  (the red volcano sections, a flashing colour in the stage 8 boss, a fade)
+  and its recoloured Big Core.  Neither was taken: the volcano rocks are
+  drawn in fire colours instead, and the Big Core keeps its colours.
+* **The walking cannons in colours of our own.**  Their colour in the
+  patch's stage 1 palette is an olive close to the trees'.  The patch can
+  only colour sprites row by row (the MSX2's limit), but the Next draws
+  every sprite as a 16-colour pattern, so they were given arcade-style
+  colours, chosen from mock-ups: teal and orange, and red with a blue
+  core for those that leave a power-up.
+* **Stage 1's enemies after the arcade game.**  The single-coloured
+  enemies were redrawn after the arcade game's sprite sheets, fitted to
+  the MSX's sizes.  Each was matched
+  frame by frame and mocked up before anything was built, and the matching
+  went wrong in instructive ways: it was first done against the patch's
+  sprites instead of Konami's originals (now read straight from the ROM
+  by replaying Konami's sprite loader); the jet and
+  the pod were first matched to the wrong arcade sprites; the pod's frames
+  first turned the wrong way (it squashes vertically, played forwards then
+  back); the robot's hood came out pointed until it was coloured in bands;
+  the capsules were found only in the Vic Viper sheet; and the walker's
+  twelve patterns turned out to be three drawings in four orientations.
+  The art is kept as data in the repository (no new build dependency; on
+  Konami's stated terms for fan use), and two build switches can leave out
+  either half.  The red versions for enemies that leave a
+  capsule were first given to the turrets by byte 14, as Konami does for
+  sprites, on the assumption that Konami could not colour a turret alone.
+  But the MSX does show red turrets: the ROM showed Konami draws them with
+  a second set of red characters (frames 09-0E), which now get our red
+  turret.
+* **Stage 1's ground edge in brown.**  The patch draws the ground's lower
+  edge (a dithered line of character 43) dark brown on magenta in stage 1
+  but dark brown on the lighter brown in stage 4.  The browns looked
+  better; the Next's pack colours stage 1 as stage 4 (`msx2_pack.py`).
+* **The Big Core moves smoothly.**  Konami moves it 8 pixels at a time,
+  every 3 to 5 ticks; it is now drawn with sprites that glide towards the
+  next step, which Konami has always decided by then.  On the way in, the
+  first try stepped at the right edge: the sprites were made from what
+  Konami had drawn, which stops at the screen's edge, so the glide pulled
+  the boss's leading edge up to 7 pixels short of it between steps.  The
+  part still off the screen is now made from Konami's boss tables.
+* **The status line holds still with the boss on screen.**  A line
+  interrupt at line 176 resets the scroll for the status rows, alternating
+  with the frame interrupt.  The boss's patterns were sent with interrupts
+  disabled, and an interrupt that comes then is lost on the Next; the
+  alternation went out of step and the status rows took the play area's
+  scroll.  A first fix moved the split to the copper and dropped the line
+  interrupt; in JNEXT that build ran faster than before and the game-over
+  music was choppy (the two builds compared side by side; ZEsarUX showed
+  no difference), so it was withdrawn.  The interrupts are as they
+  were, and the boss's patterns are now made and sent with interrupts on,
+  in a buffer of their own, and made and sent again if the frame interrupt
+  ran in the middle (a first try shared the interrupt's buffer: the boss's
+  blocks took the interrupt's patterns).
+* **A table read past its end.**  The Big Core's vertical glide looks up
+  8 * n / c in a small table; at c = 5 (stage 1's difficulty) the last tick
+  needs a fifth entry, and the table had four.  The byte after it was the 06
+  of the next routine's first instruction, the right value by luck, until
+  new code was put there and the boss jumped 33 pixels every fifth tick.
+  The table now has the entry.
 * **One tree.**  The Next's changes to shared files are under `ifdef NEXT`,
   its takeovers of Konami's instructions are in `gen.py` with the 128K's,
   and the 128K builds are byte for byte those of 0.110.  `verify.sh` builds

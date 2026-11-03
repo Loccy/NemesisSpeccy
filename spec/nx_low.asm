@@ -40,7 +40,7 @@ OBJ_MAX     equ 22
     jp lo_stage                 ; 011B: in place of Konami's calls to 0:422A
     jp lo_marcador              ; 011E: at the start of 0:5851
     jp lo_prestage              ; 0121: in place of 0:53C8's call to 0:5874
-    jp lo_shipst                ; 0124: in place of 2:99A1's and 2:99C3's ld a,(E200)
+    jp lo_shipst                ; 0124: in place of ld a,(E200) at 2:99A1, 2:99C3, 3:A19B
 
 lo_off:     db 0
 lo_p30:     db 3
@@ -107,10 +107,11 @@ lo_tick:
     or a                        ; restart's wipe), none of these either
     jr z,.nochars
     call lo_chars
-    ret
+    jp lo_boss
 .nochars:
     xor a
     ld (lo_nobj),a
+    ld (lo_bon),a
     ret
 ; lo_sat = Konami's list with each X moved left by lo_off, except for the
 ; enemies moved with the scroll.  Entries 10-21 are E300's slots 0-11 and

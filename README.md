@@ -96,8 +96,16 @@ hardware where the 128K has to make do:
   stage. Building it
   needs the patch's IPS file as well as the ROM (see Building from source);
   without the IPS the build has the original MSX graphics.
-* The options and the ship's explosion are drawn in red, orange and yellow,
-  after the arcade game. That is our own change, not the patch's.
+* The options, the ship's explosion and the volcanoes' rocks are drawn in
+  red, orange and yellow. Stage 1's enemies are redrawn after the arcade
+  game's sprites, in its colours, at the MSX's size and with the MSX's
+  frames: the fans, pods, jets, walking cannons, robots, hatch saucers,
+  turrets, power-up capsules, shots and explosions. Those that leave a
+  power-up are red, as in the arcade. Later stages get them where their
+  enemies are the same as stage 1's. Those are our own changes, not the
+  patch's.
+* The bosses of stages 1 to 6 glide smoothly where the MSX moves them a
+  character at a time.
 
 The title screen shows the version ending in N: V0.110N. So far the Next
 version has been tested in emulators.
@@ -210,7 +218,11 @@ patch's graphics from the result. Then, in `spec/`:
 sh nxbuild.sh nemesis.nex     # the Spectrum Next build
 ```
 
-Without the IPS, `nxbuild.sh` makes a `.nex` with the original MSX graphics.
+Without the IPS, `nxbuild.sh` makes a `.nex` with the original MSX graphics
+(and without the redrawn enemies). `NEM_ARC_SPR=0` leaves out the redrawn
+enemies drawn as sprites, `NEM_ARC_CHR=0` those Konami draws with
+characters (the fans, saucers, turrets and capsules); both are in by
+default. The drawings are in `spec/nx_art.py`.
 `release.sh` makes the `.nex` as well as the tape and snapshot, so it needs
 the IPS; if ZEsarUX is on the PATH (or named by the `ZESARUX` environment
 variable), it also plays the `.nex` for a minute to check that it starts.

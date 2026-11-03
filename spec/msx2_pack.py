@@ -28,11 +28,14 @@ copies).  Banks 24-31: each stage's 64 sprite patterns in fire colours
 (Next 4-bit, 128 bytes each; edge pixels 3, one in 4, deeper 5).  Bank 24
 also holds, from 2000, the patch's title logo: its 4-bit bitmap (patched ROM
 0x30000, 256 x 48, 128 bytes a line; the patch shows it at lines 16-63 of
-its title screen) and at 3800 its palette (patched ROM 0x2E520).
+its title screen) and at 3800 its palette (patched ROM 0x2E520).  Bank 25
+holds, from 2000, our own drawings of Konami's enemies (art_page()).
 
 Checked against openMSX captures of the patched cartridge at the end of each
 stage load (2026-11-02): every byte the replay writes matches, apart from
 characters Konami animates (F7, 78-7D), which it rewrites in play anyway.
+One change of ours: stage 1's ground edge (character 43, bottom third) is
+coloured as the patch colours it in stage 4 (68, not 6D: brown, not magenta).
 """
 import os, sys, hashlib
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -190,12 +193,118 @@ def fire(p):
             b.append((nib[0] << 4) | nib[1])
     return b
 
+# Our own drawings (spec/nx_art.py: Konami's stage 1 enemies redrawn after the
+# arcade game's sprites; made by local/tools/arcade/gen_art.py) in bank 25's
+# second 8K (the Next's 8K page 51, ART_PAGE):
+#   0000  the sprite drawings, 128 bytes each: Konami's patterns 30-46, then
+#         the walkers' 52-63 (drawing n at (n - 1) * 128)
+#   0E80  the character enemies' drawings (23), 128 bytes each
+#   1A00  sprite palettes 2-10, entries 2-15 (28 bytes each, Next 9-bit)
+#   1B00  the sprite drawings' palette bytes (drawing n at n - 1)
+#   1B20  the character enemies (29): 6 bytes each: their four characters
+#         (top left, top right, bottom left, bottom right: Konami's frame
+#         table 5:91D1), palette byte, drawing number
+#   1C00  128 bytes a stage: Konami pattern -> sprite drawing (64; 0 none),
+#         then a byte per character enemy (1 on)
+# A sprite's palette byte is palette * 16, + 1 where the next palette is its
+# red twin, for the objects that leave a capsule (byte 14 set; Konami's
+# colour 8).  The turrets that leave one Konami draws with red characters of
+# their own (frames 09-0E): they are entries of their own, in red.
+# A stage has an enemy's drawings where all that enemy's patterns or
+# characters (ART_GROUPS: no enemy is drawn half ours, half Konami's) are
+# stage 1's both in Konami's own load (nem.rom) and in the patch's (what the
+# Next shows).  Build switches: NEM_ARC_SPR=0
+# leaves Konami's sprite patterns (and the walkers) as they are, NEM_ARC_CHR=0
+# the character enemies.
+import nx_art
+ART_CHR, ART_PAL, ART_APAL, ART_CHT, ART_MAP = 0x0E80, 0x1A00, 0x1B00, 0x1B20, 0x1C00
+# the explosion, the shot, the pod, the robot, the jet, the walker (Konami's
+# patterns); the fans, the saucers, the turrets on the ground and on the
+# ceiling, the two capsules, the red turrets (nx_art.CHARS entries)
+SPR_GROUPS = [range(30, 34), [34], range(35, 40), range(40, 44), range(44, 47), range(52, 64)]
+CHR_GROUPS = [range(0, 4), range(4, 9), range(9, 15), range(15, 21), [21], [22], range(23, 29)]
+
+def orig_load(rom, s):
+    """VRAM (colours 0000, sprite patterns 1800, patterns 2000) after Konami's
+    own stage load in nem.rom: the characters and sprites only."""
+    n = Patched(rom); v = Tracked(0x4000)
+    n.load_records(v, 0x932D)
+    n.load_records(v, n.u16(5, 0x92E3 + 2 * s))
+    n.mirror(v, 0x92FB, s, False)
+    n.mirror(v, 0x9313, s, True)
+    n.decompress(v, 5, 0x86BB, 0x1800)
+    t = 0x42AD + 6 * s
+    for k in range(2):
+        src = n.u16(0, t + 3 * k); ch = n.u8(0, t + 3 * k + 2)
+        n.decompress(v, n.bank_for(src, extract.GFX), src, 0x1800 + ch * 8)
+    if s == 5:
+        n.decompress(v, n.bank_for(0x8FCB, extract.GFX), 0x8FCB, 0x1D00)
+    return v
+
+def nibbles(rows):
+    return bytes(int(r[x], 16) << 4 | int(r[x + 1], 16) for r in rows for x in range(0, 16, 2))
+
+def art_page(rom, patched):
+    """patched: the patch's stage loads (build()'s data: 16K a stage)."""
+    spr = bool(int(os.environ.get('NEM_ARC_SPR', '1')))
+    chr_ = bool(int(os.environ.get('NEM_ARC_CHR', '1')))
+    pg = bytearray(0x2000)
+    pats = [(k,) + nx_art.SPRITES[k] for k in sorted(nx_art.SPRITES)] + \
+           [(k,) + nx_art.WALKERS[k] for k in sorted(nx_art.WALKERS)]
+    assert len(pats) <= 29 and len(nx_art.CHARS) == 29
+    assert sorted(k for g in SPR_GROUPS for k in g) == [p[0] for p in pats]
+    assert sorted(i for g in CHR_GROUPS for i in g) == list(range(29))
+    num = {}
+    for i, (k, pal, rows) in enumerate(pats):
+        pg[i * 128:i * 128 + 128] = nibbles(rows); pg[ART_APAL + i] = pal; num[k] = i + 1
+    for i, (c4, pal, rows) in enumerate(nx_art.CHARS):
+        if isinstance(rows, int):
+            d = rows; assert not isinstance(nx_art.CHARS[d][2], int)
+        else:
+            d = i; assert d < 23
+            pg[ART_CHR + i * 128:ART_CHR + i * 128 + 128] = nibbles(rows)
+        pg[ART_CHT + i * 6:ART_CHT + i * 6 + 6] = bytes(c4) + bytes([pal, d])
+    assert ART_CHT + 29 * 6 <= ART_MAP and ART_APAL + 32 == ART_CHT and ART_PAL + 9 * 28 <= ART_APAL
+    for p in range(2, 11):
+        o = ART_PAL + (p - 2) * 28
+        pg[o:o + 28] = bytes(b for e in nx_art.PALETTES[p][2:] for b in e)
+    v1 = orig_load(rom, 1); p1 = patched[:0x4000]
+    sp = lambda v, k: bytes(v[0x1800 + k * 32:0x1800 + k * 32 + 32])
+    def ch(v, c4):
+        return b''.join(bytes(v[o + t * 0x800 + c * 8:o + t * 0x800 + c * 8 + 8])
+                        for c in c4 for t in range(3) for o in (0, 0x2000))
+    report = []
+    for s in range(1, 9):
+        v = orig_load(rom, s); o = ART_MAP + (s - 1) * 128
+        ps = patched[(s - 1) * 0x4000:s * 0x4000]
+        same = lambda k: sp(v, k) == sp(v1, k) and sp(ps, k) == sp(p1, k)
+        on = [k for g in SPR_GROUPS if spr and all(same(k) for k in g) for k in g]
+        for k in on:
+            pg[o + k] = num[k]
+        chs = lambda i: ch(v, nx_art.CHARS[i][0]) == ch(v1, nx_art.CHARS[i][0]) and \
+                        ch(ps, nx_art.CHARS[i][0]) == ch(p1, nx_art.CHARS[i][0])
+        cs = [i for g in CHR_GROUPS if chr_ and all(chs(i) for i in g) for i in g]
+        for i in cs:
+            pg[o + 64 + i] = 1
+        report.append('stage %d: patterns %s, character enemies %s' % (s, ','.join(map(str, sorted(on))) or '-',
+                                                                    ','.join(map(str, cs)) or '-'))
+    return bytes(pg), report
+
 def build(rom, rom2, ranges):
     data = bytearray(); fires = bytearray()
     lines = rom2[0x2E600:0x2E690]
     for s in range(1, 9):
         v = stage_load(rom2, s)
         blk = bytearray(v[:0x3800])
+        if s == 1:
+            # The ground's lower edge (character 43 in the bottom third, its
+            # top four lines): the patch colours it dark brown on magenta
+            # (6D) in stage 1 but dark brown on the lighter brown (68) in
+            # stage 4, where it is the same character.  Stage 1 as stage 4
+            # (our choice, 3 November).
+            e = 0x1000 + 0x43 * 8
+            assert bytes(blk[e:e + 4]) == b'\x6d' * 4, bytes(blk[e:e + 8]).hex()
+            blk[e:e + 4] = b'\x68' * 4
         blk += next_palette(rom2[0x2E400 + 32*s:0x2E420 + 32*s])
         blk += lines
         blk += bytes(0x3900 - len(blk))
@@ -214,6 +323,11 @@ def build(rom, rom2, ranges):
             # 256 x 48, MSX lines 16-63 of its title screen) and its palette
             f += bytes(0x2000 - len(f)) + rom2[0x30000:0x31800] + next_palette(rom2[0x2E520:0x2E540])
         fires += f + bytes(0x4000 - len(f))
+    # bank 25's second 8K: our own drawings (art_page)
+    art, report = art_page(rom, bytes(data))
+    o = 0x4000 + 0x2000
+    fires[o:o + len(art)] = art
+    print('our drawings:\n  ' + '\n  '.join(report))
     # the patch's data values at our ranges (bank, first, last MSX address)
     lines_out = ['# generated by msx2_pack.py from nem.rom and the patched ROM: bank addr old new']
     for l in ranges:

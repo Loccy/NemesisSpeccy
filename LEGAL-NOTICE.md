@@ -47,6 +47,11 @@ tapes, snapshots and Next file; nor the MSX2 patch's graphics.
   contains Konami's game and the patch's graphics alongside our platform
   layer. The red, orange and yellow options and explosion are our own
   change to them.
+* **The Next version's redrawn enemies** (`spec/nx_art.py`) are drawn
+  after the sprites of Konami's arcade *Gradius* (1985), in their colours,
+  and fitted to the MSX's sizes and frames, so they are Konami's artwork
+  too, adapted; they are in the repository on the basis of Konami's
+  statement above.
 * **The loading screen** (`tape/loading.scr`) is converted from the
   illustration in Konami's MSX attract sequence (`tape/illustration_msx.png`,
   rendered from the running MSX game), so it is Konami's artwork too.
