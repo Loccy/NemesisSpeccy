@@ -90,12 +90,11 @@ hardware where the 128K has to make do:
   scenery a character (8 pixels) at a time. Enemies that Konami draws with
   characters are lifted out and drawn as sprites, so they move smoothly
   too.
-* The graphics are those of the MSX2 patch "Nemesis - Gradius ENHANCED"
-  (V1.01, by Victor Martinez and Toni Galvez, based on SHALOM's): new
-  tiles, sprites, status bar and title logo, and a palette for each
-  stage. Building it
-  needs the patch's IPS file as well as the ROM (see Building from source);
-  without the IPS the build has the original MSX graphics.
+* The graphics began as those of the MSX2 patch "Nemesis - Gradius
+  ENHANCED" (V1.01, by Victor Martinez and Toni Galvez, based on SHALOM's):
+  new tiles, sprites, status bar and title logo, and a palette for each
+  stage. They are kept in this repository (`spec/nxgfx/`) and changed
+  from there, so the build needs only the ROM.
 * The options, the ship's explosion and the volcanoes' rocks are drawn in
   red, orange and yellow. Stage 1's enemies are redrawn after the arcade
   game's sprites, in its colours, at the MSX's size and with the MSX's
@@ -206,26 +205,20 @@ Built this way, the files in `release/` are identical to the published ones.
 
 ### The Spectrum Next version
 
-The Next build needs one more input: the IPS file of the MSX2 patch
-"Nemesis - Gradius ENHANCED" V1.01, in the root beside `nem.rom`, under its
-own name, `Nemesis - Gradius ENHANCED V101.ips`. Its SHA-256 should be
-`46cda91d5bab061a580aae9aeed34e7ef253da9a128d3b92289e5a240a811b47`. Like
-the ROM, it is not part of this project. The build applies it to `nem.rom`
-(making `nemmsx2.rom`, also left out of the repository) and reads the
-patch's graphics from the result. Then, in `spec/`:
+The Next build needs nothing more than the ROM. In `spec/`:
 
 ```
 sh nxbuild.sh nemesis.nex     # the Spectrum Next build
 ```
 
-Without the IPS, `nxbuild.sh` makes a `.nex` with the original MSX graphics
-(and without the redrawn enemies). `NEM_ARC_SPR=0` leaves out the redrawn
-enemies drawn as sprites, `NEM_ARC_CHR=0` those Konami draws with
-characters (the fans, saucers, turrets and capsules); both are in by
-default. The drawings are in `spec/nx_art.py`.
-`release.sh` makes the `.nex` as well as the tape and snapshot, so it needs
-the IPS; if ZEsarUX is on the PATH (or named by the `ZESARUX` environment
-variable), it also plays the `.nex` for a minute to check that it starts.
+Its graphics are in `spec/nxgfx/` (one file per stage, the title logo, and
+the data bytes it changes in Konami's tables) and its redrawn enemies in
+`spec/nx_art.py`. `NEM_ARC_SPR=0` leaves out the redrawn enemies drawn as
+sprites, `NEM_ARC_CHR=0` those Konami draws with characters (the fans,
+saucers, turrets and capsules); both are in by default.
+`release.sh` makes the `.nex` as well as the tape and snapshot; if ZEsarUX
+is on the PATH (or named by the `ZESARUX` environment variable), it also
+plays the `.nex` for a minute to check that it starts.
 `verify.sh` ends by checking that the Next build still assembles.
 The editions of 0.98 to 0.109 are build options: `NEM_DRAW_EVERY=2 python3
 build.py` for fast, `NEM_DRAW_EVERY=0 python3 build.py` for smooth.
@@ -251,10 +244,11 @@ build options.
   annotated disassembly of the cartridge by antxiko
   (https://github.com/antxiko/Nemesis-disassembly).
 * Tape compression: ZX0 by Einar Saukas.
-* The Spectrum Next version's graphics: the MSX2 patch "Nemesis - Gradius
-  ENHANCED" V1.01, programmed by Victor Martinez with new graphics and
-  colours by Toni Galvez, based on the patched version by SHALOM (with FRS's
-  turbo fix and WYZ/ARTRAG's voice set).
+* The Spectrum Next version's graphics are based on the MSX2 patch
+  "Nemesis - Gradius ENHANCED" V1.01, programmed by Victor Martinez with
+  new graphics and colours by Toni Galvez, based on the patched version by
+  SHALOM (with FRS's turbo fix and WYZ/ARTRAG's voice set). Its redrawn
+  enemies are after the sprites of Konami's arcade Gradius.
 
 Nemesis and Gradius belong to Konami. The MSX2 graphics belong to their
 authors. This is an unofficial fan project. See [LEGAL-NOTICE.md](LEGAL-NOTICE.md) for who owns what.

@@ -44,22 +44,26 @@ BPAT        equ 104             ; the boss: 24 patterns, 104-127
 L2_BANK0    equ 9
 L2_BANK1    equ 13
 
-; Our own drawings of Konami's enemies, after the arcade game's (msx2_pack.py,
-; art_page(): 8K page LO_ART, offsets ART_*), in stages whose patterns or
-; characters are stage 1's; copied for the stage by lo_apply.
+; Our own drawings of Konami's enemies, after the arcade game's (nx_pack.py,
+; art_page(): the drawings in 8K page LO_ART, their tables in LO_TAB), in
+; stages whose patterns or characters are stage 1's; the stage's tables
+; copied by lo_apply.
 LO_ART      equ (25*2+1)
-ART_CHR     equ 0x0E80          ; the character enemies' drawings
-ART_PAL     equ 0x1A00          ; sprite palettes 2-10, entries 2-15
-ART_APAL    equ 0x1B00          ; the sprite drawings' palette bytes
-ART_CHT     equ 0x1B20          ; the character enemies' table (6 bytes each)
-ART_MAP     equ 0x1C00          ; 128 bytes a stage: LO_OVR, LO_CHEN
-NCHART      equ 29
+LO_TAB      equ (26*2+1)
+ART_CHR     equ 0x1400          ; LO_ART: the character enemies' drawings
+TAB_PAL     equ 0x0000          ; LO_TAB: sprite palettes 2-12, entries 2-15
+TAB_APAL    equ 0x0180          ; the sprite drawings' palette bytes
+TAB_STAGE   equ 0x0200          ; 512 bytes a stage: LO_OVR, LO_NCH, LO_CHT
+NART        equ 40              ; sprite drawings at most
+NCHART      equ 48              ; character enemies' frames a stage at most
 LO_OVR      equ 0x3B00          ; Konami pattern -> our drawing (1 on; 0 none)
-LO_CHEN     equ 0x3B40          ; the character enemies drawn as ours (1)
-LO_APAL     equ 0x3B60          ; the sprite drawings' palette bytes (palette * 16,
+LO_NCH      equ 0x3B40          ; the character enemies' frames drawn as ours
+LO_CHT      equ 0x3B41          ; and for each: Konami's frame, palette byte, drawing
+LO_APAL     equ 0x3C40          ; the sprite drawings' palette bytes (palette * 16,
                                 ; + 1: the next palette for those leaving a capsule)
-LO_CHT      equ 0x3B80          ; the character enemies: 4 characters, palette byte, drawing
-LO_OPAL     equ 0x3C40          ; the character enemies recorded: palette offsets (lo_artch)
+LO_OPAL     equ 0x3C70          ; the character enemies recorded: palette offsets (lo_artch)
+LO_OFRM     equ 0x3C90          ; and their frames (byte 12; lo_chars)
+LO_OGND     equ 0x3CB0          ; and 1 for those that move with the scenery
 
 lo_npend:   db 0                ; character enemies' patterns to send
 lo_ppend:   db 0                ; some Konami pattern changed
@@ -110,11 +114,10 @@ lo_setpal:
     pop hl
     ret
 
-; MSX2 graphics (the "Nemesis ENHANCED" patch's, read from the user's own
-; ROM and IPS by msx2_pack.py): if the .NEX carries them, Next bank 15 +
-; stage holds that stage's MSX2 video memory 0000-37FF as the patched ROM's
-; stage load leaves it, its palette at 3800 and a mask at 3900 (a bit per
-; byte: written by that load).  After Konami's own load (0:422A, called from
+; The stage graphics (spec/nxgfx, packed by nx_pack.py; they began as the
+; MSX2 patch "Nemesis - Gradius ENHANCED"'s): Next bank 15 + stage holds that
+; stage's video memory 0000-37FF as its stage load leaves it, its palette at
+; 3800 and a mask at 3900 (a bit per byte: written by that load).  After Konami's own load (0:422A, called from
 ; 0:4100 and 0:414B) the masked bytes of the colour, sprite pattern and
 ; pattern copies are replaced (the rest keep what earlier screens left, as
 ; on the MSX2) and the palette set; Konami's later writes (stars, status
@@ -176,7 +179,7 @@ lo_prestage:
 
 ; A = stage (1-8), C = 0: the colour, sprite pattern and pattern copies
 ; whole; 1: the colour and pattern copies' bottom thirds only.  Sets the
-; palette and line-colour tables.  Nothing if the .NEX has no MSX2 graphics.
+; palette and line-colour tables.
 lo_apply:
     push af
     push bc
@@ -194,11 +197,7 @@ lo_apply:
     add a,ENH_BANK*2            ; 8K page of VRAM 0000
     ld (lo_spage),a
     inc a
-    db 0xED,0x92,0x52           ; its VRAM 2000-3FFF at 4000: is the palette
-    ld hl,(0x5802)              ; there? (colour 1 is never 00 00 when it is;
-    ld a,h                      ; a .NEX without the banks leaves them zero)
-    or l
-    jp z,.restore
+    db 0xED,0x92,0x52           ; its VRAM 2000-3FFF at 4000
     push ix
     ld a,0x57                   ; MMU7 now (put back after): the mask at F900
     ld bc,0x243B
@@ -266,10 +265,10 @@ lo_apply:
     sub ENH_BANK*2
     add a,24*2                  ; bank 24 + stage - 1, its first 8K page
     ld (lo_fpage),a
-    ld a,LO_ART                 ; our drawings: palettes 2-10 (entries 2-15)
+    ld a,LO_TAB                 ; our drawings: palettes 2-12 (entries 2-15)
     db 0xED,0x92,0x52
     db 0xED,0x91,0x43,0x20
-    ld hl,0x4000+ART_PAL
+    ld hl,0x4000+TAB_PAL
     ld c,0x22
 .pl:
     ld a,c
@@ -283,25 +282,20 @@ lo_apply:
     ld a,c
     add a,0x10
     ld c,a
-    cp 0xB2
+    cp 0xD2
     jr c,.pl
     db 0xED,0x91,0x43,0x00
-    ld a,(lo_spage)             ; this stage's map: ART_MAP + (stage - 1) * 128
+    ld a,(lo_spage)             ; this stage's tables: TAB_STAGE + (stage - 1) * 512
     sub ENH_BANK*2
-    rrca
-    rrca
+    add a,(0x4000+TAB_STAGE)>>8
     ld h,a
-    and 0x80
-    ld l,a
-    xor h
-    add a,(0x4000+ART_MAP)>>8
-    ld h,a
+    ld l,0
     ld de,LO_OVR
-    ld bc,64+NCHART
+    ld bc,65+NCHART*3
     ldir
-    ld hl,0x4000+ART_APAL       ; the palette bytes and the character table
+    ld hl,0x4000+TAB_APAL       ; the sprite drawings' palette bytes
     ld de,LO_APAL
-    ld bc,32+NCHART*6
+    ld bc,NART
     ldir
     call lo_ovflag              ; patterns 30-63 sent again, as ours
 .restore:
@@ -337,11 +331,11 @@ lo_spage:   db 0
 lo_part:    db 0
 lo_mmu7:    db 0
 
-; None of our drawings (LO_OVR, LO_CHEN clear), and Konami's patterns 30-63
+; None of our drawings (LO_OVR, LO_NCH clear), and Konami's patterns 30-63
 ; sent again (lo_ovflag; lo_sprflip: as ours or Konami's).  Preserves DE.
 lo_ovclr:
     ld hl,LO_OVR
-    ld b,64+NCHART
+    ld b,65
 .c:
     ld (hl),0
     inc l
@@ -384,18 +378,14 @@ lo_marcador:
     ld de,m0_5906               ; the instruction the call replaced
     ret
 
-; The title screen: if the .NEX has the MSX2 graphics, the patch's logo
-; replaces Konami's (lo_logocell), its palette as Layer 2 entries 10h-1Fh.
+; The title screen: the logo (spec/nxgfx/logo.bin, the patch's) replaces
+; Konami's (lo_logocell), its palette as Layer 2 entries 10h-1Fh.
 LO_LOGO     equ (24*2+1)        ; 8K page: the logo at 0000, its palette at 1800
 lo_logopal:
     ld a,i                      ; P/V: interrupts were on
     push af
     di                          ; (6000-7FFF is fixed memory meanwhile)
     db 0xED,0x91,0x53,LO_LOGO   ; at 6000
-    ld hl,(0x7802)              ; colour 1 is never 00 00 when it is there
-    ld a,h
-    or l
-    jr z,.out
     db 0xED,0x91,0x43,0x10      ; Layer 2's first palette, from entry 10h
     db 0xED,0x91,0x40,0x10
     ld hl,0x7800
@@ -1193,6 +1183,22 @@ lo_sprites:
     jr nc,.cx
     inc h
 .cx:
+    push hl                     ; moves with the scenery (LO_OGND): as far
+    ld a,c                      ; right as it (lo_off), as lo_attr's sprites
+    sub 64
+    add a,LO_OGND&0xff
+    ld l,a
+    ld h,LO_OGND>>8
+    ld a,(hl)
+    pop hl
+    or a
+    jr z,.cg
+    ld a,(lo_off)
+    add a,l
+    ld l,a
+    jr nc,.cg
+    inc h
+.cg:
     ld a,l
     ld (de),a
     inc de
@@ -1400,6 +1406,7 @@ lo_arc:
     jr z,.no
     add a,(LO_APAL-1)&0xff
     ld l,a
+    ld h,LO_APAL>>8
     ld a,(hl)                   ; its palette byte
     bit 0,a
     jr z,.p
@@ -1442,10 +1449,12 @@ lo_arc:
     or 1                        ; NZ
     ret
 
-; lo_sprites, for character enemy record lo_cr (moved on): if its four
-; characters are one of ours (LO_CHT, on in LO_CHEN), our drawing at DE (moved
-; on 128) and Z; NZ otherwise.  LO_OPAL + the record's number: the palette
-; offset (0, or the drawing's).  Preserves IX, IY.
+; lo_sprites, for character enemy record lo_cr (moved on): if its frame (the
+; object's byte 12, LO_OFRM: what Konami draws or is about to draw; its
+; characters on the screen can lag a tick behind, part old, part new) is one
+; of this stage's (LO_CHT), our drawing at DE (moved on 128) and Z; NZ
+; otherwise.  LO_OPAL + the record's number: the palette offset (0, or the
+; drawing's).  Preserves IX, IY.
 lo_artch:
     push ix
     ld ix,(lo_cr)
@@ -1464,53 +1473,23 @@ lo_artch:
     ld a,(ix+7)                 ; four characters?
     dec a
     jr nz,.no
-    ld b,NCHART
-    ld hl,LO_CHT
-.e:
-    push hl
-    ld a,(hl)
-    cp (ix+3)
-    jr nz,.nx
-    inc hl
-    ld a,(hl)
-    cp (ix+4)
-    jr nz,.nx
-    inc hl
-    ld a,(hl)
-    cp (ix+5)
-    jr nz,.nx
-    inc hl
-    ld a,(hl)
-    cp (ix+6)
-    jr z,.hit
-.nx:
-    pop hl
-    ld a,l
-    add a,6
+    ld a,c
+    add a,LO_OFRM&0xff
     ld l,a
-    jr nc,.nc
-    inc h
-.nc:
-    djnz .e
+    ld h,LO_OFRM>>8
+    ld a,(hl)                   ; its frame
+    call lo_isart
+    jr z,.hit
 .no:
     pop hl
     pop ix
     or 1                        ; NZ
     ret
 .hit:
-    ld a,NCHART                 ; the entry's number: NCHART - B
-    sub b
     inc hl
     ld b,(hl)                   ; the palette byte
     inc hl
     ld c,(hl)                   ; the drawing
-    pop hl
-    ld hl,LO_CHEN               ; on in this stage?
-    add a,l
-    ld l,a
-    ld a,(hl)
-    or a
-    jr z,.no
     pop hl                      ; LO_OPAL + the record's number
     ld (hl),b
     ld a,c                      ; 4000 + ART_CHR + drawing * 128
@@ -1531,6 +1510,30 @@ lo_artch:
     ret
 lo_cr:      dw 0
 lo_ci:      db 0
+
+; A = Konami's frame of a character enemy: Z, HL at its LO_CHT entry, if this
+; stage draws it as ours.  Preserves BC, DE.
+lo_isart:
+    push bc
+    ld c,a
+    ld a,(LO_NCH)
+    ld b,a
+    inc b
+    ld hl,LO_CHT
+    jr .n
+.e:
+    ld a,(hl)
+    cp c
+    jr z,.y
+    inc hl
+    inc hl
+    inc hl
+.n:
+    djnz .e
+    or 1                        ; NZ
+.y:
+    pop bc
+    ret
 
 ; The Big Core (stages 1-6) drawn with sprites so that it moves smoothly.
 ; Konami draws its 11 x 8 characters into the map at (E785, E783), whole
@@ -2449,7 +2452,7 @@ lo_ecol:
     jp lo_multi
 
 ; Konami pattern lo_ap's fire-coloured copy (Next bank 24 + stage, made
-; by msx2_pack.py) -> LO_MPAT slot lo_mn, palette offset 1.
+; by nx_pack.py) -> LO_MPAT slot lo_mn, palette offset 1.
 lo_fire:
     ld a,(lo_mn)
     cp NMULTI

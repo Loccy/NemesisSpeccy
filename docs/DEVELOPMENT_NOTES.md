@@ -999,10 +999,32 @@ of the same tree.
   But the MSX does show red turrets: the ROM showed Konami draws them with
   a second set of red characters (frames 09-0E), which now get our red
   turret.
+* **Stage 2's enemies.**  A static survey of stage 2 from the ROM found its
+  sprites the same as stage 1's and its waves, pods, jets and saucers
+  already covered.  New were the enemies that materialise in columns of
+  five (Konami's type 8, a disc that grows over four frames; the
+  disassembly calls them a wall of stones), drawn from the arcade's
+  growing ring, and its turrets: four sets, every frame with the pixels of
+  one of stage 1's, so they take stage 1's drawings in a blue tint, red for
+  those that leave a capsule.  That needed a character table per stage.
+* **The patch showing through.**  A fan moving diagonally flashed in the
+  patch's colours: its four characters on the screen can lag a tick behind
+  its position, part old drawing, part new, and matched nothing.  Character
+  enemies are now recognised by Konami's frame number (the object's byte
+  12).  Then the turrets and capsules turned out never to show our
+  drawings at all: Konami moves them with the scenery, and the Next left
+  such objects in the map, drawn from the patch's characters.  Those that
+  are ours are now lifted out too and drawn as sprites that move with the
+  scenery.
+* **No IPS.**  The build read the patch's graphics from the user's IPS at
+  every build, and drawing our own on top meant keeping its versions
+  underneath.  The graphics were read from the patched ROM once and are now
+  data in the repository, ours to change; a `.nex` built from them matched
+  the IPS-built one byte for byte, and the build no longer needs the IPS.
 * **Stage 1's ground edge in brown.**  The patch draws the ground's lower
   edge (a dithered line of character 43) dark brown on magenta in stage 1
   but dark brown on the lighter brown in stage 4.  The browns looked
-  better; the Next's pack colours stage 1 as stage 4 (`msx2_pack.py`).
+  better; stage 1 is coloured as stage 4 (now in `spec/nxgfx/stage1.bin`).
 * **The Big Core moves smoothly.**  Konami moves it 8 pixels at a time,
   every 3 to 5 ticks; it is now drawn with sprites that glide towards the
   next step, which Konami has always decided by then.  On the way in, the

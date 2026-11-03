@@ -36,17 +36,18 @@ tapes, snapshots and Next file; nor the MSX2 patch's graphics.
 * **The tape, snapshots and Next file** (`nemesis.tap`, `nemesis.sna`,
   `nemesis_test.sna`, the `.nex`) are built that way, so they contain Konami's game: its
   code and data, relocated, alongside our platform layer.
-* **The Spectrum Next version's graphics** are not ours either. They are
-  those of the MSX2 patch "Nemesis - Gradius ENHANCED" V1.01 (programmed by
-  Victor Martinez, graphics and colours by Toni Galvez, based on SHALOM's
-  patched version), which belong to their authors. The project does not
-  contain the patch: like the ROM, you supply its IPS file to build the
-  Next version (`spec/msx2_pack.py` applies it and reads the graphics from
-  the patched ROM; the patched ROM and everything read from it are kept out
-  of the repository). The released `.nex` file is built that way, so it
-  contains Konami's game and the patch's graphics alongside our platform
-  layer. The red, orange and yellow options and explosion are our own
-  change to them.
+* **The Spectrum Next version's graphics** are mostly not ours either.
+  They began as those of the MSX2 patch "Nemesis - Gradius ENHANCED" V1.01
+  (programmed by Victor Martinez, graphics and colours by Toni Galvez,
+  based on SHALOM's patched version), which belong to their authors, and
+  which are themselves Konami's graphics reworked. They were read from the
+  patched ROM once and are kept in this repository (`spec/nxgfx/`), with
+  our changes since, so the Next version builds from the ROM alone; the
+  patch itself is not included. They are here on the same basis as
+  Konami's material: a non-commercial fan project. The released
+  `.nex` file contains Konami's game and these graphics alongside our
+  platform layer. The red, orange and yellow options and explosion are our
+  own change to them.
 * **The Next version's redrawn enemies** (`spec/nx_art.py`) are drawn
   after the sprites of Konami's arcade *Gradius* (1985), in their colours,
   and fitted to the MSX's sizes and frames, so they are Konami's artwork

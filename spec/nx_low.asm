@@ -260,9 +260,17 @@ lo_chars:
     ld a,(ix+0x0b)
     or a
     ret z
-    ld a,(iy+0)                 ; moved with the scroll: left in the scenery
-    or a
+    ld a,(iy+0)                 ; moved with the scroll: left in the scenery,
+    ld (lo_ogf),a               ; unless it is drawn as one of ours (lo_isart:
+    or a                        ; a turret, a capsule), which moves with the
+    jr z,.free                  ; scenery as a sprite (lo_sprites, .co)
+    ld a,(ix+0x0b)
+    dec a
     ret nz
+    ld a,(ix+0x0c)
+    call lo_isart
+    ret nz
+.free:
     ld a,(ix+6)
     cp 0xf8
     ret nc
@@ -316,6 +324,19 @@ lo_chars:
     ld (iy+2),a
     ld a,(ix+0x0b)
     ld (iy+7),a
+    push hl                     ; its frame (byte 12): LO_OFRM (lo_artch),
+    ld a,(lo_nobj)              ; and whether it moves with the scenery:
+    add a,LO_OFRM&0xff          ; LO_OGND
+    ld l,a
+    ld h,LO_OFRM>>8
+    ld a,(ix+0x0c)
+    ld (hl),a
+    ld a,l
+    add a,LO_OGND-LO_OFRM
+    ld l,a
+    ld a,(lo_ogf)
+    ld (hl),a
+    pop hl
     xor a                       ; anything taken?
     ld (lo_took),a
     ld de,0
@@ -399,6 +420,7 @@ lo_chars:
     pop hl
     ret
 lo_took:    db 0
+lo_ogf:     db 0                ; this object moves with the scenery
 lo_best:    db 0                ; lo_patterns: the most pixels in a row so far,
 lo_bcol:    db 0                ; that row's colours,
 lo_rc:      dw 0                ; the character looked at,

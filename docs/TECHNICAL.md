@@ -1149,7 +1149,7 @@ In `spec/` unless shown otherwise.
 | `../docs/` | This description, the development notes, and screenshots. |
 | `nx_low.asm`, `nx_l2.asm` | The Spectrum Next's own code (section 9): Layer 2, hardware sprites, the smooth scroll, the MSX2 graphics. |
 | `nxbuild.sh`, `sna2nex.py` | The Next build, and the snapshot made into a `.nex`. |
-| `msx2_pack.py`, `msx2_ranges.txt`, `enh_patch.py` | The MSX2 graphics read from the patched ROM, the data ranges taken from it, and those bytes put into the `.nex`. |
+| `nx_pack.py`, `nxgfx/`, `nx_art.py`, `enh_patch.py` | The Next's graphics and redrawn enemies packed for the `.nex`, and the data bytes of `nxgfx/patches.txt` put into it. |
 | `nx_smoke.py` | A minute of the `.nex` in ZEsarUX (`release.sh`). |
 
 ## 9. The Spectrum Next build
@@ -1171,12 +1171,13 @@ Next build takes over one of Konami's instructions are `reloc/gen.py`'s
 without the Next.  The result is `nemesis_next.sna` (never `nemesis.sna`,
 so `release.sh` cannot package it by mistake).  sjasmplus then assembles
 `nx_low.asm`, which includes `nx_l2.asm`, against that build's symbols
-(`nx_syms.inc`), as a separate 16K block.  `msx2_pack.py` makes the MSX2
-graphics (9.5) if the IPS is there, `sna2nex.py` packs the snapshot, the
-block and the graphics into a `.nex` (format V1.2), and `enh_patch.py` puts
-the patch's data bytes into it.  Two build switches, read by
-`msx2_pack.py`, leave out the redrawn enemies (9.6): `NEM_ARC_SPR=0` those
-drawn as sprites, `NEM_ARC_CHR=0` those Konami draws with characters.
+(`nx_syms.inc`), as a separate 16K block.  `nx_pack.py` packs the graphics
+(9.5) from `spec/nxgfx/` and the redrawn enemies (9.6), `sna2nex.py` packs
+the snapshot, the block and the graphics into a `.nex` (format V1.2), and
+`enh_patch.py` puts the data bytes of `spec/nxgfx/patches.txt` into it.  The
+build needs only the ROM.  Two build switches, read by `nx_pack.py`, leave
+out the redrawn enemies: `NEM_ARC_SPR=0` those drawn as sprites,
+`NEM_ARC_CHR=0` those Konami draws with characters.
 
 ### 9.2 Memory and paging
 
@@ -1188,7 +1189,7 @@ drawn as sprites, `NEM_ARC_CHR=0` those Konami draws with characters.
   table at 0100.
 * Layer 2's two screens are banks 9-11 and 13-15, flipped by NEXTREG 12h
   where the 128K flips its screens.
-* Banks 16-31 hold the MSX2 graphics (9.5) when they are in the `.nex`.
+* Banks 16-31 hold the graphics (9.5) and the redrawn enemies (9.6).
 * The CPU runs at 28 MHz (NEXTREG 07h).  The game runs at 30 ticks a
   second, the original's rate on a 60 Hz MSX (two frames a tick at
   59.94 Hz): screens are at most 2, 2, 1 frames apart in turn (`lo_tick`,
@@ -1268,32 +1269,34 @@ Each runs Konami's own instruction or routine, so the game's logic is
 unchanged.  `gen.py` checks Konami's bytes at each site and stops if one
 has moved or changed.
 
-### 9.5 The MSX2 graphics
+### 9.5 The graphics
 
-The patch "Nemesis - Gradius ENHANCED" V1.01 keeps Konami's game and its
-stage loader, and changes the data: new characters per stage (the play
-area is still the MSX's Graphic mode 2 layout, two colours per row of 8
-pixels, so the Next draws it the same way), new sprites, a 16-colour
-palette per stage, a new status bar font, colour changes, and sprite
-colours set line by line by its own code (it runs the MSX2's sprite mode
-2).  `msx2_pack.py`:
+The Next's graphics began as those of the MSX2 patch "Nemesis - Gradius
+ENHANCED" V1.01, which keeps Konami's game and its stage loader and changes
+the data: new characters per stage (the play area is still the MSX's
+Graphic mode 2 layout, two colours per row of 8 pixels, so the Next draws
+it the same way), new sprites, a 16-colour palette per stage, a new status
+bar font, colour changes, and sprite colours set line by line by its own
+code (it runs the MSX2's sprite mode 2).  They were read from the patched
+ROM once (3 November 2026, `local/tools/msx2/msx2_extract.py`: it applies
+the IPS to `nem.rom` and replays the patched cartridge's stage loader for
+each of the 8 stages with `extract.py`'s replay of Konami's, plus the
+patch's status-bar font routine and its sprite load, recording which bytes
+of video memory the load writes) and are kept in `spec/nxgfx/`, ours to
+change since:
 
-1. applies the IPS to `nem.rom` (checking both by SHA-256) to make
-   `nemmsx2.rom`;
-2. replays the patched cartridge's stage loader for each of the 8 stages
-   with `extract.py`'s replay of Konami's (plus the patch's status-bar font
-   routine and its sprite load), recording which bytes of video memory the
-   load writes;
-3. reads the stage palettes (patched ROM 2E400h + 32 per stage) and the
-   sprite line-colour tables (2E600h) straight from the ROM;
-4. writes `msx2_stages.dat`: a 16K bank per stage (video memory 0000-37FF,
-   the palette as Next 9-bit colours, the line-colour tables, and a write
-   mask, a bit per byte), then a 16K bank per stage of the sprites in fire
-   colours (9.6), the first of which also holds the patch's title logo and
-   its palette, and the second our own drawings of the enemies (9.6,
-   Next 8K page 51); and `msx2_patches.txt`, the patch's values in the data
-   ranges listed in `msx2_ranges.txt` (the font and its colours, object
-   and shot colours, the bosses' colour tables, map pieces).
+* `stageN.bin` (N = 1-8, 16K each): video memory 0000-37FF as the stage
+  load leaves it, the palette as Next 9-bit colours, the sprite line-colour
+  tables, and a write mask, a bit per byte;
+* `logo.bin`: the title logo and its palette;
+* `patches.txt`: data bytes in Konami's own ranges (the font and its
+  colours, object and shot colours, the bosses' colour tables, map
+  pieces), as bank, address, Konami's byte and ours.
+
+`nx_pack.py` packs them into banks 16-31 with each stage's sprites in fire
+colours (9.6) and the redrawn enemies.  A `.nex` built this way was checked
+byte for byte against one built from the patch's IPS before the IPS was
+dropped from the build.
 
 After each stage load, `lo_stage` copies the masked bytes into the port's
 tables, as the patch's own load would have written them, and sets the
@@ -1359,23 +1362,36 @@ for the ship and some capsules, drawn as 4-bit patterns.
   turrets on the ground and on the ceiling (six aims each), and the two
   capsules.  Those that leave a capsule are red, as in the arcade: a sprite
   of the pod, jet, robot or walker with byte 14 set (Konami's colour 8)
-  takes the next palette, its red twin; Konami draws such ground turrets
-  with red characters of their own (frames 09-0E, which repeat one aim),
-  matched to the ordinary turret's drawing in the red palette.
+  takes the next palette, its red twin; Konami draws such turrets with red
+  characters of its own (a second set of frames), which take the ordinary
+  turret's drawing in the red palette.  Stage 2 adds the enemy that
+  materialises in columns (Konami's type 8, patterns 47-50, after the
+  arcade's growing ring) and its turrets, whose frames have the pixels of
+  stage 1's, in a blue tint (palette 11).
   `local/tools/arcade/gen_art.py` made the drawings from the arcade sprite
   sheets once; they are kept as data in `spec/nx_art.py`, so the build does
-  not need the sheets.  `msx2_pack.py` stores them in bank 25's second 8K
-  (page 51) with a map for each stage: a stage has an enemy's drawings
-  where all that enemy's patterns or characters are stage 1's in both
-  Konami's load and the patch's (so no enemy is drawn half ours, half
-  Konami's).  On the Next, `lo_apply` loads the palettes and the stage's
-  map (`LO_OVR`, `LO_CHEN`, with the character table `LO_CHT`, in bank 8 at
-  3B00-3C55); `lo_sprflip` sends our drawing in place of a mapped Konami
-  pattern, and `lo_arc` (from `lo_ecol`) gives any sprite showing one its
-  palette; `lo_artch` (from `lo_sprites`) gives a character enemy whose four
-  characters are in the table our drawing instead of the conversion of its
+  not need the sheets.  `nx_pack.py` stores them in bank 25's second 8K
+  (page 51) and their tables in bank 26's (page 53): the palettes, and for
+  each stage a map of Konami's patterns to our drawings and a table of
+  character enemies' frames (Konami's frame number, palette, drawing).  A
+  stage has an enemy's drawings where all that enemy's patterns or
+  characters are stage 1's in both Konami's load and ours (so no enemy is
+  drawn half ours, half Konami's); the turrets go by Konami's table of
+  their frames (2:9205), a set taking stage 1's drawings where its frames
+  have their pixels, in stage 1's colours, the stage's tint, or red for
+  those that leave a capsule (red only where the stage's ordinary turrets
+  are ours).  On the Next, `lo_apply` loads the palettes and the stage's
+  tables (`LO_OVR`, `LO_NCH`, `LO_CHT`, `LO_APAL`, in bank 8 at 3B00-3C67);
+  `lo_sprflip` sends our drawing in place of a mapped Konami pattern, and
+  `lo_arc` (from `lo_ecol`) gives any sprite showing one its palette.
+  `lo_chars` notes each character enemy's frame (the object's byte 12;
+  its characters on the screen can lag a tick behind it), and lifts out
+  those Konami moves with the scenery too when their frame is ours (the
+  turrets, the capsules), noting them so that `.co` draws them moved with
+  the scenery; `lo_artch` (from `lo_sprites`) gives a character enemy whose
+  frame is in the table our drawing instead of the conversion of its
   characters, and `.co` its palette (`LO_OPAL`).  `lo_marcador` clears the
-  map for screens that are not a stage.  Konami's colour changes (a flash)
+  tables for screens that are not a stage.  Konami's colour changes (a flash)
   do not show on our drawings, and the capsules' glint (Konami animates
   their characters) is not drawn.
 * The patch recolours the Big Core at each boss (it switches pattern
@@ -1385,9 +1401,9 @@ for the ship and some capsules, drawn as 4-bit patterns.
 ### 9.7 Checks
 
 `verify.sh` ends by building the `.nex`, which takes seconds.  `release.sh`
-needs the IPS, builds the `.nex` as well as the tape and snapshot, and, if
-ZEsarUX is available, plays it for a minute (`nx_smoke.py`: the game must
-start, its scroll must move, and the MSX2 graphics must be in).  The
+builds the `.nex` as well as the tape and snapshot, and, if ZEsarUX is
+available, plays it for a minute (`nx_smoke.py`: the game must start, its
+scroll must move, and the stage graphics must be in).  The
 lockstep checks of section 4 cover Konami's logic, which the two builds
 share.
 
