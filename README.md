@@ -211,11 +211,12 @@ The Next build needs nothing more than the ROM. In `spec/`:
 sh nxbuild.sh nemesis.nex     # the Spectrum Next build
 ```
 
-Its graphics are in `spec/nxgfx/` (one file per stage, the title logo, and
-the data bytes it changes in Konami's tables) and its redrawn enemies in
-`spec/nx_art.py`. `NEM_ARC_SPR=0` leaves out the redrawn enemies drawn as
-sprites, `NEM_ARC_CHR=0` those Konami draws with characters (the fans,
-saucers, turrets and capsules); both are in by default.
+Its graphics are in `spec/nxgfx/`: the character pool (`pool.bin`, every
+stage's background characters and the enemies Konami draws with characters,
+and `maps.bin`, which says which block each stage's characters use), a file
+per stage for its sprites and palette, the title logo, and the data bytes it
+changes in Konami's tables. The enemies drawn as sprites are in
+`spec/nx_art.py`; `NEM_ARC_SPR=0` leaves them out (they are in by default).
 `release.sh` makes the `.nex` as well as the tape and snapshot; if ZEsarUX
 is on the PATH (or named by the `ZESARUX` environment variable), it also
 plays the `.nex` for a minute to check that it starts.

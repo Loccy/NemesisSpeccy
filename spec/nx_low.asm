@@ -17,10 +17,8 @@
     device zxspectrum128
     include "nx_syms.inc"
 
-; (0x3D00-0x3EFF and 0x3F80-0x3FFF: free; the ULA renderer's erase lists and
-; corrected attribute list were there)
-LO_GSET     equ 0x3F00          ; per slot: moved with the scroll this tick (lo_gnd)
-LO_GND      equ 0x3F20          ; the same, for the tick just run
+LO_GSET     equ 0x3300          ; per slot: moved with the scroll this tick (lo_gnd)
+LO_GND      equ 0x3320          ; the same, for the tick just run
 MAPK        equ 0xED00-0x3100   ; Konami's play-area map (22 rows of 32)
 OBJ_MAX     equ 22
 
@@ -207,7 +205,7 @@ lo_chars:
     ld (iy+2),a
     ld a,(ix+0x0b)
     ld (iy+7),a
-    push hl                     ; its frame (byte 12): LO_OFRM (lo_artch)
+    push hl                     ; its frame (byte 12): LO_OFRM (lo_pconv)
     ld a,(lo_nobj)
     add a,LO_OFRM&0xff
     ld l,a
@@ -404,9 +402,7 @@ lo_draw:                        ; (the ULA renderer's hook; unused with Layer 2)
     include "nx_l2.asm"
 
 lo_objs:    ds OBJ_MAX*8
-    align 32
 lo_pats:    ds OBJ_MAX*32       ; 1-bit patterns, TMS order
-lo_cols:    ds OBJ_MAX*32       ; their colour bytes, the same order
 lo_end:
     assert lo_end <= LO_SPAT
 

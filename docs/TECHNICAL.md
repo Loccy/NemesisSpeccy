@@ -1172,12 +1172,13 @@ without the Next.  The result is `nemesis_next.sna` (never `nemesis.sna`,
 so `release.sh` cannot package it by mistake).  sjasmplus then assembles
 `nx_low.asm`, which includes `nx_l2.asm`, against that build's symbols
 (`nx_syms.inc`), as a separate 16K block.  `nx_pack.py` packs the graphics
-(9.5) from `spec/nxgfx/` and the redrawn enemies (9.6), `sna2nex.py` packs
-the snapshot, the block and the graphics into a `.nex` (format V1.2), and
-`enh_patch.py` puts the data bytes of `spec/nxgfx/patches.txt` into it.  The
-build needs only the ROM.  Two build switches, read by `nx_pack.py`, leave
-out the redrawn enemies: `NEM_ARC_SPR=0` those drawn as sprites,
-`NEM_ARC_CHR=0` those Konami draws with characters.
+(9.5) from `spec/nxgfx/` and the redrawn sprite enemies (9.6),
+`sna2nex.py` packs the snapshot, the block and the graphics into a `.nex`
+(format V1.2), and `enh_patch.py` puts the data bytes of
+`spec/nxgfx/patches.txt` into it.  The build needs only the ROM.  A build
+switch, read by `nx_pack.py`, leaves out the redrawn enemies drawn as
+sprites: `NEM_ARC_SPR=0`.  (Those Konami draws with characters are part of
+the character pool, 9.5.)
 
 ### 9.2 Memory and paging
 
@@ -1189,8 +1190,17 @@ out the redrawn enemies: `NEM_ARC_SPR=0` those drawn as sprites,
   table at 0100.
 * Layer 2's two screens are banks 9-11 and 13-15, flipped by NEXTREG 12h
   where the 128K flips its screens.
-* Banks 16-31 hold the graphics (9.5) and the redrawn enemies (9.6), banks
-  32-37 the character pool (9.3).
+* Banks 16-31 hold the stage files, the fire copies and the redrawn sprite
+  enemies (9.5, 9.6), bank 32 the character pool's maps and banks 33-37 its
+  blocks (9.3).
+* Bank 8's buffers sit above its code (which ends below 2000): Konami's
+  sprite patterns as last sent and the character enemies' 4-bit patterns
+  (2000-32FF), the scenery objects' flags (3300-333F), the changed-pattern
+  flags, line-coloured sprites, the volcano rocks' pattern and the sprite
+  attributes (3440-3A5F), the stage's tables for our drawings and the
+  character enemies' palettes and frames (3B00-3CA5), the character
+  enemies' colour bytes (3D00-3FBF), and the stage's palette and the
+  pool's working bytes (3FC0-3FF1).
 * The CPU runs at 28 MHz (NEXTREG 07h).  The game runs at 30 ticks a
   second, the original's rate on a 60 Hz MSX (two frames a tick at
   59.94 Hz): screens are at most 2, 2, 1 frames apart in turn (`lo_tick`,
@@ -1208,23 +1218,40 @@ out the redrawn enemies: `NEM_ARC_SPR=0` those drawn as sprites,
 
 * **The background** is drawn on Layer 2, a byte a pixel, only the cells
   that changed, as on the 128K.  During a stage a cell is copied from the
-  **character pool** (`lo_pcell`): every character a stage's load writes
-  whole, as an 8 by 8 block of Layer 2 pixels, each different block once
-  (about 1,260 blocks in banks 33-37, made by `nx_pack.py`), with a map per
-  stage (bank 32: the block of each character of each third).  A pixel is a
-  Layer 2 palette entry: the stage's 16 colours at 0-15, and for our
-  drawings of the enemies Konami draws with characters (9.6) their own
+  **character pool** (`lo_pcell`, `lo_cmap`): every character of every
+  stage as an 8 by 8 block of Layer 2 pixels, each different block once
+  (1,261 blocks in banks 33-37), with a map per stage (bank 32: the block
+  of each character of each third; bit 7 of a block's number marks a block
+  of our drawings).  The pool is the Next's character artwork (9.5).  A
+  pixel is a Layer 2 palette entry: the stage's 16 colours at 0-15, and
+  our drawings of the enemies Konami draws with characters (9.6) their own
   palettes at 20h-CFh.  A cell is drawn instead from the port's copies of
   the MSX pattern and colour tables, each pixel its MSX colour number, for
   a character Konami has written to since the stage loaded (its bit in
   `tile_cdirty`/`tile_pdirty`, cleared by `lo_apply`; the Next leaves out
   the shared code's marking of every tile at a stage change, and its row
-  hook marks rows Konami updates), one the map has no block for, the stars
-  (F6, F7, which twinkle), during Konami's screen dissolve (`dz_on`), and
-  on screens that are not a stage.  Copying a block is 8 `ldi` a line,
-  each line's address set afresh (in column 31 the copies carry into the
-  next line's address).  `nx_smoke.py` checks that the pool is in use and
-  that the Next's code bank still holds its code as built.
+  hook marks rows Konami updates), one the map has no block for (the
+  stars, F6 and F7, which twinkle), and on screens that are not a stage.
+  The ship's ordinary shot is characters F8-FB (one for each 2-pixel
+  step), which Konami writes into the map and takes out again, so the pool
+  draws it like the scenery.  On the screen before each stage
+  only the bottom third, the status line, comes from the pool (`lo_pool`
+  2); the other two thirds hold Konami's font for the turn message.
+  Copying a block is 8 `ldi` a line, each line's address set afresh (in
+  column 31 the copies carry into the next line's address).  `nx_smoke.py`
+  checks that the pool is in use and that the Next's code bank still holds
+  its code as built.
+* **Konami's screen dissolve** (after the stage 8 brain and, when its
+  secret is not found, the stage 7 boss; 6.6) eats the colour and pattern tables over about 35 ticks.  On
+  the Next it is a fade to black instead (`lo_fadestep`): from its first
+  tick (`dz_on`) to the next stage load the pool draws every character
+  whatever Konami has written, and every 4 screens drawn the Layer 2
+  palette goes a step darker, each colour component less one (seven steps
+  to black), for the stage's 16 colours and palettes 2-12.  What Konami's
+  dissolve spares, the status line (rows 22-23) and the stars (characters
+  F6 on), `lo_cell` draws in entries E0h-EFh, which hold the stage's 16
+  colours unfaded.  Konami's logic runs as before, so the timing is
+  unchanged; the next stage's load puts the palette back.
 * **The smooth scroll.**  When Konami's map moves a character, the screen is
   shown 7 pixels to the right of it, and the gap closes by a pixel a tick
   through Layer 2's X scroll (NEXTREG 16h).  Layer 2 is used as a circular
@@ -1245,7 +1272,17 @@ out the redrawn enemies: `NEM_ARC_SPR=0` those drawn as sprites,
 * **Enemies drawn with characters** (Konami's objects with byte 11 set) are
   taken out of the map copy, the background put back under them, and drawn
   as sprites at their pixel positions.  Only rows 0-21 are handled: the map
-  has no background for the status rows.
+  has no background for the status rows.  An enemy four characters in size
+  is made from the pool (`lo_pconv`): its frame (the object's byte 12; its
+  characters on the screen can lag a tick behind it) gives its four
+  characters (Konami's frame table, 5:91D1, copied into bank 26), and each
+  character's block, in the third it is drawn in, becomes a quarter of a
+  4-bit sprite pattern.  Where a block is one of our drawings, the
+  enemy's pixels in the stage's colours are left transparent and the
+  sprite takes the drawing's palette; otherwise each pixel keeps its value.
+  A character Konami has written to since the stage loaded, or one with no
+  block, and the two-character enemies, are converted from the copies
+  instead (`lo_conv`).
 * **The Big Core** (the boss of stages 1-6) is drawn with characters,
   11 by 8, and Konami moves it a whole character at a time: in from the
   right one step every 8 ticks, then up or down a step every 3 to 5 ticks
@@ -1297,31 +1334,46 @@ ROM once (3 November 2026, `local/tools/msx2/msx2_extract.py`: it applies
 the IPS to `nem.rom` and replays the patched cartridge's stage loader for
 each of the 8 stages with `extract.py`'s replay of Konami's, plus the
 patch's status-bar font routine and its sprite load, recording which bytes
-of video memory the load writes) and are kept in `spec/nxgfx/`, ours to
-change since:
+of video memory the load writes) and kept in `spec/nxgfx/`.  Later the
+same day the characters became a single set of artwork, the character
+pool (9.3): `local/tools/pool/make_pool.py`, run once, made it from the
+stage files and our drawings of the character enemies (9.6), exactly as
+the build had been making it, and cut the stage files' characters down to
+those Konami rewrites in play.  `spec/nxgfx/` holds, ours to change:
 
+* `pool.bin`: the character pool, 8 by 8 blocks of Layer 2 pixels, a byte
+  a pixel (a stage colour 0-15, or palette * 16 + colour for our drawings),
+  each different block once;
+* `maps.bin`: 2K a stage, two bytes for each character of each third: the
+  8K page of its block in the `.nex` (66 on: bank 33 on, 128 blocks a page)
+  and its number in that page; page 0: none;
 * `stageN.bin` (N = 1-8, 16K each): video memory 0000-37FF as the stage
-  load leaves it, the palette as Next 9-bit colours, the sprite line-colour
-  tables, and a write mask, a bit per byte;
+  load leaves it, now only for the sprite patterns and the stars
+  (characters F6 and F7, which Konami rewrites in play), the palette as
+  Next 9-bit colours, the sprite line-colour tables, and a
+  write mask, a bit per byte;
 * `logo.bin`: the title logo and its palette;
 * `patches.txt`: data bytes in Konami's own ranges (the font and its
   colours, object and shot colours, the bosses' colour tables, map
   pieces), as bank, address, Konami's byte and ours.
 
-`nx_pack.py` packs them into banks 16-31 with each stage's sprites in fire
-colours (9.6) and the redrawn enemies.  A `.nex` built this way was checked
-byte for byte against one built from the patch's IPS before the IPS was
-dropped from the build.
+`nx_pack.py` packs them into banks 16-37 with each stage's sprites in fire
+colours (9.6) and the redrawn sprite enemies, marking the maps' blocks of
+our drawings (bit 7 of the number).  A `.nex` built from the stage files
+was checked byte for byte against one built from the patch's IPS before
+the IPS was dropped from the build, and the pool and maps against the
+build that made them before they became the artwork.
 
 After each stage load, `lo_stage` copies the masked bytes into the port's
-tables, as the patch's own load would have written them, and sets the
-palette; bytes the load does not write keep what earlier screens left,
-as they do on the MSX2.  The screen before each stage (at a new game and
-after a life is lost) shows only the status line, which Konami loads
-there; `lo_prestage` gives it the coming stage's palette and that stage's
-bottom third, so the status line is not shown in the TMS9918's graphics
-until the stage loads.  It leaves the other two thirds alone: they still
-hold the font for the two-player turn message.
+tables, as the patch's own load would have written them, sets the palette
+and turns the pool on; bytes the load does not write keep what earlier
+screens left, as they do on the MSX2.  The screen before each stage (at a
+new game and after a life is lost) shows only the status line, which
+Konami loads there; `lo_prestage` gives it the coming stage's palette and
+draws its bottom third from the coming stage's pool, so the status line is
+not shown in the TMS9918's graphics until the stage loads.  It leaves the
+other two thirds alone: they still hold the font for the two-player turn
+message.
 
 The patch's title logo is not made of characters: it is a 16-colour
 bitmap (256 by 48 pixels, stored as it is in the patched ROM at 30000h,
@@ -1383,34 +1435,36 @@ for the ship and some capsules, drawn as 4-bit patterns.
   materialises in columns (Konami's type 8, patterns 47-50, after the
   arcade's growing ring) and its turrets, whose frames have the pixels of
   stage 1's, in a blue tint (palette 11).
-  `local/tools/arcade/gen_art.py` made the drawings from the arcade sprite
-  sheets once; they are kept as data in `spec/nx_art.py`, so the build does
-  not need the sheets.  `nx_pack.py` stores them in bank 25's second 8K
-  (page 51) and their tables in bank 26's (page 53): the palettes, and for
-  each stage a map of Konami's patterns to our drawings and a table of
-  character enemies' frames (Konami's frame number, palette, drawing).  A
-  stage has an enemy's drawings where all that enemy's patterns or
-  characters are stage 1's in both Konami's load and ours (so no enemy is
-  drawn half ours, half Konami's); the turrets go by Konami's table of
-  their frames (2:9205), a set taking stage 1's drawings where its frames
-  have their pixels, in stage 1's colours, the stage's tint, or red for
-  those that leave a capsule (red only where the stage's ordinary turrets
-  are ours).  On the Next, `lo_apply` loads the palettes and the stage's
-  tables (`LO_OVR`, `LO_NCH`, `LO_CHT`, `LO_APAL`, in bank 8 at 3B00-3C67);
+  `local/tools/arcade/gen_art.py` made the sprite drawings from the arcade
+  sprite sheets once; they are kept as data in `spec/nx_art.py`, so the
+  build does not need the sheets.  `nx_pack.py` stores them in bank 25's
+  second 8K (page 51) and their tables in bank 26's (page 53): the
+  palettes, Konami's frame table (9.3), and for each stage a map of
+  Konami's patterns to our drawings.  A stage has an enemy's sprite
+  drawings where all that enemy's patterns are stage 1's in both Konami's
+  load and ours (so no enemy is drawn half ours, half Konami's).  The
+  drawings of the enemies Konami draws with characters are in the
+  character pool (9.5): the quarters of each frame's drawing, in its
+  palette, as the blocks of that frame's characters, with the character's
+  own background where the drawing is transparent, in each stage and third
+  where the characters were stage 1's.  The turrets were placed by Konami's
+  table of their frames (2:9205), a set taking stage 1's drawings where
+  its frames had their pixels, in stage 1's colours, the stage's tint, or
+  red for those that leave a capsule (red only where the stage's ordinary
+  turrets were ours).  On the Next, `lo_apply` loads the palettes and the
+  stage's tables (`LO_OVR`, `LO_APAL`, in bank 8 at 3B00-3C67);
   `lo_sprflip` sends our drawing in place of a mapped Konami pattern, and
   `lo_arc` (from `lo_ecol`) gives any sprite showing one its palette.
-  `lo_chars` notes each character enemy's frame (the object's byte 12;
-  its characters on the screen can lag a tick behind it); `lo_artch` (from
-  `lo_sprites`) gives a lifted-out character enemy whose frame is in the
-  table our drawing instead of the conversion of its characters, and `.co`
-  its palette (`LO_OPAL`).  Those Konami moves with the scenery (the
-  turrets, the capsules) stay in the map, and the character pool holds our
-  drawings for their characters (9.3): in each third where the characters
-  are that enemy's, the drawing's quarters in its palette, the character's
-  own background where the drawing is transparent.  `lo_marcador` clears the
-  tables for screens that are not a stage.  Konami's colour changes (a flash)
-  do not show on our drawings, and the capsules' glint (Konami animates
-  their characters) is not drawn.
+  Character enemies Konami moves with the scenery (the turrets, the
+  capsules) stay in the map and are drawn from the pool as the scenery is;
+  those lifted out are made from the pool too (`lo_pconv`, 9.3), and `.co`
+  gives them their palette (`LO_OPAL`).  So an enemy looks the same in the
+  map and lifted out, including frames Konami builds from other frames'
+  characters (frames 29-2C, from the fans').  `lo_marcador` clears the
+  tables for screens that are not a stage.  Konami's colour changes (a
+  flash) do not show on our drawings, and the capsules' glint (Konami
+  animates their characters) is not drawn.
+* Konami's screen dissolve is a fade to black (9.3).
 * The patch recolours the Big Core at each boss (it switches pattern
   table and rewrites colours there); the Next keeps the stage's colours
   for it, which were liked better.
@@ -1420,7 +1474,9 @@ for the ship and some capsules, drawn as 4-bit patterns.
 `verify.sh` ends by building the `.nex`, which takes seconds.  `release.sh`
 builds the `.nex` as well as the tape and snapshot, and, if ZEsarUX is
 available, plays it for a minute (`nx_smoke.py`: the game must start, its
-scroll must move, and the stage graphics must be in).  The
+scroll must move, the stage graphics must be in, the background must be
+drawn from the character pool, and the Next's code bank must still hold
+its code as built).  The
 lockstep checks of section 4 cover Konami's logic, which the two builds
 share.
 

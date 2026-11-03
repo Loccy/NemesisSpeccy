@@ -44,25 +44,33 @@ BPAT        equ 104             ; the boss: 24 patterns, 104-127
 L2_BANK0    equ 9
 L2_BANK1    equ 13
 
-; Our own drawings of Konami's enemies, after the arcade game's (nx_pack.py,
-; art_page(): the drawings in 8K page LO_ART, their tables in LO_TAB), in
-; stages whose patterns or characters are stage 1's; the stage's tables
-; copied by lo_apply.
+; Our own drawings of Konami's sprite enemies, after the arcade game's
+; (nx_pack.py, art_page(): the drawings in 8K page LO_ART, their tables in
+; LO_TAB), in stages whose patterns are stage 1's; the stage's table copied by
+; lo_apply.  The character enemies are drawn from the stage's character pool
+; (lo_pconv).
 LO_ART      equ (25*2+1)
 LO_TAB      equ (26*2+1)
-ART_CHR     equ 0x1400          ; LO_ART: the character enemies' drawings
 TAB_PAL     equ 0x0000          ; LO_TAB: sprite palettes 2-12, entries 2-15
 TAB_APAL    equ 0x0180          ; the sprite drawings' palette bytes
-TAB_STAGE   equ 0x0200          ; 512 bytes a stage: LO_OVR, LO_NCH, LO_CHT
+TAB_STAGE   equ 0x0200          ; 512 bytes a stage: LO_OVR
+TAB_FRAMES  equ 0x1200          ; Konami's frames' four characters (MSX 5:91D1)
 NART        equ 40              ; sprite drawings at most
-NCHART      equ 48              ; character enemies' frames a stage at most
 LO_OVR      equ 0x3B00          ; Konami pattern -> our drawing (1 on; 0 none)
-LO_NCH      equ 0x3B40          ; the character enemies' frames drawn as ours
-LO_CHT      equ 0x3B41          ; and for each: Konami's frame, palette byte, drawing
 LO_APAL     equ 0x3C40          ; the sprite drawings' palette bytes (palette * 16,
                                 ; + 1: the next palette for those leaving a capsule)
-LO_OPAL     equ 0x3C70          ; the character enemies recorded: palette offsets (lo_artch)
+LO_OPAL     equ 0x3C70          ; the character enemies recorded: palette offsets (lo_pconv)
 LO_OFRM     equ 0x3C90          ; and their frames (byte 12; lo_chars)
+lo_cols     equ 0x3D00          ; lo_chars: the recorded characters' colour bytes
+                                ; (OBJ_MAX * 32, TMS order; lo_pats has the patterns)
+LO_PAL16    equ 0x3FC0          ; the stage's 16 colours (lo_fadestep)
+lo_pch      equ 0x3FE0          ; lo_pconv: the frame's four characters,
+lo_pblk     equ 0x3FE4          ; their blocks (page, number),
+lo_popal    equ 0x3FEC          ; the record's LO_OPAL entry,
+lo_pours    equ 0x3FEE          ; bit 7: a block of our drawings,
+lo_ppal     equ 0x3FEF          ; its palette * 16
+lo_fade     equ 0x3FF0          ; lo_fadestep: screens drawn in the dissolve,
+lo_flv      equ 0x3FF1          ; the level
 
 lo_npend:   db 0                ; character enemies' patterns to send
 lo_ppend:   db 0                ; some Konami pattern changed
@@ -254,6 +262,11 @@ lo_apply:
     pop ix
     ld hl,0x5800                ; the palette
     call lo_setpal
+    ld de,LO_PAL16              ; (and kept for lo_fadestep)
+    ld bc,32
+    ldir
+    xor a
+    ld (lo_fade),a
     ld hl,0x5820                ; the patch's sprite line-colour tables
     ld de,lo_ltab
     ld bc,144
@@ -288,17 +301,14 @@ lo_apply:
     ld h,a
     ld l,0
     ld de,LO_OVR
-    ld bc,65+NCHART*3
+    ld bc,64
     ldir
     ld hl,0x4000+TAB_APAL       ; the sprite drawings' palette bytes
     ld de,LO_APAL
     ld bc,NART
     ldir
     call lo_ovflag              ; patterns 30-63 sent again, as ours
-    ld a,(lo_part)              ; the character pool, after a whole load
-    or a
-    jr nz,.restore
-    ld a,(lo_spage)             ; its map: bank 32, 2K a stage
+    ld a,(lo_spage)             ; the character pool             ; its map: bank 32, 2K a stage
     sub ENH_BANK*2
     rrca                        ; stage - 1
     ld b,a
@@ -323,9 +333,9 @@ lo_apply:
     res 7,l
     inc l
     djnz .tz
-    ld a,1
+    ld a,(lo_part)              ; 1: the whole screen; 2: the bottom third
+    inc a
     ld (lo_pool),a
-.restore:
     db 0xED,0x91,0x52,0x0A
     db 0xED,0x91,0x53,0x0B
     ld a,1
@@ -370,13 +380,16 @@ lo_apply.p28:                   ; 28 bytes at HL from entry C (HL kept)
     pop hl
     ret
 
-; None of our drawings (LO_OVR, LO_NCH clear), and Konami's patterns 30-63
-; sent again (lo_ovflag; lo_sprflip: as ours or Konami's).  Preserves DE.
+; None of our drawings (LO_OVR clear, the character pool off, no fade), and
+; Konami's patterns 30-63 sent again (lo_ovflag; lo_sprflip: as ours or
+; Konami's).  Preserves DE.
 lo_ovclr:
     xor a
     ld (lo_pool),a
+    ld a,29
+    ld (lo_fade),a
     ld hl,LO_OVR
-    ld b,65
+    ld b,64
 .c:
     ld (hl),0
     inc l
@@ -604,6 +617,7 @@ lo_rowmark:
 
 ; The main loop, in place of render_frame: draw the hidden screen.
 lo_render:
+    call lo_fadestep
     ld a,(lo_org)               ; this screen's Layer 2 X scroll (nx_frame sets it
     add a,a                     ; when the screen is shown): origin * 8 - offset
     add a,a
@@ -668,6 +682,115 @@ lo_render:
     call lo_cells
     call lo_sprites
     jp unborrow_page            ; Konami's page back at C000
+
+; Konami's screen dissolve (dz_on: after the stage 7 boss and the stage 8
+; brain; it eats the colour and pattern copies in about 35 ticks): the pool
+; goes on drawing the scenery (lo_cmap) while Layer 2's colours fade to black,
+; a step every 4 screens drawn: the stage's 16 (entries 0-15, from LO_PAL16)
+; and palettes 2-12 (entries 22h-CFh, from LO_TAB), each component less the
+; level.  On the dissolve's first screen the stage's 16 go to entries E0-EF as
+; they are and every cell is drawn again: lo_cell puts what Konami spares
+; (the status line, the stars) there.  lo_apply puts it all back.
+lo_fadestep:
+    ld a,(dz_on)
+    or a
+    ret z
+    ld hl,lo_fade
+    ld a,(hl)
+    cp 29
+    ret nc
+    inc (hl)
+    or a
+    jr z,.first
+    ld c,a
+    and 3
+    ret nz
+    ld a,c
+    rrca
+    rrca
+    and 7
+    ld (lo_flv),a
+    db 0xED,0x91,0x43,0x10      ; Layer 2's first palette
+    db 0xED,0x91,0x40,0x00
+    ld hl,LO_PAL16
+    ld b,16
+    call .ent
+    db 0xED,0x91,0x52,LO_TAB
+    ld hl,0x4000+TAB_PAL
+    ld c,0x22
+.pl:
+    ld a,c
+    db 0xED,0x92,0x40
+    push bc
+    ld b,14
+    call .ent
+    pop bc
+    ld a,c
+    add a,0x10
+    ld c,a
+    cp 0xD2
+    jr c,.pl
+    db 0xED,0x91,0x52,0x0A
+    db 0xED,0x91,0x43,0x00
+    ret
+.first:
+    ld (lo_flv),a
+    db 0xED,0x91,0x43,0x10
+    db 0xED,0x91,0x40,0xE0
+    ld hl,LO_PAL16
+    ld b,16
+    call .ent
+    db 0xED,0x91,0x43,0x00
+    jp dirty_all
+.ent:                           ; B colours at HL (moved on), each less lo_flv
+    push bc
+    ld a,(lo_flv)
+    ld c,a
+    ld a,(hl)                   ; RRRGGGBB
+    inc hl
+    ld d,a
+    rlca
+    rlca
+    rlca
+    and 7
+    call .dn
+    rrca
+    rrca
+    rrca
+    ld e,a                      ; R
+    ld a,d
+    rrca
+    rrca
+    and 7
+    call .dn
+    add a,a
+    add a,a
+    or e
+    ld e,a                      ; R, G
+    ld a,(hl)                   ; the second byte: B's low bit in bit 0
+    rra
+    ld a,d
+    rla
+    and 7
+    call .dn
+    ld b,a
+    srl a
+    or e
+    db 0xED,0x92,0x44
+    ld a,(hl)
+    inc hl
+    and 0xFE
+    srl b
+    adc a,0
+    db 0xED,0x92,0x44
+    pop bc
+    djnz .ent
+    ret
+.dn:
+    sub c
+    ret nc
+    xor a
+    ret
 
 ; 16 bytes (F6, F7) at HL against DE, copied; C set if they differed.
 lo_render.stc:
@@ -845,38 +968,39 @@ lo_colx:    db 0
 lo_cch:     db 0                ; the cell's character
 
 ; The stage's character pool (nx_pack.py, char_pool(): 8 x 8 blocks of Layer 2
-; pixels, a byte each; the stage's map in bank 32): lo_pool set by lo_apply
-; for a stage's whole load, cleared by lo_ovclr.  A character Konami has
-; written to since (its bit in tile_cdirty or tile_pdirty, cleared by
-; lo_apply; lo_rowmark sets tile_pdirty's for row updates), or one the map
-; has no block for, is drawn from the copies.
+; pixels, a byte each; the stage's map in bank 32, bit 7 of a block's number
+; set for a block of our drawings): lo_pool set by lo_apply, 1 for a stage's
+; whole load, 2 for the screen before a stage (the bottom third, the status
+; line, only), cleared by lo_ovclr.  A character Konami has written to since
+; (its bit in tile_cdirty or tile_pdirty, cleared by lo_apply; lo_rowmark
+; sets tile_pdirty's for row updates), or one the map has no block for, is
+; drawn from the copies.
 lo_pool:    db 0
 lo_mpage:   db 0                ; 8K page of the stage's map
 lo_mbh:     db 0                ; its high byte at 4000
 
-; lo_cell's cell (character lo_cch, third lo_third, HL its first pixel) from
-; the pool: Z if drawn.  MMU2 is page D's (13) on return.  Never during
-; Konami's screen dissolve (dz_on: after the stage 7 boss and the stage 8
-; brain), which eats the copies in chunks.
-lo_pcell:
+; Character C of third B: Z, A = its block's page, C = its number (bit 7: ours)
+; if the pool has one and Konami has not written to the character since the
+; stage load (or the dissolve is under way: dz_on, after the stage 7 boss and
+; the stage 8 brain, which eats the copies; the pool goes on showing the
+; scenery as lo_fadestep fades it); NZ otherwise.  MMU2 = the map's page.
+lo_cmap:
     ld a,(dz_on)
     or a
-    ret nz
-    push hl
-    ld a,(lo_third)
+    jr nz,.map
+    ld a,b
     add a,a
     add a,a
     add a,a
     add a,a
     add a,a
-    ld b,a                      ; third * 32
-    ld a,(lo_cch)
-    ld c,a
+    ld e,a                      ; third * 32
+    ld a,c
     rrca
     rrca
     rrca
     and 31
-    or b
+    or e
     ld l,a
     ld h,tile_cdirty>>8
     ld a,(hl)
@@ -886,19 +1010,19 @@ lo_pcell:
     ld a,c
     and 7
     inc a
-    ld b,a
+    ld d,a
     ld a,e
 .sh:
     rrca
-    djnz .sh                    ; the character's bit to bit 7
+    dec d
+    jr nz,.sh                   ; the character's bit to bit 7
     rla
     jr c,.no                    ; written since: the copies
+.map:
     ld a,(lo_mpage)
     db 0xED,0x92,0x52
-    ld a,(lo_third)
-    add a,a
-    ld b,a
     ld a,(lo_mbh)
+    add a,b
     add a,b
     ld h,a
     ld a,c
@@ -911,13 +1035,36 @@ lo_pcell:
     inc l
     ld c,(hl)
     or a
-    jr z,.none
+    jr z,.no
+    cp a                        ; Z
+    ret
+.no:
+    or 1                        ; NZ
+    ret
+
+; lo_cell's cell (character lo_cch, third lo_third, HL its first pixel) from
+; the pool: Z if drawn.  MMU2 is page D's (13) on return.
+lo_pcell:
+    ld a,(lo_pool)
+    dec a
+    jr z,.all
+    ld a,(lo_third)
+    cp 2
+    ret nz                      ; the screen before a stage: the bottom third only
+.all:
+    push hl
+    ld a,(lo_third)
+    ld b,a
+    ld a,(lo_cch)
+    ld c,a
+    call lo_cmap
+    jr nz,.none
     db 0xED,0x92,0x52
-    ld a,c                      ; 4000 + number * 64
+    ld a,c                      ; 4000 + number * 64 (bit 7 aside)
     rrca
     rrca
     ld l,a
-    and 0x3F
+    and 0x1F
     or 0x40
     ld h,a
     ld a,l
@@ -950,7 +1097,6 @@ lo_pcell:
     ret
 .none:
     db 0xED,0x91,0x52,13
-.no:
     pop hl
     or 1                        ; NZ
     ret
@@ -1019,6 +1165,40 @@ lo_cell:
     ld a,(lo_title)
     or a
     jp nz,lo_logocell
+    ld a,(dz_on)                ; the dissolve: what Konami spares (the status
+    or a                        ; line, the stars) in Layer 2's entries E0-EF,
+    jr z,.draw                  ; which lo_fadestep does not fade
+    ld a,(lo_cch)
+    cp 0xF6
+    jr nc,.keep
+    ld a,(lo_third)
+    cp 2
+    jr nz,.draw
+    ld a,d
+    cp 6
+    jr c,.draw
+.keep:
+    push hl
+    call .draw
+    pop hl
+    ld c,8
+.kl:
+    push hl
+    ld b,8
+.kp:
+    ld a,(hl)
+    cp 0x10
+    jr nc,.kn
+    or 0xE0
+    ld (hl),a
+.kn:
+    inc l
+    djnz .kp
+    pop hl
+    inc h
+    dec c
+    jr nz,.kl
+    ret
 .draw:
     ld a,(lo_pool)              ; from the character pool if it can
     or a
@@ -1308,8 +1488,8 @@ lo_sprites:
     ld (lo_ci),a
 .cp:
     push bc
-    call lo_artch               ; one of our drawings,
-    call nz,lo_conv             ; or Konami's characters
+    call lo_pconv               ; from the character pool,
+    call nz,lo_conv             ; or from the copies
     ld bc,32
     add ix,bc
     add iy,bc
@@ -1382,7 +1562,7 @@ lo_sprites:
     jr nc,.cy
     inc b
 .cy:
-    ld a,c                      ; palette offset (0: as drawn; lo_artch), X bit 8
+    ld a,c                      ; palette offset (0: as drawn; lo_pconv), X bit 8
     sub 64
     add a,LO_OPAL&0xff
     ld l,a
@@ -1621,13 +1801,18 @@ lo_arc:
     or 1                        ; NZ
     ret
 
-; lo_sprites, for character enemy record lo_cr (moved on): if its frame (the
-; object's byte 12, LO_OFRM: what Konami draws or is about to draw; its
-; characters on the screen can lag a tick behind, part old, part new) is one
-; of this stage's (LO_CHT), our drawing at DE (moved on 128) and Z; NZ
-; otherwise.  LO_OPAL + the record's number: the palette offset (0, or the
-; drawing's).  Preserves IX, IY.
-lo_artch:
+; lo_sprites, for character enemy record lo_cr (moved on): its four
+; characters as a 4-bit pattern at DE (moved on 128) from the stage's
+; character pool, and Z, if the pool is on for the whole screen, the enemy is
+; four characters and the pool has a block for each that Konami has not
+; written to since (lo_cmap); NZ otherwise (lo_conv: from the copies).  Its
+; frame (the object's byte 12, LO_OFRM: what Konami draws or is about to
+; draw; its characters on the screen can lag a tick behind, part old, part
+; new) gives the characters (TAB_FRAMES).  An enemy with a block of our
+; drawings (bit 7 of the number) loses the stage's colours (pixels below 20h)
+; and gets its palette (LO_OPAL + the record's number: palette * 16; 0
+; otherwise); the rest keep their pixels.  Preserves IX, IY.
+lo_pconv:
     push ix
     ld ix,(lo_cr)
     ld hl,8
@@ -1641,71 +1826,181 @@ lo_artch:
     ld hl,LO_OPAL
     add hl,bc
     ld (hl),b
-    push hl
+    ld (lo_popal),hl
+    ld a,(lo_pool)
+    dec a
+    jp nz,.no
     ld a,(ix+7)                 ; four characters?
     dec a
-    jr nz,.no
+    jp nz,.no
+    push de
     ld a,c
     add a,LO_OFRM&0xff
     ld l,a
     ld h,LO_OFRM>>8
-    ld a,(hl)                   ; its frame
-    call lo_isart
-    jr z,.hit
-.no:
-    pop hl
-    pop ix
-    or 1                        ; NZ
-    ret
-.hit:
-    inc hl
-    ld b,(hl)                   ; the palette byte
-    inc hl
-    ld c,(hl)                   ; the drawing
-    pop hl                      ; LO_OPAL + the record's number
-    ld (hl),b
-    ld a,c                      ; 4000 + ART_CHR + drawing * 128
-    rrca
-    ld h,a
-    and 0x80
-    ld l,a
-    xor h
-    ld h,a
-    ld bc,0x4000+ART_CHR
+    ld l,(hl)                   ; its frame: 4000 + TAB_FRAMES + frame * 4
+    ld h,0
+    add hl,hl
+    add hl,hl
+    ld bc,0x4000+TAB_FRAMES
     add hl,bc
-    db 0xED,0x91,0x52,LO_ART
-    ld bc,128
+    db 0xED,0x91,0x52,LO_TAB
+    ld de,lo_pch
+    ld bc,4
     ldir
+    xor a
+    ld (lo_pours),a
+    ld (lo_ppal),a
+    ld hl,lo_pch
+    ld de,lo_pblk
+    ld b,a
+.q:                             ; B = 0-3: top left, top right, bottom left, right
+    push bc
+    push hl
+    push de
+    ld a,b                      ; its third
+    srl a
+    add a,(ix+2)
+    rrca
+    rrca
+    rrca
+    and 3
+    ld b,a
+    ld c,(hl)
+    call lo_cmap
+    pop de
+    pop hl
+    jp nz,.nq
+    ld (de),a
+    inc de
+    ld a,c
+    ld (de),a
+    inc de
+    ld a,(lo_pours)
+    or c
+    ld (lo_pours),a
+    inc hl
+    pop bc
+    inc b
+    ld a,b
+    cp 4
+    jr c,.q
+    ld a,(lo_pours)             ; below 20h: none (ours), or all
+    and 0x80
+    jr z,.t
+    ld a,0x20
+.t:
+    ld ixh,a
+    pop de
+    push de
+    ld hl,lo_pblk
+    ld b,0
+.cq:
+    push bc
+    push hl
+    push de
+    ld a,b                      ; DE + (B & 2) * 32 + (B & 1) * 4
+    and 1
+    add a,a
+    add a,a
+    bit 1,b
+    jr z,.c1
+    add a,64
+.c1:
+    add a,e
+    ld e,a
+    jr nc,.c2
+    inc d
+.c2:
+    ld a,(hl)
+    inc hl
+    db 0xED,0x92,0x52
+    ld a,(hl)                   ; 4000 + number * 64 (bit 7 aside)
+    rrca
+    rrca
+    ld l,a
+    and 0x1F
+    or 0x40
+    ld h,a
+    ld a,l
+    and 0xC0
+    ld l,a
+    ld c,8
+.cr:
+    push de
+    ld b,4
+.cb:
+    call .px
+    add a,a
+    add a,a
+    add a,a
+    add a,a
+    ld ixl,a
+    call .px
+    or ixl
+    ld (de),a
+    inc de
+    djnz .cb
+    pop de
+    ld a,e
+    add a,8
+    ld e,a
+    jr nc,.c3
+    inc d
+.c3:
+    dec c
+    jr nz,.cr
+    pop de
+    pop hl
+    inc hl
+    inc hl
+    pop bc
+    inc b
+    ld a,b
+    cp 4
+    jr c,.cq
+    ld a,(lo_pours)
+    rla
+    jr nc,.np
+    ld hl,(lo_popal)
+    ld a,(lo_ppal)
+    ld (hl),a
+.np:
+    pop hl
+    ld de,128
+    add hl,de
+    ex de,hl
     db 0xED,0x91,0x52,0x0A
     pop ix
     xor a                       ; Z
     ret
+.nq:
+    pop bc
+    pop de
+.no:
+    db 0xED,0x91,0x52,0x0A
+    pop ix
+    or 1                        ; NZ
+    ret
+.px:                            ; the next pixel at HL as a sprite nibble
+    ld a,(hl)
+    inc hl
+    cp ixh
+    jr c,.p0
+    cp 0x20
+    jr c,.pk
+    push af
+    and 0xF0
+    ld (lo_ppal),a
+    pop af
+.pk:
+    and 15
+    ret
+.p0:
+    xor a
+    ret
 lo_cr:      dw 0
 lo_ci:      db 0
-
-; A = Konami's frame of a character enemy: Z, HL at its LO_CHT entry, if this
-; stage draws it as ours.  Preserves BC, DE.
-lo_isart:
-    push bc
-    ld c,a
-    ld a,(LO_NCH)
-    ld b,a
-    inc b
-    ld hl,LO_CHT
-    jr .n
-.e:
-    ld a,(hl)
-    cp c
-    jr z,.y
-    inc hl
-    inc hl
-    inc hl
-.n:
-    djnz .e
-    or 1                        ; NZ
-.y:
-    pop bc
-    ret
 
 ; The Big Core (stages 1-6) drawn with sprites so that it moves smoothly.
 ; Konami draws its 11 x 8 characters into the map at (E785, E783), whole

@@ -1035,10 +1035,29 @@ of the same tree.
   its code bank, compared with the build, showed the cell's lines.  The
   smoke test now checks that the pool is in use and that the code bank is
   intact.
+* **One set of artwork.**  With the pool in place, the stage files still
+  held every character in the patch's two colours, and our drawings of the
+  character enemies were kept a second time as whole sprites for the
+  enemies lifted out of the map.  The pool and its maps are now the
+  committed artwork (made once by `local/tools/pool/make_pool.py`, byte for
+  byte as the build had been making them), and the stage files keep only
+  the sprites, the palette, the line-colour tables and the stars, the two
+  characters Konami rewrites in play (a third, F8, was first kept as one
+  whose colours Konami cycles; it is the ship's shot, which Konami only
+  places in the map, and was cut too).  Lifted-out enemies are made from the
+  pool's blocks, so an enemy looks the same in the map and out of it; they
+  came out identical to the previous build for every stage, frame and row,
+  apart from frames 29-2C, which Konami builds from the fans' characters
+  and which now show our fans' pieces instead of the patch's.  The screen
+  before each stage draws its status line from the pool.  Konami's screen
+  dissolve, which ate the two-colour copies, became a fade to black of the
+  Layer 2 palette over the same ticks, with the status line and stars kept
+  in an unfaded copy of the stage's colours, as Konami's dissolve spares
+  them.
 * **Stage 1's ground edge in brown.**  The patch draws the ground's lower
   edge (a dithered line of character 43) dark brown on magenta in stage 1
   but dark brown on the lighter brown in stage 4.  The browns looked
-  better; stage 1 is coloured as stage 4 (now in `spec/nxgfx/stage1.bin`).
+  better; stage 1 is coloured as stage 4 (now in the character pool).
 * **The Big Core moves smoothly.**  Konami moves it 8 pixels at a time,
   every 3 to 5 ticks; it is now drawn with sprites that glide towards the
   next step, which Konami has always decided by then.  On the way in, the
