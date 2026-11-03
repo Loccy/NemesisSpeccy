@@ -1021,6 +1021,20 @@ of the same tree.
   underneath.  The graphics were read from the patched ROM once and are now
   data in the repository, ours to change; a `.nex` built from them matched
   the IPS-built one byte for byte, and the build no longer needs the IPS.
+* **The character pool.**  To keep one set of artwork, the background is
+  now drawn from full-colour characters (a shared pool of 8 by 8 blocks
+  with a map per stage), with our drawings of the turrets and capsules in
+  it, so they stay in the scenery.  Two bugs on the way: the shared code
+  marks every tile as changed once a stage starts (for the 128K's
+  converter), so for most of a stage the Next took every character as
+  written by Konami and the pool was hardly used, which nothing showed
+  until a turret was seen in the patch's colours; and a block copied into
+  column 31 carried into the next line's address, so a cell at the bottom
+  of a third ran past FFFF into the Next's own code bank, which in play
+  brought up the title logo.  A snapshot taken in JNEXT found the second:
+  its code bank, compared with the build, showed the cell's lines.  The
+  smoke test now checks that the pool is in use and that the code bank is
+  intact.
 * **Stage 1's ground edge in brown.**  The patch draws the ground's lower
   edge (a dithered line of character 43) dark brown on magenta in stage 1
   but dark brown on the lighter brown in stage 4.  The browns looked

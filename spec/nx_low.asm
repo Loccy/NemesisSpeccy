@@ -5,23 +5,20 @@
 ; through the jump table at 0100.
 ;
 ; Smooth scrolling (nx_tick, plat_spec.asm): the play area is shown nx_off
-; pixels right of Konami's map.  Everything Konami draws in screen
-; coordinates must be drawn nx_off pixels left to stay put:
-;  * sprites: lo_tick copies Konami's attribute list (EC80) to lo_sat with
-;    each X so corrected, and the renderer draws from lo_sat;
-;  * enemies Konami draws with characters (E300 and E500 slots with byte 11
-;    set): lo_tick puts the background back in name_shadow under them and
-;    keeps their characters as 16x16 patterns, which lo_draw draws like
-;    sprites, before draw_sprites.
-; Objects Konami moves with the scroll (through se_corre_con_el_scroll_ocho,
-; 2:9251, hooked to lo_gnd) are left alone: they move with the scenery.
+; pixels right of Konami's map (Layer 2's scroll).  Konami's sprites are the
+; Next's hardware sprites (nx_l2.asm, lo_sprites); enemies Konami draws with
+; characters (E300 and E500 slots with byte 11 set): lo_tick puts the
+; background back in name_shadow under them and keeps their characters as
+; 16x16 patterns, drawn as sprites.  Objects Konami moves with the scroll
+; (through se_corre_con_el_scroll_ocho, 2:9251, hooked to lo_gnd) move with
+; the scenery: their sprites by lo_off, and enemies drawn with characters
+; are left in the map.
 
     device zxspectrum128
     include "nx_syms.inc"
 
-LO_SAT      equ 0x3F80          ; the corrected attribute list (low byte as EC80's)
-LO_ERASE0   equ 0x3D00          ; erase lists, 54 rects + end each
-LO_ERASE1   equ 0x3E00
+; (0x3D00-0x3EFF and 0x3F80-0x3FFF: free; the ULA renderer's erase lists and
+; corrected attribute list were there)
 LO_GSET     equ 0x3F00          ; per slot: moved with the scroll this tick (lo_gnd)
 LO_GND      equ 0x3F20          ; the same, for the tick just run
 MAPK        equ 0xED00-0x3100   ; Konami's play-area map (22 rows of 32)
@@ -113,112 +110,6 @@ lo_tick:
     ld (lo_nobj),a
     ld (lo_bon),a
     ret
-; lo_sat = Konami's list with each X moved left by lo_off, except for the
-; enemies moved with the scroll.  Entries 10-21 are E300's slots 0-11 and
-; 22-31 E500's 0-9 (monta_los_sprites, monta_el_segundo_grupo).
-lo_sat_build:
-    ld hl,0xEC80-0x3100
-    ld de,LO_SAT
-    ld c,0                      ; entry
-.ent:
-    ld a,(hl)                   ; Y
-    ld (de),a
-    cp 0xd0
-    jr z,.rest                  ; the end marker: the rest as it is
-    inc l
-    inc e
-    ; ground?
-    ld a,c
-    sub 10
-    jr c,.free
-    cp 12
-    jr c,.gidx
-    add a,4                     ; E500: slots 16-25
-.gidx:
-    push hl
-    add a,LO_GND&0xff
-    ld l,a
-    ld h,LO_GND>>8
-    ld a,(hl)
-    pop hl
-    or a
-    jr z,.free
-    ld a,(hl)                   ; X as it is
-    ld (de),a
-    inc l
-    inc e
-    ld a,(hl)                   ; pattern
-    ld (de),a
-    inc l
-    inc e
-    ld a,(hl)                   ; colour
-    ld (de),a
-    jr .next
-.free:
-    inc l                       ; colour first (the early clock bit)
-    inc l
-    ld b,(hl)
-    dec l
-    dec l
-    ld a,(lo_off)
-    neg
-    add a,(hl)                  ; X - off (carry: no borrow)
-    jr c,.xok
-    ld a,(lo_off)
-    or a
-    ld a,(hl)
-    jr z,.xok
-    bit 7,b
-    jr nz,.hide                 ; already 32 to the left: off the screen
-    set 7,b                     ; the early clock: 32 pixels to the left
-    add a,32
-    push hl
-    ld hl,lo_off
-    sub (hl)
-    pop hl
-.xok:
-    ld (de),a
-    inc l
-    inc e
-    ld a,(hl)                   ; pattern
-    ld (de),a
-    inc l
-    inc e
-    ld a,b                      ; colour
-    ld (de),a
-    jr .next
-.hide:
-    dec e
-    ld a,0xe0                   ; below the screen
-    ld (de),a
-    inc e
-    ld (de),a
-    inc l
-    inc e
-    ld a,(hl)
-    ld (de),a
-    inc l
-    inc e
-    ld a,(hl)
-    ld (de),a
-.next:
-    inc l
-    inc e
-    inc c
-    ld a,c
-    cp 32
-    jr c,.ent
-    ret
-.rest:
-    ld a,l
-    or a
-    ret z
-    ld a,(hl)
-    ld (de),a
-    inc l
-    inc e
-    jr .rest
-
 ; The enemies drawn with characters.  An object of E300 or E500 with byte 11
 ; set has its characters written into Konami's map during the tick, at the
 ; cell in bytes 30-31 (2x2, or 2 side by side when byte 11 > 1), and the
@@ -260,17 +151,9 @@ lo_chars:
     ld a,(ix+0x0b)
     or a
     ret z
-    ld a,(iy+0)                 ; moved with the scroll: left in the scenery,
-    ld (lo_ogf),a               ; unless it is drawn as one of ours (lo_isart:
-    or a                        ; a turret, a capsule), which moves with the
-    jr z,.free                  ; scenery as a sprite (lo_sprites, .co)
-    ld a,(ix+0x0b)
-    dec a
-    ret nz
-    ld a,(ix+0x0c)
-    call lo_isart
-    ret nz
-.free:
+    ld a,(iy+0)                 ; moved with the scroll: left in the scenery
+    or a                        ; (our drawings of the turrets and capsules are
+    ret nz                      ; in the character pool, lo_pcell)
     ld a,(ix+6)
     cp 0xf8
     ret nc
@@ -324,17 +207,12 @@ lo_chars:
     ld (iy+2),a
     ld a,(ix+0x0b)
     ld (iy+7),a
-    push hl                     ; its frame (byte 12): LO_OFRM (lo_artch),
-    ld a,(lo_nobj)              ; and whether it moves with the scenery:
-    add a,LO_OFRM&0xff          ; LO_OGND
+    push hl                     ; its frame (byte 12): LO_OFRM (lo_artch)
+    ld a,(lo_nobj)
+    add a,LO_OFRM&0xff
     ld l,a
     ld h,LO_OFRM>>8
     ld a,(ix+0x0c)
-    ld (hl),a
-    ld a,l
-    add a,LO_OGND-LO_OFRM
-    ld l,a
-    ld a,(lo_ogf)
     ld (hl),a
     pop hl
     xor a                       ; anything taken?
@@ -420,7 +298,6 @@ lo_chars:
     pop hl
     ret
 lo_took:    db 0
-lo_ogf:     db 0                ; this object moves with the scenery
 lo_best:    db 0                ; lo_patterns: the most pixels in a row so far,
 lo_bcol:    db 0                ; that row's colours,
 lo_rc:      dw 0                ; the character looked at,

@@ -2670,12 +2670,14 @@ stage_seen:
     ld (hl),a
     xor a
     ld (dz_on),a                ; a dissolve is over by now (0.107)
-    ld hl,tile_cdirty           ; all tiles: a full conversion...
-    ld b,96
+    ifndef NEXT                 ; (the Next draws from its copies and its pool,
+    ld hl,tile_cdirty           ; and takes these bits as Konami's writes since
+    ld b,96                     ; the stage load: nx_l2.asm, lo_pcell)
 .cd:
-    ld (hl),0xff
+    ld (hl),0xff                ; all tiles: a full conversion...
     inc l
     djnz .cd
+    endif
     ld h,TILE_PAGES+8           ; ...flagged for the renderer (bit 7 of the
     call .flag                  ; attribute) in each third
     ld h,TILE_PAGES+17

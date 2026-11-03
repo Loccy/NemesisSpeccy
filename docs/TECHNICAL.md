@@ -1189,7 +1189,8 @@ out the redrawn enemies: `NEM_ARC_SPR=0` those drawn as sprites,
   table at 0100.
 * Layer 2's two screens are banks 9-11 and 13-15, flipped by NEXTREG 12h
   where the 128K flips its screens.
-* Banks 16-31 hold the graphics (9.5) and the redrawn enemies (9.6).
+* Banks 16-31 hold the graphics (9.5) and the redrawn enemies (9.6), banks
+  32-37 the character pool (9.3).
 * The CPU runs at 28 MHz (NEXTREG 07h).  The game runs at 30 ticks a
   second, the original's rate on a 60 Hz MSX (two frames a tick at
   59.94 Hz): screens are at most 2, 2, 1 frames apart in turn (`lo_tick`,
@@ -1205,11 +1206,25 @@ out the redrawn enemies: `NEM_ARC_SPR=0` those drawn as sprites,
 
 ### 9.3 Drawing
 
-* **The background** is drawn on Layer 2 from the port's copies of the MSX
-  pattern and colour tables: each pixel is its MSX colour number, and the
-  Layer 2 palette's first 16 entries are the TMS9918's colours (or, with
-  the MSX2 graphics, the stage's palette).  Only the cells that changed are
-  drawn, as on the 128K.
+* **The background** is drawn on Layer 2, a byte a pixel, only the cells
+  that changed, as on the 128K.  During a stage a cell is copied from the
+  **character pool** (`lo_pcell`): every character a stage's load writes
+  whole, as an 8 by 8 block of Layer 2 pixels, each different block once
+  (about 1,260 blocks in banks 33-37, made by `nx_pack.py`), with a map per
+  stage (bank 32: the block of each character of each third).  A pixel is a
+  Layer 2 palette entry: the stage's 16 colours at 0-15, and for our
+  drawings of the enemies Konami draws with characters (9.6) their own
+  palettes at 20h-CFh.  A cell is drawn instead from the port's copies of
+  the MSX pattern and colour tables, each pixel its MSX colour number, for
+  a character Konami has written to since the stage loaded (its bit in
+  `tile_cdirty`/`tile_pdirty`, cleared by `lo_apply`; the Next leaves out
+  the shared code's marking of every tile at a stage change, and its row
+  hook marks rows Konami updates), one the map has no block for, the stars
+  (F6, F7, which twinkle), during Konami's screen dissolve (`dz_on`), and
+  on screens that are not a stage.  Copying a block is 8 `ldi` a line,
+  each line's address set afresh (in column 31 the copies carry into the
+  next line's address).  `nx_smoke.py` checks that the pool is in use and
+  that the Next's code bank still holds its code as built.
 * **The smooth scroll.**  When Konami's map moves a character, the screen is
   shown 7 pixels to the right of it, and the gap closes by a pixel a tick
   through Layer 2's X scroll (NEXTREG 16h).  Layer 2 is used as a circular
@@ -1385,12 +1400,14 @@ for the ship and some capsules, drawn as 4-bit patterns.
   `lo_sprflip` sends our drawing in place of a mapped Konami pattern, and
   `lo_arc` (from `lo_ecol`) gives any sprite showing one its palette.
   `lo_chars` notes each character enemy's frame (the object's byte 12;
-  its characters on the screen can lag a tick behind it), and lifts out
-  those Konami moves with the scenery too when their frame is ours (the
-  turrets, the capsules), noting them so that `.co` draws them moved with
-  the scenery; `lo_artch` (from `lo_sprites`) gives a character enemy whose
-  frame is in the table our drawing instead of the conversion of its
-  characters, and `.co` its palette (`LO_OPAL`).  `lo_marcador` clears the
+  its characters on the screen can lag a tick behind it); `lo_artch` (from
+  `lo_sprites`) gives a lifted-out character enemy whose frame is in the
+  table our drawing instead of the conversion of its characters, and `.co`
+  its palette (`LO_OPAL`).  Those Konami moves with the scenery (the
+  turrets, the capsules) stay in the map, and the character pool holds our
+  drawings for their characters (9.3): in each third where the characters
+  are that enemy's, the drawing's quarters in its palette, the character's
+  own background where the drawing is transparent.  `lo_marcador` clears the
   tables for screens that are not a stage.  Konami's colour changes (a flash)
   do not show on our drawings, and the capsules' glint (Konami animates
   their characters) is not drawn.

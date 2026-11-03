@@ -12,7 +12,7 @@ PACE=${NEM_PACE:-30}
 if [ "$PACE" = 30 ]; then ADAPT_DEF=14,8; PDEF=-DPACE_30=1; else ADAPT_DEF=15,8; PDEF=; fi
 NEM_NEXT=1 NEM_FPT=${NEM_FPT:-2} NEM_ADAPT=${NEM_ADAPT:-$ADAPT_DEF} python3 build.py > nxbuild.log 2>&1 || { tail -20 nxbuild.log; exit 1; }
 grep -v '\.' nemesis_next.sym | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\): EQU \(0x[0-9A-F]*\)$/\1 equ \2 \& 0xFFFF/p' > nx_syms.inc
-sjasmplus --nologo --msg=war --sym=nx_low.sym $PDEF nx_low.asm
+sjasmplus --nologo --msg=war --sym=nx_low.sym --lst=nx_low.lst $PDEF nx_low.asm
 # The graphics (spec/nxgfx, with our drawings of Konami's enemies from
 # spec/nx_art.py): NEM_ARC_SPR=0 leaves out the sprite drawings, NEM_ARC_CHR=0
 # the character ones (nx_pack.py)

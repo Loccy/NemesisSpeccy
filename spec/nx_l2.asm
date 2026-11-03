@@ -63,7 +63,6 @@ LO_APAL     equ 0x3C40          ; the sprite drawings' palette bytes (palette * 
                                 ; + 1: the next palette for those leaving a capsule)
 LO_OPAL     equ 0x3C70          ; the character enemies recorded: palette offsets (lo_artch)
 LO_OFRM     equ 0x3C90          ; and their frames (byte 12; lo_chars)
-LO_OGND     equ 0x3CB0          ; and 1 for those that move with the scenery
 
 lo_npend:   db 0                ; character enemies' patterns to send
 lo_ppend:   db 0                ; some Konami pattern changed
@@ -268,17 +267,15 @@ lo_apply:
     ld a,LO_TAB                 ; our drawings: palettes 2-12 (entries 2-15)
     db 0xED,0x92,0x52
     db 0xED,0x91,0x43,0x20
-    ld hl,0x4000+TAB_PAL
-    ld c,0x22
+    ld hl,0x4000+TAB_PAL        ; (and as Layer 2's entries 22h-CFh, for the
+    ld c,0x22                   ; character pool's blocks of our drawings)
 .pl:
-    ld a,c
-    db 0xED,0x92,0x40
-    ld b,28
-.pb:
-    ld a,(hl)
-    db 0xED,0x92,0x44
-    inc hl
-    djnz .pb
+    db 0xED,0x91,0x43,0x20
+    call .p28
+    db 0xED,0x91,0x43,0x10
+    call .p28
+    ld de,28
+    add hl,de
     ld a,c
     add a,0x10
     ld c,a
@@ -298,6 +295,36 @@ lo_apply:
     ld bc,NART
     ldir
     call lo_ovflag              ; patterns 30-63 sent again, as ours
+    ld a,(lo_part)              ; the character pool, after a whole load
+    or a
+    jr nz,.restore
+    ld a,(lo_spage)             ; its map: bank 32, 2K a stage
+    sub ENH_BANK*2
+    rrca                        ; stage - 1
+    ld b,a
+    rrca
+    rrca
+    and 1
+    add a,64
+    ld (lo_mpage),a
+    ld a,b
+    and 3
+    add a,a
+    add a,a
+    add a,a
+    add a,0x40
+    ld (lo_mbh),a
+    ld hl,tile_cdirty           ; nothing written since
+    ld b,96
+.tz:
+    ld (hl),0
+    set 7,l
+    ld (hl),0
+    res 7,l
+    inc l
+    djnz .tz
+    ld a,1
+    ld (lo_pool),a
 .restore:
     db 0xED,0x91,0x52,0x0A
     db 0xED,0x91,0x53,0x0B
@@ -330,10 +357,24 @@ lo_mcopy:
 lo_spage:   db 0
 lo_part:    db 0
 lo_mmu7:    db 0
+lo_apply.p28:                   ; 28 bytes at HL from entry C (HL kept)
+    ld a,c
+    db 0xED,0x92,0x40
+    push hl
+    ld b,28
+.b:
+    ld a,(hl)
+    db 0xED,0x92,0x44
+    inc hl
+    djnz .b
+    pop hl
+    ret
 
 ; None of our drawings (LO_OVR, LO_NCH clear), and Konami's patterns 30-63
 ; sent again (lo_ovflag; lo_sprflip: as ours or Konami's).  Preserves DE.
 lo_ovclr:
+    xor a
+    ld (lo_pool),a
     ld hl,LO_OVR
     ld b,65
 .c:
@@ -516,6 +557,33 @@ lo_snd:
 ; tick_tiles, in place of redraw_tile_row: row A of tile E in third D
 ; changed: mark the cells showing it (both screens).
 lo_rowmark:
+    ld a,d                      ; tile_pdirty: written since the stage load
+    add a,a                     ; (lo_pcell)
+    add a,a
+    add a,a
+    add a,a
+    add a,a
+    ld b,a
+    ld a,e
+    rrca
+    rrca
+    rrca
+    and 31
+    or b
+    or 0x80
+    ld l,a
+    ld h,tile_cdirty>>8
+    ld a,e
+    and 7
+    ld b,a
+    ld a,1
+    jr z,.m
+.s:
+    add a,a
+    djnz .s
+.m:
+    or (hl)
+    ld (hl),a
     ld a,d
     add a,name_shadow>>8
     ld h,a
@@ -774,6 +842,118 @@ lo_cells:
     ret
 lo_third:   db 0
 lo_colx:    db 0
+lo_cch:     db 0                ; the cell's character
+
+; The stage's character pool (nx_pack.py, char_pool(): 8 x 8 blocks of Layer 2
+; pixels, a byte each; the stage's map in bank 32): lo_pool set by lo_apply
+; for a stage's whole load, cleared by lo_ovclr.  A character Konami has
+; written to since (its bit in tile_cdirty or tile_pdirty, cleared by
+; lo_apply; lo_rowmark sets tile_pdirty's for row updates), or one the map
+; has no block for, is drawn from the copies.
+lo_pool:    db 0
+lo_mpage:   db 0                ; 8K page of the stage's map
+lo_mbh:     db 0                ; its high byte at 4000
+
+; lo_cell's cell (character lo_cch, third lo_third, HL its first pixel) from
+; the pool: Z if drawn.  MMU2 is page D's (13) on return.  Never during
+; Konami's screen dissolve (dz_on: after the stage 7 boss and the stage 8
+; brain), which eats the copies in chunks.
+lo_pcell:
+    ld a,(dz_on)
+    or a
+    ret nz
+    push hl
+    ld a,(lo_third)
+    add a,a
+    add a,a
+    add a,a
+    add a,a
+    add a,a
+    ld b,a                      ; third * 32
+    ld a,(lo_cch)
+    ld c,a
+    rrca
+    rrca
+    rrca
+    and 31
+    or b
+    ld l,a
+    ld h,tile_cdirty>>8
+    ld a,(hl)
+    set 7,l
+    or (hl)                     ; tile_pdirty's too
+    ld e,a
+    ld a,c
+    and 7
+    inc a
+    ld b,a
+    ld a,e
+.sh:
+    rrca
+    djnz .sh                    ; the character's bit to bit 7
+    rla
+    jr c,.no                    ; written since: the copies
+    ld a,(lo_mpage)
+    db 0xED,0x92,0x52
+    ld a,(lo_third)
+    add a,a
+    ld b,a
+    ld a,(lo_mbh)
+    add a,b
+    ld h,a
+    ld a,c
+    add a,a
+    ld l,a
+    jr nc,.h
+    inc h
+.h:
+    ld a,(hl)                   ; the block's page (0: none)
+    inc l
+    ld c,(hl)
+    or a
+    jr z,.none
+    db 0xED,0x92,0x52
+    ld a,c                      ; 4000 + number * 64
+    rrca
+    rrca
+    ld l,a
+    and 0x3F
+    or 0x40
+    ld h,a
+    ld a,l
+    and 0xC0
+    ld l,a
+    pop de                      ; the cell's first pixel
+    ld a,d
+    ld ixh,a                    ; each line's address set afresh (in column
+    ld a,(lo_colx)              ; 31 the copies carry into D: the next line
+    ld ixl,a                    ; would be skipped and, at the bottom of a
+    ld bc,64                    ; third, past FFFF into this bank)
+.r:
+    ld a,ixh
+    ld d,a
+    inc a
+    ld ixh,a
+    ld a,ixl
+    ld e,a
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    jp pe,.r
+    db 0xED,0x91,0x52,13
+    xor a                       ; Z
+    ret
+.none:
+    db 0xED,0x91,0x52,13
+.no:
+    pop hl
+    or 1                        ; NZ
+    ret
 
 ; Cell: row D (0-7) of third lo_third, column E.
 lo_cell:
@@ -794,7 +974,9 @@ lo_cell:
     ld l,a
     ld bc,name_shadow
     add hl,bc
-    ld l,(hl)                   ; the character
+    ld a,(hl)                   ; the character
+    ld (lo_cch),a
+    ld l,a
     ld h,0
     add hl,hl
     add hl,hl
@@ -838,6 +1020,12 @@ lo_cell:
     or a
     jp nz,lo_logocell
 .draw:
+    ld a,(lo_pool)              ; from the character pool if it can
+    or a
+    jr z,.two
+    call lo_pcell
+    ret z
+.two:
     CELLROW 0
     CELLROW 1
     CELLROW 2
@@ -1183,22 +1371,6 @@ lo_sprites:
     jr nc,.cx
     inc h
 .cx:
-    push hl                     ; moves with the scenery (LO_OGND): as far
-    ld a,c                      ; right as it (lo_off), as lo_attr's sprites
-    sub 64
-    add a,LO_OGND&0xff
-    ld l,a
-    ld h,LO_OGND>>8
-    ld a,(hl)
-    pop hl
-    or a
-    jr z,.cg
-    ld a,(lo_off)
-    add a,l
-    ld l,a
-    jr nc,.cg
-    inc h
-.cg:
     ld a,l
     ld (de),a
     inc de

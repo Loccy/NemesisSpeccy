@@ -21,11 +21,12 @@ patched ROM by local/tools/msx2/msx2_extract.py (3 November 2026), with our
 changes since: stage 1's ground edge in browns (character 43, bottom third,
 its top four lines 68, as the patch has it in stage 4).
 
-nx_gfx.dat: 16 x 16K.  Banks 16-23: the stage files.  Banks 24-31: each
+nx_gfx.dat: banks 16 on.  Banks 16-23: the stage files.  Banks 24-31: each
 stage's 64 sprite patterns in fire colours (Next 4-bit, 128 bytes each; edge
 pixels 3, one in 4, deeper 5).  Bank 24 also holds, from 2000, the logo;
 bank 25, from 2000, our drawings, and bank 26, from 2000, their tables
-(art_page())."""
+(art_page()).  Bank 32: the character pool's maps, 2K a stage; banks 33 on:
+the pool (char_pool())."""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..'))
@@ -181,7 +182,8 @@ def nibbles(rows):
 
 def art_page(rom, patched):
     """patched: the patch's stage loads (build()'s data: 16K a stage).
-    -> (page 51, page 53, report)"""
+    -> (page 51, page 53, report, each stage's character enemies [(frame,
+    palette byte, drawing)])"""
     spr = bool(int(os.environ.get('NEM_ARC_SPR', '1')))
     chr_ = bool(int(os.environ.get('NEM_ARC_CHR', '1')))
     art = bytearray(0x2000); tab = bytearray(0x2000)
@@ -208,7 +210,7 @@ def art_page(rom, patched):
                         for x in c for t in range(3) for o in (0, 0x2000))
     def pix(v, c, t):
         return b''.join(bytes(v[0x2000 + t * 0x800 + x * 8:0x2000 + t * 0x800 + x * 8 + 8]) for x in c)
-    report = []
+    report = []; stage_ents = {}
     for s in range(1, 9):
         v = orig_load(rom, s); o = TAB_STAGE + (s - 1) * 0x200
         ps = patched[(s - 1) * 0x4000:s * 0x4000]
@@ -256,12 +258,79 @@ def art_page(rom, patched):
                 rep.append('turrets %s %s %02X-%02X (palette %d)' % ('ceiling' if ceil else 'ground',
                            'red' if red else 'ordinary', base, base + 5, pal >> 4))
         assert len(ents) <= 48 and len(set(e[0] for e in ents)) == len(ents), (s, ents)
+        stage_ents[s] = ents
         tab[o + 64] = len(ents)
         for i, (f, pal, d) in enumerate(ents):
             tab[o + 65 + i * 3:o + 68 + i * 3] = bytes([f, pal, d])
         report.append('stage %d: patterns %s; characters %s' % (s, ','.join(map(str, sorted(on))) or '-',
                                                                ', '.join(rep) or '-'))
-    return bytes(art), bytes(tab), report
+    return bytes(art), bytes(tab), report, stage_ents
+
+# The character pool: every character a stage's load writes whole, as an
+# 8 x 8 block of Layer 2 pixels (a byte each: the colour number, as lo_cell
+# draws it from the pattern and colour copies), each different block once.
+# The character enemies drawn as ours (art_page()) are ours here too: in a
+# third whose four characters of the frame have the pixels of stage 1's, the
+# blocks are our drawing's quarters (top left, top right, bottom left, bottom
+# right), each pixel palette * 16 + its value (Layer 2's palette entries
+# 20h-CFh: lo_apply loads our sprite palettes 2-12 there too), and where the
+# drawing is transparent, the character's own background colour.
+# A stage's map (bank 32 + 0x800 * (stage - 1)): 2 bytes for each character
+# of each third (third * 256 + character): the 8K page of its block and its
+# number in that page (128 a page: 4000 + number * 64), or page 0: none (the
+# copies are drawn from).  The stars (F6, F7) twinkle every frame: never
+# from the pool.
+POOL_BANK = 33
+def char_pool(rom, data, stage_ents):
+    pool = {}; order = []; maps = bytearray(0x4000)
+    frames = rom[5 * 0x2000 + 0x11D1:5 * 0x2000 + 0x11D1 + 274]
+    c4 = lambda f: tuple(frames[4 * f:4 * f + 4])
+    v1 = data[:0x4000]
+    def pix(v, c, t):
+        return b''.join(bytes(v[0x2000 + t * 0x800 + x * 8:0x2000 + t * 0x800 + x * 8 + 8]) for x in c)
+    def reft(d):                  # the third whose characters show drawing d in stage 1
+        return 2 if TURRET_GROUND <= d < TURRET_GROUND + 6 else 0
+    for s in range(1, 9):
+        v = data[(s - 1) * 0x4000:s * 0x4000]
+        m = lambda a: (v[0x3900 + (a >> 3)] >> (a & 7)) & 1
+        ours = {}                 # (third, character) -> block
+        for f, pal, d in stage_ents[s]:
+            rows = nx_art.CHARS[d][2]
+            for t in range(3):
+                if pix(v, c4(f), t) != pix(v1, nx_art.CHARS[d][0], reft(d)):
+                    continue
+                for q, c in enumerate(c4(f)):
+                    blk = bytearray()
+                    for r in range(8):
+                        y = (q >> 1) * 8 + r
+                        bg = v[t * 0x800 + c * 8 + r] & 15
+                        for x in range(8):
+                            n = int(rows[y][(q & 1) * 8 + x], 16)
+                            blk.append((pal & 0xF0) | n if n else bg)
+                    ours[(t, c)] = bytes(blk)
+        for t in range(3):
+            for c in range(256):
+                if c in (0xF6, 0xF7):
+                    continue
+                a = t * 0x800 + c * 8
+                if not all(m(a + i) and m(0x2000 + a + i) for i in range(8)):
+                    continue
+                blk = ours.get((t, c))
+                if blk is None:
+                    blk = bytearray()
+                    for r in range(8):
+                        p, col = v[0x2000 + a + r], v[a + r]
+                        blk += bytes(col >> 4 if p & (0x80 >> x) else col & 15 for x in range(8))
+                    blk = bytes(blk)
+                if blk not in pool:
+                    pool[blk] = len(order); order.append(blk)
+                k = pool[blk]
+                o = (s - 1) * 0x800 + (t * 256 + c) * 2
+                maps[o] = POOL_BANK * 2 + k // 128; maps[o + 1] = k % 128
+    pages = bytearray(b''.join(order))
+    pages += bytes(-len(pages) % 0x4000)
+    assert POOL_BANK + len(pages) // 0x4000 <= 48
+    return bytes(maps) + bytes(pages), len(order)
 
 def pack(rom):
     """-> nx_gfx.dat (bytes) from spec/nxgfx and nem.rom."""
@@ -282,14 +351,16 @@ def pack(rom):
             f += bytes(0x2000 - len(f)) + logo
         fires += f + bytes(0x4000 - len(f))
     # bank 25's second 8K: our own drawings, bank 26's their tables (art_page)
-    art, tab, report = art_page(rom, bytes(data))
+    art, tab, report, stage_ents = art_page(rom, bytes(data))
     o = 0x4000 + 0x2000
     fires[o:o + len(art)] = art
     o = 2 * 0x4000 + 0x2000
     assert not any(fires[o:o + 0x2000])
     fires[o:o + len(tab)] = tab
     print('our drawings:\n  ' + '\n  '.join(report))
-    return bytes(data + fires)
+    pool, n = char_pool(rom, data, stage_ents)
+    print('character pool: %d blocks, banks 32-%d' % (n, 31 + len(pool) // 0x4000))
+    return bytes(data + fires) + pool
 
 def main():
     rom = open(os.path.join(ROOT, 'nem.rom'), 'rb').read()
