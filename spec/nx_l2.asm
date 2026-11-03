@@ -71,6 +71,7 @@ lo_pours    equ 0x3FEE          ; bit 7: a block of our drawings,
 lo_ppal     equ 0x3FEF          ; its palette * 16
 lo_fade     equ 0x3FF0          ; lo_fadestep: screens drawn in the dissolve,
 lo_flv      equ 0x3FF1          ; the level
+lo_pq       equ 0x3FF2          ; lo_pconv: the blocks to make (4, or 2: the top two)
 
 lo_npend:   db 0                ; character enemies' patterns to send
 lo_ppend:   db 0                ; some Konami pattern changed
@@ -1804,8 +1805,9 @@ lo_arc:
 ; lo_sprites, for character enemy record lo_cr (moved on): its four
 ; characters as a 4-bit pattern at DE (moved on 128) from the stage's
 ; character pool, and Z, if the pool is on for the whole screen, the enemy is
-; four characters and the pool has a block for each that Konami has not
-; written to since (lo_cmap); NZ otherwise (lo_conv: from the copies).  Its
+; four characters (or four with only the top two taken, on row 21: the bottom
+; two left transparent) and the pool has a block for each that Konami has
+; not written to since (lo_cmap); NZ otherwise (lo_conv: from the copies).  Its
 ; frame (the object's byte 12, LO_OFRM: what Konami draws or is about to
 ; draw; its characters on the screen can lag a tick behind, part old, part
 ; new) gives the characters (TAB_FRAMES).  An enemy with a block of our
@@ -1830,10 +1832,28 @@ lo_pconv:
     ld a,(lo_pool)
     dec a
     jp nz,.no
-    ld a,(ix+7)                 ; four characters?
+    ld a,(ix+7)                 ; four characters (1: 4 blocks), or their top
+    ld b,4                      ; two (3: 2 blocks)?
     dec a
+    jr z,.sz
+    ld b,2
+    sub 2
     jp nz,.no
+.sz:
+    ld a,b
+    ld (lo_pq),a
     push de
+    cp 4
+    jr z,.full
+    ld h,d                      ; the bottom two left transparent
+    ld l,e
+    ld b,128
+    xor a
+.zf:
+    ld (hl),a
+    inc hl
+    djnz .zf
+.full:
     ld a,c
     add a,LO_OFRM&0xff
     ld l,a
@@ -1882,9 +1902,9 @@ lo_pconv:
     inc hl
     pop bc
     inc b
-    ld a,b
-    cp 4
-    jr c,.q
+    ld a,(lo_pq)
+    cp b
+    jr nz,.q
     ld a,(lo_pours)             ; below 20h: none (ours), or all
     and 0x80
     jr z,.t
@@ -1956,9 +1976,9 @@ lo_pconv:
     inc hl
     pop bc
     inc b
-    ld a,b
-    cp 4
-    jr c,.cq
+    ld a,(lo_pq)
+    cp b
+    jr nz,.cq
     ld a,(lo_pours)
     rla
     jr nc,.np

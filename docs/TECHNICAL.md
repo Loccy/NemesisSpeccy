@@ -1200,7 +1200,7 @@ the character pool, 9.5.)
   attributes (3440-3A5F), the stage's tables for our drawings and the
   character enemies' palettes and frames (3B00-3CA5), the character
   enemies' colour bytes (3D00-3FBF), and the stage's palette and the
-  pool's working bytes (3FC0-3FF1).
+  pool's working bytes (3FC0-3FF2).
 * The CPU runs at 28 MHz (NEXTREG 07h).  The game runs at 30 ticks a
   second, the original's rate on a 60 Hz MSX (two frames a tick at
   59.94 Hz): screens are at most 2, 2, 1 frames apart in turn (`lo_tick`,
@@ -1234,7 +1234,11 @@ the character pool, 9.5.)
   stars, F6 and F7, which twinkle), and on screens that are not a stage.
   The ship's ordinary shot is characters F8-FB (one for each 2-pixel
   step), which Konami writes into the map and takes out again, so the pool
-  draws it like the scenery.  On the screen before each stage
+  draws it like the scenery.  In play Konami rewrites characters' drawings
+  only for the stars (every tick, 0:4760), the Big Core (stages 1-6: when
+  it arrives, 1:7CBD calls 0:4A6D, which loads its graphics over characters
+  44-67 and A1-DB in every third; those cells show Konami's boss from the
+  copies until the next stage load) and the dissolve.  On the screen before each stage
   only the bottom third, the status line, comes from the pool (`lo_pool`
   2); the other two thirds hold Konami's font for the turn message.
   Copying a block is 8 `ldi` a line, each line's address set afresh (in
@@ -1280,9 +1284,14 @@ the character pool, 9.5.)
   4-bit sprite pattern.  Where a block is one of our drawings, the
   enemy's pixels in the stage's colours are left transparent and the
   sprite takes the drawing's palette; otherwise each pixel keeps its value.
+  An enemy whose top is on row 21 (Y A8h-AFh, as the hatch saucers of
+  stage 1 can be) has its bottom half on Konami's row 22, which the MSX
+  does not show either: only its top two characters are taken, and made
+  from the pool the same way, the bottom of the sprite left transparent.
   A character Konami has written to since the stage loaded, or one with no
-  block, and the two-character enemies, are converted from the copies
-  instead (`lo_conv`).
+  block, and Konami's two-character objects (byte 11 from 2 to 5:
+  characters A1-A2, BF-C0, 58-59 or 60-61, which the Big Core's load
+  supplies), are converted from the copies instead (`lo_conv`).
 * **The Big Core** (the boss of stages 1-6) is drawn with characters,
   11 by 8, and Konami moves it a whole character at a time: in from the
   right one step every 8 ticks, then up or down a step every 3 to 5 ticks

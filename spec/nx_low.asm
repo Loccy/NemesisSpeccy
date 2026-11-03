@@ -174,7 +174,8 @@ lo_chars:
     cp 0xC0
     ret nc
 .inmap:
-    ; record: x, y, row, 4 characters, 2-wide flag
+    ; record: x, y, row, 4 characters, size (1: four characters; 2: two;
+    ; 3: four, the top two only)
     push hl
     ld a,(lo_nobj)
     ld l,a
@@ -226,7 +227,7 @@ lo_chars:
     jr nz,.two
     ld a,(iy+2)
     cp 21
-    jr nc,.two                  ; no row below in the map
+    jr nc,.half                 ; no row below in the map
     ld de,32
     call .cell
     ld (iy+5),a
@@ -234,8 +235,11 @@ lo_chars:
     call .cell
     ld (iy+6),a
     jr .took
+.half:
+    ld (iy+7),3                 ; four characters, the top two only (lo_pconv)
+    jr .took
 .two:
-    ld (iy+7),2
+    ld (iy+7),2                 ; two characters (Konami's byte 11 above 1)
 .took:
     ; restore iy (the ground flag pointer): iy was LO_GND + slot; recompute
     ; from ix: (ix - B200) / 32
