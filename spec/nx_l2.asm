@@ -41,6 +41,9 @@ NSPR        equ 96
 LO_RPAT     equ 0x3800          ; the volcano rocks' fire pattern (pattern 102)
 RPAT        equ 102
 BPAT        equ 104             ; the boss: 24 patterns, 104-127
+LO_QOK      equ 0x3340          ; lo_pieces: the pieces' patterns made (1; 2: no pool)
+LO_QN       equ 0x3341          ; the pieces shown,
+LO_QTAB     equ 0x3342          ; and each one's X, Y, drawing (8 x 3)
 L2_BANK0    equ 9
 L2_BANK1    equ 13
 
@@ -53,9 +56,13 @@ LO_ART      equ (25*2+1)
 LO_TAB      equ (26*2+1)
 TAB_PAL     equ 0x0000          ; LO_TAB: sprite palettes 2-12, entries 2-15
 TAB_APAL    equ 0x0180          ; the sprite drawings' palette bytes
-TAB_STAGE   equ 0x0200          ; 512 bytes a stage: LO_OVR
+TAB_STAGE   equ 0x0200          ; 512 bytes a stage: LO_OVR, and at + 40h the
+                                ; stage's scenery palette (Layer 2 D1-DF)
 TAB_FRAMES  equ 0x1200          ; Konami's frames' four characters (MSX 5:91D1)
-NART        equ 40              ; sprite drawings at most
+TAB_BONUS   equ 0x1400          ; the bonus stages' tables (9-12), 512 bytes each
+BONUS_BANK  equ 46              ; the bonus stages' stage file (nx_pack.py)
+BONUS_MAPS_BANK equ 47          ; and their character pool maps, 2K each
+NART        equ 48              ; sprite drawings at most (LO_APAL: 3C40-3C6F)
 LO_OVR      equ 0x3B00          ; Konami pattern -> our drawing (1 on; 0 none)
 LO_APAL     equ 0x3C40          ; the sprite drawings' palette bytes (palette * 16,
                                 ; + 1: the next palette for those leaving a capsule)
@@ -185,7 +192,8 @@ lo_prestage:
 .map:
     db 3,4,5,8
 
-; A = stage (1-8), C = 0: the colour, sprite pattern and pattern copies
+; A = stage (1-12: 9-12 the bonus stages, which share a stage file, bank 46,
+; and have their maps in bank 47), C = 0: the colour, sprite pattern and pattern copies
 ; whole; 1: the colour and pattern copies' bottom thirds only.  Sets the
 ; palette and line-colour tables.
 lo_apply:
@@ -195,14 +203,57 @@ lo_apply:
     pop bc
     pop af
     dec a
-    cp 8
+    cp 12
     ret nc
     ld b,a
     ld a,c
     ld (lo_part),a
     ld a,b
+    sub 8
+    jr c,.norm
+    ; a bonus stage (9-12; A = 0-3): its stage file (bank 46, the four share
+    ; it) and maps (bank 47), its tables after Konami's frames, stage 2's fire
+    ; patterns
     add a,a
+    ld b,a
+    add a,(0x4000+TAB_BONUS)>>8
+    ld (lo_tabh),a
+    ld a,b
+    add a,a
+    add a,a
+    add a,0x40
+    ld (lo_mbh),a
+    ld a,BONUS_MAPS_BANK*2
+    ld (lo_mpage),a
+    ld a,24*2+2
+    ld (lo_fpage),a
+    ld a,BONUS_BANK*2
+    jr .spg
+.norm:                          ; stage - 1 in B
+    ld a,b
+    add a,a
+    ld c,a
+    add a,(0x4000+TAB_STAGE)>>8 ; its tables: TAB_STAGE + (stage - 1) * 512
+    ld (lo_tabh),a
+    ld a,c
+    add a,24*2                  ; its fire patterns: bank 24 + stage - 1
+    ld (lo_fpage),a
+    ld a,b                      ; its map: bank 32, 2K a stage
+    rrca
+    rrca
+    and 1
+    add a,64
+    ld (lo_mpage),a
+    ld a,b
+    and 3
+    add a,a
+    add a,a
+    add a,a
+    add a,0x40
+    ld (lo_mbh),a
+    ld a,c
     add a,ENH_BANK*2            ; 8K page of VRAM 0000
+.spg:
     ld (lo_spage),a
     inc a
     db 0xED,0x92,0x52           ; its VRAM 2000-3FFF at 4000
@@ -274,10 +325,6 @@ lo_apply:
     ldir
     ld a,1
     ld (lo_enh),a
-    ld a,(lo_spage)
-    sub ENH_BANK*2
-    add a,24*2                  ; bank 24 + stage - 1, its first 8K page
-    ld (lo_fpage),a
     ld a,LO_TAB                 ; our drawings: palettes 2-12 (entries 2-15)
     db 0xED,0x92,0x52
     db 0xED,0x91,0x43,0x20
@@ -296,35 +343,28 @@ lo_apply:
     cp 0xD2
     jr c,.pl
     db 0xED,0x91,0x43,0x00
-    ld a,(lo_spage)             ; this stage's tables: TAB_STAGE + (stage - 1) * 512
-    sub ENH_BANK*2
-    add a,(0x4000+TAB_STAGE)>>8
+    ld a,(lo_tabh)              ; this stage's tables
     ld h,a
     ld l,0
     ld de,LO_OVR
     ld bc,64
     ldir
+    inc hl                      ; the stage's scenery palette (+ 40h; entry
+    inc hl                      ; D0 unused): Layer 2 entries D1-DF
+    db 0xED,0x91,0x43,0x10
+    db 0xED,0x91,0x40,0xD1
+    ld b,30
+.sp:
+    ld a,(hl)
+    db 0xED,0x92,0x44
+    inc hl
+    djnz .sp
+    db 0xED,0x91,0x43,0x00
     ld hl,0x4000+TAB_APAL       ; the sprite drawings' palette bytes
     ld de,LO_APAL
     ld bc,NART
     ldir
     call lo_ovflag              ; patterns 30-63 sent again, as ours
-    ld a,(lo_spage)             ; the character pool             ; its map: bank 32, 2K a stage
-    sub ENH_BANK*2
-    rrca                        ; stage - 1
-    ld b,a
-    rrca
-    rrca
-    and 1
-    add a,64
-    ld (lo_mpage),a
-    ld a,b
-    and 3
-    add a,a
-    add a,a
-    add a,a
-    add a,0x40
-    ld (lo_mbh),a
     ld hl,tile_cdirty           ; nothing written since
     ld b,96
 .tz:
@@ -366,6 +406,7 @@ lo_mcopy:
     jr nz,lo_mcopy
     ret
 lo_spage:   db 0
+lo_tabh:    db 0                ; high byte of the stage's tables at 4000 (page LO_TAB)
 lo_part:    db 0
 lo_mmu7:    db 0
 lo_apply.p28:                   ; 28 bytes at HL from entry C (HL kept)
@@ -480,6 +521,23 @@ lo_init:
     db 0xED,0x91,0x44,0x00
     db 0xED,0x91,0x44,0xF8      ; yellow
     db 0xED,0x91,0x44,0x01
+    ; stage 1's 16 colours, for good: the ship's (sprite palette 13, lo_mship;
+    ; its entry 1 is Konami's colour 13's, lo_setpal, so the ship's colour 1
+    ; is entry 2, which its line colours do not use) and the status line's
+    ; (Layer 2 entries F0-FF, lo_cell)
+    db 0xED,0x91,0x52,ENH_BANK*2+1      ; stage 1's VRAM 2000-3FFF at 4000
+    db 0xED,0x91,0x40,0xD2
+    ld hl,0x5802                ; its palette's colour 1 at D2,
+    ld b,2
+    call .bytes
+    ld hl,0x5806                ; and 3-15 at D3-DF
+    ld b,26
+    call .bytes
+    ld hl,0x5800
+    db 0xED,0x91,0x43,0x10
+    db 0xED,0x91,0x40,0xF0
+    call lo_setpal.pal16
+    db 0xED,0x91,0x52,0x0A
     db 0xED,0x91,0x43,0x00
     call lo_ovclr
     ; Layer 2: both screens black
@@ -512,6 +570,12 @@ lo_init:
     ld (star_off),a             ; stars as plain cells (the map comparison marks them)
     ld (star_stale),a
     jp dirty_all
+.bytes:                         ; B bytes at HL to nextreg 44h
+    ld a,(hl)
+    db 0xED,0x92,0x44
+    inc hl
+    djnz .bytes
+    ret
 .clr48:                         ; three 16K banks from A: zero
     ld b,3
 .cb:
@@ -687,8 +751,9 @@ lo_render:
 ; Konami's screen dissolve (dz_on: after the stage 7 boss and the stage 8
 ; brain; it eats the colour and pattern copies in about 35 ticks): the pool
 ; goes on drawing the scenery (lo_cmap) while Layer 2's colours fade to black,
-; a step every 4 screens drawn: the stage's 16 (entries 0-15, from LO_PAL16)
-; and palettes 2-12 (entries 22h-CFh, from LO_TAB), each component less the
+; a step every 4 screens drawn: the stage's 16 (entries 0-15, from LO_PAL16),
+; palettes 2-12 (entries 22h-CFh, from LO_TAB) and the stage's scenery
+; palette (D1h-DFh, from its table in LO_TAB), each component less the
 ; level.  On the dissolve's first screen the stage's 16 go to entries E0-EF as
 ; they are and every cell is drawn again: lo_cell puts what Konami spares
 ; (the status line, the stars) there.  lo_apply puts it all back.
@@ -731,6 +796,12 @@ lo_fadestep:
     ld c,a
     cp 0xD2
     jr c,.pl
+    ld a,(lo_tabh)              ; and the stage's scenery palette, D1-DF
+    ld h,a
+    ld l,0x42
+    db 0xED,0x91,0x40,0xD1
+    ld b,15
+    call .ent
     db 0xED,0x91,0x52,0x0A
     db 0xED,0x91,0x43,0x00
     ret
@@ -977,6 +1048,7 @@ lo_cch:     db 0                ; the cell's character
 ; sets tile_pdirty's for row updates), or one the map has no block for, is
 ; drawn from the copies.
 lo_pool:    db 0
+lo_cm1:     db 0                ; lo_cmap: stage 1's map (the status line)
 lo_mpage:   db 0                ; 8K page of the stage's map
 lo_mbh:     db 0                ; its high byte at 4000
 
@@ -1020,9 +1092,17 @@ lo_cmap:
     rla
     jr c,.no                    ; written since: the copies
 .map:
+    ld a,(lo_cm1)               ; the status line: stage 1's map, whatever
+    or a                        ; the stage (lo_cell)
+    jr nz,.m1
     ld a,(lo_mpage)
     db 0xED,0x92,0x52
     ld a,(lo_mbh)
+    jr .m2
+.m1:
+    db 0xED,0x91,0x52,64        ; stage 1's: page 64, at 4000
+    ld a,0x40
+.m2:
     add a,b
     add a,b
     ld h,a
@@ -1166,22 +1246,39 @@ lo_cell:
     ld a,(lo_title)
     or a
     jp nz,lo_logocell
-    ld a,(dz_on)                ; the dissolve: what Konami spares (the status
-    or a                        ; line, the stars) in Layer 2's entries E0-EF,
-    jr z,.draw                  ; which lo_fadestep does not fade
+    ld a,(lo_third)             ; the status line (rows 22-23), with the MSX2
+    cp 2                        ; graphics in: as in stage 1 throughout the
+    jr nz,.nost                 ; game (bonus stages included), stage 1's
+    ld a,d                      ; blocks in Layer 2's entries F0-FF (stage
+    cp 6                        ; 1's colours, set by lo_init, not faded)
+    jr c,.nost
+    ld a,(lo_enh)
+    or a
+    jr z,.nost
+    push hl
+    ld a,1
+    ld (lo_cm1),a
+    call lo_pcell.all
+    push af
+    xor a
+    ld (lo_cm1),a
+    pop af
+    call nz,.two                ; no block: from the copies
+    pop hl
+    ld e,0xF0
+    jr .kor
+.nost:
+    ld a,(dz_on)                ; the dissolve: what Konami spares (the stars)
+    or a                        ; in Layer 2's entries E0-EF, which
+    jr z,.draw                  ; lo_fadestep does not fade
     ld a,(lo_cch)
     cp 0xF6
-    jr nc,.keep
-    ld a,(lo_third)
-    cp 2
-    jr nz,.draw
-    ld a,d
-    cp 6
     jr c,.draw
-.keep:
     push hl
     call .draw
     pop hl
+    ld e,0xE0
+.kor:
     ld c,8
 .kl:
     push hl
@@ -1190,7 +1287,7 @@ lo_cell:
     ld a,(hl)
     cp 0x10
     jr nc,.kn
-    or 0xE0
+    or e
     ld (hl),a
 .kn:
     inc l
@@ -1592,6 +1689,7 @@ lo_sprites:
     djnz .co
 .rest:
     call lo_bossspr
+    call lo_qspr
     ld hl,LO_ATTR+NSPR*5        ; the rest hidden
 .rh:
     ld a,e
@@ -2576,7 +2674,353 @@ lo_bnew:    ds 96               ; this tick's characters, 8 rows of 12
 lo_bfull:   ds 96               ; the whole boss, as lo_bnew (lo_bfill): at lo_bnew + 96
 lo_bpp:     ds 32
 lo_bpc:     ds 32
-lo_btmp:    ds 128              ; the boss pattern being made (lo_bconv)
+lo_btmp:    ds 128              ; the boss pattern being made (lo_bconv, lo_qmake)
+
+; Stage 3's boss (Konami's boss 1; boss 6 on later rounds, one piece): up to
+; eight round pieces in the slots at E780 (16 bytes each: byte 0 alive, Y in
+; byte 3 and X in byte 5, whole pixels, byte 6 the drawing).  Konami moves
+; them a pixel at a time but draws each as 4 x 4 characters into the map at
+; cell (Y / 8, X / 8) (2:86D9; 1:6936 saves what was there, 1:6A37 puts it
+; back after the map comparison), so they jump 8 pixels.  lo_pieces (from
+; lo_tick) takes their characters out of name_shadow (as lo_chars does the
+; enemies'), with the background (Konami's map now) put back, and notes
+; where each is; lo_qspr shows them there as four 16 x 16 sprites each.  The
+; six patterns (the two drawings, 2:86F1 and 2:8701, share their right
+; halves) are made once a boss from the character pool (third 0's blocks;
+; the stage has the same in all three) into the Big Core's patterns
+; (BPAT on; it is never on screen with them).  Without the pool's blocks the
+; pieces are left in the map as before.  Konami's collisions use its own
+; position, which is the sprites'.
+lo_pieces:
+    xor a
+    ld (LO_QN),a
+    ld hl,0xE151-0x3100
+    ld a,(hl)
+    or a
+    jr z,.off
+    inc hl
+    ld a,(hl)
+    cp 1
+    jr z,.on
+    cp 6
+    jr z,.on
+.off:
+    xor a
+    ld (LO_QOK),a
+    ret
+.on:
+    ld a,(LO_QOK)
+    or a
+    call z,lo_qmake
+    ld a,(LO_QOK)
+    dec a
+    ret nz
+    ld ix,0xE780-0x3100
+    ld iy,LO_QTAB
+    ld a,(0xE152-0x3100)        ; eight slots, or the first only (boss 6;
+    ld b,8                      ; as Konami's 1:6936)
+    cp 6
+    jr nz,.pc
+    ld b,1
+.pc:
+    push bc
+    ld a,(ix+0)
+    or a
+    jr z,.nx
+    ld a,(ix+5)                 ; X, Y, drawing for lo_qspr
+    ld (iy+0),a
+    ld a,(ix+3)
+    ld (iy+1),a
+    ld a,(ix+6)
+    ld (iy+2),a
+    inc iy
+    inc iy
+    inc iy
+    ld hl,LO_QN
+    inc (hl)
+    ld a,(ix+3)                 ; HL = MAPK + (Y / 8) * 32 + X / 8 (rows
+    and 0xF8                    ; up to 21: Y stays below 91h, 2:85E4)
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    ld a,(ix+5)
+    rrca
+    rrca
+    rrca
+    and 31
+    ld e,a                      ; the column
+    or l
+    ld l,a
+    ld a,h
+    add a,MAPK>>8
+    ld h,a
+    ld d,4
+.r:
+    push hl
+    ld b,4
+    ld c,e
+.c:
+    ld a,c
+    cp 32
+    jr nc,.rd                   ; past column 31 (coming in): not drawn
+    ld a,(hl)                   ; the background
+    push hl
+    push de
+    ld de,name_shadow-MAPK
+    add hl,de
+    pop de
+    cp (hl)
+    jr z,.same
+    ld (hl),a
+    pop hl
+    push bc
+    ld c,l                      ; the index: third B, low byte C
+    ld a,h
+    sub MAPK>>8
+    ld b,a
+    call dirty_cell
+    pop bc
+    jr .cn
+.same:
+    pop hl
+.cn:
+    inc hl
+    inc c
+    djnz .c
+.rd:
+    pop hl
+    ld a,l
+    add a,32
+    ld l,a
+    jr nc,.rn
+    inc h
+.rn:
+    dec d
+    jr nz,.r
+.nx:
+    ld bc,16
+    add ix,bc
+    pop bc
+    djnz .pc
+    ret
+
+; lo_qmake and lo_qspr are kept in free parts of the bank's RAM map (the
+; code must end below LO_SPAT): 3360-343F and 3B40-3C3F.
+lo_qret = $
+    org 0x3360
+; The six patterns, sent as lo_bconv sends the Big Core's: LO_QOK 1, or 2 if
+; the pool has no block for one of the characters.
+lo_qmake:
+    ld hl,lo_bkey               ; the Big Core's patterns: made again when
+    ld de,lo_bkey+1             ; it is next shown
+    ld bc,24*5-1
+    ld (hl),0xFF
+    ldir
+    ld a,2
+    ld (LO_QOK),a
+    ld a,(lo_pool)
+    dec a
+    ret nz
+    ld hl,lo_qch
+    ld a,BPAT
+.p:
+    ld (lo_bsend),a
+    push hl
+    ld b,0
+.q:                             ; B = 0-3: top left, top right, bottom left, right
+    push bc
+    push hl
+    ld c,(hl)
+    ld b,0
+    call lo_cmap
+    jr nz,.fail
+    db 0xED,0x92,0x52
+    ld a,c                      ; 4000 + number * 64
+    rrca
+    rrca
+    ld l,a
+    and 0x1F
+    or 0x40
+    ld h,a
+    ld a,l
+    and 0xC0
+    ld l,a
+    pop de
+    pop bc
+    push bc
+    push de
+    ld a,b                      ; lo_btmp + (B & 2) * 32 + (B & 1) * 4
+    and 1
+    add a,a
+    add a,a
+    bit 1,b
+    jr z,.d1
+    add a,64
+.d1:
+    add a,lo_btmp&0xff
+    ld e,a
+    ld a,0
+    adc a,lo_btmp>>8
+    ld d,a
+    ld c,8
+.row:
+    ld b,4
+.px:                            ; two pixels a byte (the stage's colours:
+    ld a,(hl)                   ; pixels 0-15, palette offset 0)
+    inc hl
+    add a,a
+    add a,a
+    add a,a
+    add a,a
+    ld (de),a
+    ld a,(hl)
+    inc hl
+    and 15
+    ex de,hl
+    or (hl)
+    ld (hl),a
+    ex de,hl
+    inc de
+    djnz .px
+    ld a,e
+    add a,4
+    ld e,a
+    jr nc,.rw
+    inc d
+.rw:
+    dec c
+    jr nz,.row
+    pop hl
+    inc hl
+    pop bc
+    inc b
+    ld a,b
+    cp 4
+    jr nz,.q
+.send:
+    xor a
+    ld (lo_brst),a
+    ld hl,lo_btmp
+    ld a,(lo_bsend)
+    call lo_sprflip.send
+    ld a,(lo_brst)
+    or a
+    jr nz,.send
+    pop hl
+    ld bc,4
+    add hl,bc
+    ld a,(lo_bsend)
+    inc a
+    cp BPAT+6
+    jr nz,.p
+    ld a,1
+    ld (LO_QOK),a
+    jr .out
+.fail:
+    pop hl
+    pop bc
+    pop hl
+.out:
+    db 0xED,0x91,0x52,0x0A
+    ret
+lo_qch:                         ; the patterns' characters (2:86F1, 2:8701)
+    db 0xA6,0xA7,0xAA,0xAB, 0xA8,0xA9,0xAC,0xAD
+    db 0xB6,0xB7,0xB2,0xB3, 0xB8,0xB9,0xB4,0xB5
+    db 0xAE,0xA7,0xAF,0xAB, 0xBB,0xB7,0xBA,0xB3
+lo_qpat:                        ; per drawing (byte 6 0, or not): the quarters' patterns
+    db BPAT,BPAT+1,BPAT+2,BPAT+3, BPAT+4,BPAT+1,BPAT+5,BPAT+3
+    assert $ <= LO_PFLAG
+    org 0x3B40
+
+; The pieces' sprites at DE (moved on), after the others, as many as fit.
+lo_qspr:
+    ld a,(spr_on)
+    or a
+    ret z
+    ld a,(LO_QN)
+    or a
+    ret z
+    ld b,a
+    ld ix,LO_QTAB
+.p:
+    push bc
+    ld c,0
+.q:
+    ld a,e                      ; all 96 in use: no more
+    cp (LO_ATTR+NSPR*5)&0xff
+    jr nz,.ok
+    ld a,d
+    cp (LO_ATTR+NSPR*5)>>8
+    jr z,.full
+.ok:
+    ld a,c                      ; X + 32 (+ 16 on the right)
+    and 1
+    add a,a
+    add a,a
+    add a,a
+    add a,a
+    add a,32
+    ld h,0
+    add a,(ix+0)
+    jr nc,.x
+    inc h
+.x:
+    ld (de),a
+    inc de
+    ld a,c                      ; Y + 32 (+ 16 below)
+    and 2
+    add a,a
+    add a,a
+    add a,a
+    add a,32
+    add a,(ix+1)
+    ld (de),a
+    inc de
+    ld a,h                      ; palette offset 0, X bit 8
+    ld (de),a
+    inc de
+    ld a,(ix+2)                 ; the pattern
+    or a
+    ld a,c
+    jr z,.a
+    add a,4
+.a:
+    ld hl,lo_qpat
+    add a,l
+    ld l,a
+    jr nc,.h
+    inc h
+.h:
+    ld a,(hl)
+    ld b,a
+    srl a
+    or 0xC0                     ; visible, a fifth attribute
+    ld (de),a
+    inc de
+    ld a,b
+    and 1
+    rrca
+    rrca                        ; N6
+    or 0x80                     ; 4-bit
+    ld (de),a
+    inc de
+    inc c
+    ld a,c
+    cp 4
+    jr nz,.q
+    inc ix
+    inc ix
+    inc ix
+    pop bc
+    djnz .p
+    ret
+.full:
+    pop bc
+    ret
+
+    assert $ <= LO_APAL
+    org lo_qret
 
 ; Note Konami pattern C as changed.  Preserves BC, DE, HL.
 lo_pflag:
@@ -2909,12 +3353,12 @@ lo_ecol:
     ld a,1
     ld (lo_skip1),a
     pop hl
-    jp lo_multi
+    jp lo_mship
 .solo:
     pop hl
     ld hl,0
     ld (lo_mt2),hl
-    jp lo_multi_hl
+    jp lo_mship_hl
 .s1:                            ; entry 1: hidden if ORed into 0
     ld a,(lo_firesh)
     or a
@@ -2936,7 +3380,25 @@ lo_ecol:
     ld hl,0
     ld (lo_mt2),hl
     pop hl
-    jp lo_multi
+    jp lo_mship
+
+; The ship's line-coloured pattern (lo_multi), in sprite palette 13: stage
+; 1's colours throughout the game (lo_init), not the stage's.
+lo_mship_hl:
+lo_mship:
+    ld a,1
+    ld (lo_shipc),a
+    call lo_multi
+    push af
+    xor a
+    ld (lo_shipc),a
+    pop af
+    ret c
+    ld a,0xD0
+    ld (lo_mpo),a
+    or a
+    ret
+lo_shipc:   db 0
 
 ; Konami pattern lo_ap's fire-coloured copy (Next bank 24 + stage, made
 ; by nx_pack.py) -> LO_MPAT slot lo_mn, palette offset 1.
@@ -3057,11 +3519,17 @@ lo_multi:
 .c:
     ld a,(hl)
     and 15
+    cp 1                        ; the ship's colour 1: entry 2 of its palette
+    jr nz,.c1                   ; (lo_mship)
+    ld a,(lo_shipc)
+    inc a
+.c1:
     rlca
     rlca
     rlca
     rlca
     ld (de),a
+    ld c,a
     push de
     ld a,e
     add a,16
@@ -3069,12 +3537,7 @@ lo_multi:
     jr nc,.c2
     inc d
 .c2:
-    ld a,(hl)
-    and 15
-    rlca
-    rlca
-    rlca
-    rlca
+    ld a,c                      ; the same colour for the right half
     ld (de),a
     pop de
     inc de

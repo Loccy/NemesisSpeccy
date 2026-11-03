@@ -102,9 +102,11 @@ lo_tick:
     or a                        ; restart's wipe), none of these either
     jr z,.nochars
     call lo_chars
+    call lo_pieces
     jp lo_boss
 .nochars:
     xor a
+    ld (LO_QN),a
     ld (lo_nobj),a
     ld (lo_bon),a
     ret

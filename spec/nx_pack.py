@@ -138,16 +138,27 @@ def fire(p):
 #         byte 12 the frame; top left, top right, bottom left, bottom right)
 # A sprite's palette byte is palette * 16, + 1 where the next palette is its
 # red twin, for the objects that leave a capsule (byte 14 set; Konami's
-# colour 8).  A stage has a sprite enemy's drawings where all that enemy's
-# patterns (SPR_GROUPS: no enemy is drawn half ours, half Konami's) are stage
-# 1's both in Konami's own load (nem.rom) and in the stage file.  Build
+# colour 8).  A stage has a sprite enemy's drawings wherever its patterns, in
+# Konami's own load (nem.rom), have the contents of the patterns they were
+# drawn from, and only when all that enemy's patterns do (SPR_GROUPS,
+# STAGED_GROUPS: no enemy is drawn half ours, half Konami's; art_page).  Build
 # switch: NEM_ARC_SPR=0 leaves
 # Konami's sprite patterns (and the walkers) as they are.
 import nx_art
 TAB_PAL, TAB_APAL, TAB_STAGE, TAB_FRAMES = 0x0000, 0x0180, 0x0200, 0x1200
+TAB_BONUS = 0x1400              # the bonus stages' tables (9-12), after the frames
+def tab_stage(s):
+    return TAB_STAGE + (s - 1) * 0x200 if s <= 8 else TAB_BONUS + (s - 9) * 0x200
+# The bonus stages (spec/nxgfx: bonus.bin, their stage file; maps_bonus.bin,
+# their maps; scenery_bonus.bin, their scenery palettes): the stage file in
+# bank 46, the maps in bank 47 (nx_l2.asm lo_apply)
+BONUS_BANK, BONUS_MAPS_BANK = 46, 47
 # the explosion, the shot, the pod, the robot, the jet, the materialising
 # enemy, the walker (Konami's patterns)
 SPR_GROUPS = [range(30, 34), [34], range(35, 40), range(40, 44), range(44, 47), range(47, 51), range(52, 64)]
+# and those of later stages' own patterns (nx_art.STAGED): stage 3's disc, its wheel
+STAGED_GROUPS = [[(3, k) for k in range(47, 51)], [(3, k) for k in range(55, 59)]]
+NART = 48                       # drawings at most (nx_l2.asm NART, LO_APAL)
 
 def orig_load(rom, s):
     """VRAM (colours 0000, sprite patterns 1800, patterns 2000) after Konami's
@@ -192,32 +203,44 @@ def block(maps, pool, s, t, c):
     return pool[k * 64:k * 64 + 64]
 
 def art_page(rom, data, maps, pool):
-    """data: the stage files (16K a stage).  -> (page 51, page 53, report)"""
+    """data: the stage files (16K a stage).  -> (page 51, page 53, report)
+    A drawing is of one of Konami's patterns as a stage loads it (nx_art:
+    SPRITES and WALKERS stage 1's, STAGED a later stage's); a stage gets it in
+    every slot whose pattern (Konami's own load) has that content, for a group
+    (one enemy's patterns: no enemy drawn half ours, half Konami's) only when
+    every pattern of the group is there."""
     spr = bool(int(os.environ.get('NEM_ARC_SPR', '1')))
     art = bytearray(0x2000); tab = bytearray(0x2000)
-    pats = [(k,) + nx_art.SPRITES[k] for k in sorted(nx_art.SPRITES)] + \
-           [(k,) + nx_art.WALKERS[k] for k in sorted(nx_art.WALKERS)]
-    assert len(pats) <= 40
-    assert sorted(k for g in SPR_GROUPS for k in g) == [p[0] for p in pats]
+    pats = [((1, k),) + nx_art.SPRITES[k] for k in sorted(nx_art.SPRITES)] + \
+           [((1, k),) + nx_art.WALKERS[k] for k in sorted(nx_art.WALKERS)] + \
+           [(sk,) + nx_art.STAGED[sk] for sk in sorted(nx_art.STAGED)]
+    assert len(pats) <= NART
+    groups = [[(1, k) for k in g] for g in SPR_GROUPS] + STAGED_GROUPS
+    assert sorted(sk for g in groups for sk in g) == sorted(p[0] for p in pats)
     num = {}
-    for i, (k, pal, rows) in enumerate(pats):
-        art[i * 128:i * 128 + 128] = nibbles(rows); tab[TAB_APAL + i] = pal; num[k] = i + 1
+    for i, (sk, pal, rows) in enumerate(pats):
+        art[i * 128:i * 128 + 128] = nibbles(rows); tab[TAB_APAL + i] = pal; num[sk] = i + 1
     for p in range(2, 13):
         o = TAB_PAL + (p - 2) * 28
         tab[o:o + 28] = bytes(b for e in nx_art.PALETTES[p][2:] for b in e)
-    assert TAB_PAL + 11 * 28 <= TAB_APAL and TAB_APAL + 40 <= TAB_STAGE
+    assert TAB_PAL + 11 * 28 <= TAB_APAL and TAB_APAL + NART <= TAB_STAGE
     frames = rom[5 * 0x2000 + 0x11D1:5 * 0x2000 + 0x11D1 + 274]
     tab[TAB_FRAMES:TAB_FRAMES + len(frames)] = frames
-    v1 = orig_load(rom, 1); p1 = data[:0x4000]
+    loads = {s: orig_load(rom, s) for s in range(1, 13)}
     sp = lambda v, k: bytes(v[0x1800 + k * 32:0x1800 + k * 32 + 32])
     report = []
-    for s in range(1, 9):
-        v = orig_load(rom, s); o = TAB_STAGE + (s - 1) * 0x200
-        ps = data[(s - 1) * 0x4000:s * 0x4000]
-        same = lambda k: sp(v, k) == sp(v1, k) and sp(ps, k) == sp(p1, k)
-        on = [k for g in SPR_GROUPS if spr and all(same(k) for k in g) for k in g]
-        for k in on:
-            tab[o + k] = num[k]
+    for s in range(1, 13):
+        v = loads[s]; o = tab_stage(s)
+        on = {}
+        for g in groups:
+            slots = {sk: [k for k in range(64) if sp(v, k) == sp(loads[sk[0]], sk[1])] for sk in g}
+            if spr and all(slots.values()):
+                for sk, ks in slots.items():
+                    for k in ks:
+                        assert on.get(k, num[sk]) == num[sk], (s, k)
+                        on[k] = num[sk]
+        for k, n in on.items():
+            tab[o + k] = n
         report.append('stage %d: patterns %s' % (s, ','.join(map(str, sorted(on))) or '-'))
     return bytes(art), bytes(tab), report
 
@@ -254,6 +277,19 @@ def pack(rom):
     # bank 25's second 8K: our own drawings, bank 26's their tables (art_page)
     maps, pool = pool_files()
     art, tab, report = art_page(rom, bytes(data), maps, pool)
+    # each stage's scenery palette (Layer 2 entries D1-DF, for the pool's
+    # blocks in values D1-DF): 32 bytes a stage, at its table + 40h
+    scen = open(os.path.join(GFX, 'scenery.bin'), 'rb').read()
+    assert len(scen) == 8 * 32
+    scen += open(os.path.join(GFX, 'scenery_bonus.bin'), 'rb').read()
+    assert len(scen) == 12 * 32
+    tab = bytearray(tab)
+    for s in range(1, 13):
+        o = tab_stage(s) + 0x40
+        assert not any(tab[o:o + 32])
+        tab[o:o + 32] = scen[(s - 1) * 32:s * 32]
+    assert TAB_FRAMES + 274 <= TAB_BONUS and TAB_BONUS + 4 * 0x200 <= 0x2000
+    tab = bytes(tab)
     o = 0x4000 + 0x2000
     fires[o:o + len(art)] = art
     o = 2 * 0x4000 + 0x2000
@@ -262,7 +298,24 @@ def pack(rom):
     print('our drawings:\n  ' + '\n  '.join(report))
     pool, n = char_pool(maps, pool)
     print('character pool: %d blocks, banks 32-%d' % (n, 31 + len(pool) // 0x4000))
-    return bytes(data + fires) + pool
+    out = bytearray(data + fires) + pool
+    assert 16 + len(out) // 0x4000 <= BONUS_BANK
+    out += bytes((BONUS_BANK - 16) * 0x4000 - len(out))
+    bonus = open(os.path.join(GFX, 'bonus.bin'), 'rb').read()
+    assert len(bonus) == 0x4000
+    out += bonus
+    mb = bytearray(open(os.path.join(GFX, 'maps_bonus.bin'), 'rb').read())
+    assert len(mb) == 4 * 0x800
+    for o in range(0, len(mb), 2):
+        if mb[o]:
+            k = (mb[o] - POOL_BANK * 2) * 128 + mb[o + 1]
+            assert k < n
+            if max(pool[0x4000 + k * 64:0x4000 + k * 64 + 64]) >= 0x20:
+                mb[o + 1] |= 0x80       # a block of our drawings
+    out += mb + bytes(0x4000 - len(mb))
+    assert 16 + len(out) // 0x4000 == BONUS_MAPS_BANK + 1
+    print('bonus stages: stage file bank %d, maps bank %d' % (BONUS_BANK, BONUS_MAPS_BANK))
+    return bytes(out)
 
 def main():
     rom = open(os.path.join(ROOT, 'nem.rom'), 'rb').read()

@@ -1084,6 +1084,58 @@ of the same tree.
   of the next routine's first instruction, the right value by luck, until
   new code was put there and the boss jumped 33 pixels every fifth tick.
   The table now has the entry.
+* **Stages 2 and 3 in the arcade's colours.**  Stage 2's bricks and balls
+  came from the arcade sheet's tiles; stage 3's Moai heads and stone kept
+  Konami's shapes and were shaded in the arcade's yellows, golds and
+  creams.  Neither fits the stage's 16 colours, so a stage can now have a
+  scenery palette of up to 15 more (Layer 2 entries D1h-DFh), loaded with
+  the stage and faded in the dissolve.  `local/tools/pool/put_blocks.py`
+  writes such blocks into the pool.
+* **Stage 3's disc and wheel.**  Our sprite drawings had been matched to a
+  stage only where its patterns were stage 1's, so stage 3's own enemies
+  could not have any.  A drawing is now of a pattern as some stage loads
+  it, and goes wherever a stage's pattern has that content: the disc after
+  the arcade's frames, and the spoked wheel, which the arcade lacks, as
+  Konami's shapes lit from one side so the light holds still as it turns.
+* **Stage 3's boss pieces move smoothly.**  Konami moves the round pieces
+  a pixel at a time but draws them into the map, so they jumped a
+  character at a time; they are now lifted out and shown as sprites at
+  Konami's positions.  The code no longer fitted below the Next's sprite
+  buffers, so part of it lives in two free stretches of the buffer area.
+* **The ship's and the status line's colours.**  The ship's line colours
+  and the status line came from the stage's palette, so the ship's red
+  canopy turned brown in stage 3 and the status line looked different
+  from stage to stage.  Both now keep stage 1's colours throughout, in
+  palette entries of their own.  A first try at the ship put its colour 1
+  in a palette entry that the sprite palettes already use for one of
+  Konami's colours, which turned part of the ship magenta; it uses a free
+  entry now.
+* **The bonus stages.**  The pack covered stages 1-8 only, so the four
+  bonus stages kept Konami's own characters and sprites in the previous
+  stage's colours, and the ship's patterns were drawn with the previous
+  stage's line colours, breaking it up.  A stopgap that copied stage 1's
+  sprites in also replaced the bonus stages' own score sprites.  The
+  patch does have graphics for them (no palettes); they were read from the
+  patched ROM the same way as the other stages', checked against the
+  patched cartridge in openMSX, and became one shared stage file and four
+  maps.  Our art goes on top from stage 2, matched by content because the
+  patch draws some of the same bricks and turret pieces under other
+  character numbers.  The balls, the only difference between the four,
+  are our arcade sphere in green, yellow, blue and magenta, toned down
+  from a first, brighter set.
+* **Stage 2's cut-off bricks.**  Short slabs showed at the ends of the
+  rows of bricks.  A first diagnosis, from the static replay of the stage
+  map, put the two characters at the edges of the hanging clusters and
+  proposed redrawing them; the map dumped from the running game showed
+  they are the rows' end caps, tips a few pixels wide on the MSX.  They
+  are not wall, so they are now blank, which matches what collides.
+* **Turrets in every stage.**  The first placement of our turrets took a
+  stage's turret characters only where they were stage 1's in all three
+  thirds of the screen, so stages 3, 5, 7 and 8 kept the patch's (green in
+  stage 7's palette).  Every turret in the game is one design, ordinary or
+  red for those that leave a capsule, and those four stages now take ours
+  wherever Konami's own characters show it, in the colours Konami gives
+  them there.
 * **One tree.**  The Next's changes to shared files are under `ifdef NEXT`,
   its takeovers of Konami's instructions are in `gen.py` with the 128K's,
   and the 128K builds are byte for byte those of 0.110.  `verify.sh` builds
