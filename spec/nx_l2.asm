@@ -44,6 +44,8 @@ BPAT        equ 104             ; the boss: 24 patterns, 104-127
 LO_QOK      equ 0x3340          ; lo_pieces: the pieces' patterns made (1; 2: no pool)
 LO_QN       equ 0x3341          ; the pieces shown,
 LO_QTAB     equ 0x3342          ; and each one's X, Y, drawing (8 x 3)
+LO_QK       equ 0x335A          ; the boss kind they were made for (E152: 1, 5, 6)
+LO_QPP      equ 0x335B          ; lo_qspr: the kind's pattern table (2 bytes)
 L2_BANK0    equ 9
 L2_BANK1    equ 13
 
@@ -2691,6 +2693,12 @@ lo_btmp:    ds 128              ; the boss pattern being made (lo_bconv, lo_qmak
 ; (BPAT on; it is never on screen with them).  Without the pool's blocks the
 ; pieces are left in the map as before.  Konami's collisions use its own
 ; position, which is the sprites'.
+; Stage 4's mid-boss (Konami's boss 5) is the same machinery: up to eight
+; flyers in the same slots, moved 2 pixels a tick along a fixed route (2:8D7C
+; on) and drawn as 4 x 3 characters with blank corners (2:8E45 through 0:490C:
+; the corners are written as character 00, which lifting them out leaves
+; showing the background), two drawings alternating every 4 frames (2:8E5F,
+; 2:8E6B; told apart by the middle row's first character, BC or C2).
 lo_pieces:
     xor a
     ld (LO_QN),a
@@ -2702,6 +2710,8 @@ lo_pieces:
     ld a,(hl)
     cp 1
     jr z,.on
+    cp 5
+    jr z,.on
     cp 6
     jr z,.on
 .off:
@@ -2709,6 +2719,7 @@ lo_pieces:
     ld (LO_QOK),a
     ret
 .on:
+    ld (LO_QK),a
     ld a,(LO_QOK)
     or a
     call z,lo_qmake
@@ -2717,7 +2728,7 @@ lo_pieces:
     ret nz
     ld ix,0xE780-0x3100
     ld iy,LO_QTAB
-    ld a,(0xE152-0x3100)        ; eight slots, or the first only (boss 6;
+    ld a,(LO_QK)                ; eight slots, or the first only (boss 6;
     ld b,8                      ; as Konami's 1:6936)
     cp 6
     jr nz,.pc
@@ -2727,20 +2738,11 @@ lo_pieces:
     ld a,(ix+0)
     or a
     jr z,.nx
-    ld a,(ix+5)                 ; X, Y, drawing for lo_qspr
-    ld (iy+0),a
-    ld a,(ix+3)
-    ld (iy+1),a
-    ld a,(ix+6)
-    ld (iy+2),a
-    inc iy
-    inc iy
-    inc iy
     ld hl,LO_QN
     inc (hl)
     ld a,(ix+3)                 ; HL = MAPK + (Y / 8) * 32 + X / 8 (rows
-    and 0xF8                    ; up to 21: Y stays below 91h, 2:85E4)
-    ld l,a
+    and 0xF8                    ; up to 21: Y stays below 91h, 2:85E4; at
+    ld l,a                      ; 88h at most for boss 5, 2:8DF0)
     ld h,0
     add hl,hl
     add hl,hl
@@ -2755,7 +2757,31 @@ lo_pieces:
     ld a,h
     add a,MAPK>>8
     ld h,a
-    ld d,4
+    ld a,(ix+5)                 ; X, Y, drawing for lo_qspr
+    ld (iy+0),a
+    ld a,(ix+3)
+    ld (iy+1),a
+    ld d,4                      ; rows taken out
+    ld a,(LO_QK)
+    cp 5
+    ld a,(ix+6)
+    jr nz,.dr
+    dec d                       ; boss 5: three rows, and the drawing from
+    push hl                     ; the middle row's first character as
+    ld bc,name_shadow-MAPK+32   ; Konami wrote it (C2: the second)
+    add hl,bc
+    ld a,(hl)
+    pop hl
+    sub 0xC2
+    cp 1
+    ccf
+    sbc a,a
+    inc a                       ; C2 -> 1, else 0
+.dr:
+    ld (iy+2),a
+    inc iy
+    inc iy
+    inc iy
 .r:
     push hl
     ld b,4
@@ -2802,7 +2828,8 @@ lo_pieces:
     ld bc,16
     add ix,bc
     pop bc
-    djnz .pc
+    dec b
+    jp nz,.pc
     ret
 
 ; lo_qmake and lo_qspr are kept in free parts of the bank's RAM map (the
@@ -2810,7 +2837,8 @@ lo_pieces:
 lo_qret = $
     org 0x3360
 ; The six patterns, sent as lo_bconv sends the Big Core's: LO_QOK 1, or 2 if
-; the pool has no block for one of the characters.
+; the pool has no block for one of the characters (character 00: none, the
+; quarter left transparent).
 lo_qmake:
     ld hl,lo_bkey               ; the Big Core's patterns: made again when
     ld de,lo_bkey+1             ; it is next shown
@@ -2822,16 +2850,31 @@ lo_qmake:
     ld a,(lo_pool)
     dec a
     ret nz
+    ld a,(LO_QK)
+    cp 5
     ld hl,lo_qch
+    jr nz,.k
+    ld hl,lo_qch5
+.k:
     ld a,BPAT
 .p:
     ld (lo_bsend),a
+    push hl
+    ld hl,lo_btmp               ; transparent to begin with
+    ld de,lo_btmp+1
+    ld bc,127
+    ld (hl),0
+    ldir
+    pop hl
     push hl
     ld b,0
 .q:                             ; B = 0-3: top left, top right, bottom left, right
     push bc
     push hl
     ld c,(hl)
+    ld a,c
+    or a
+    jr z,.qe                    ; character 00: nothing
     ld b,0
     call lo_cmap
     jr nz,.fail
@@ -2891,6 +2934,7 @@ lo_qmake:
 .rw:
     dec c
     jr nz,.row
+.qe:
     pop hl
     inc hl
     pop bc
@@ -2913,7 +2957,7 @@ lo_qmake:
     ld a,(lo_bsend)
     inc a
     cp BPAT+6
-    jr nz,.p
+    jp nz,.p
     ld a,1
     ld (LO_QOK),a
     jr .out
@@ -2924,12 +2968,6 @@ lo_qmake:
 .out:
     db 0xED,0x91,0x52,0x0A
     ret
-lo_qch:                         ; the patterns' characters (2:86F1, 2:8701)
-    db 0xA6,0xA7,0xAA,0xAB, 0xA8,0xA9,0xAC,0xAD
-    db 0xB6,0xB7,0xB2,0xB3, 0xB8,0xB9,0xB4,0xB5
-    db 0xAE,0xA7,0xAF,0xAB, 0xBB,0xB7,0xBA,0xB3
-lo_qpat:                        ; per drawing (byte 6 0, or not): the quarters' patterns
-    db BPAT,BPAT+1,BPAT+2,BPAT+3, BPAT+4,BPAT+1,BPAT+5,BPAT+3
     assert $ <= LO_PFLAG
     org 0x3B40
 
@@ -2942,6 +2980,13 @@ lo_qspr:
     or a
     ret z
     ld b,a
+    ld a,(LO_QK)                ; the kind's patterns
+    cp 5
+    ld hl,lo_qpat
+    jr nz,.k
+    ld hl,lo_qpat5
+.k:
+    ld (LO_QPP),hl
     ld ix,LO_QTAB
 .p:
     push bc
@@ -2986,7 +3031,7 @@ lo_qspr:
     jr z,.a
     add a,4
 .a:
-    ld hl,lo_qpat
+    ld hl,(LO_QPP)              ; the kind's patterns
     add a,l
     ld l,a
     jr nc,.h
@@ -3018,6 +3063,22 @@ lo_qspr:
 .full:
     pop bc
     ret
+
+; Each pattern's four quarters (top left, top right, bottom left, bottom
+; right), and each drawing's patterns (top left, top right, bottom left,
+; bottom right; the second drawing's four follow).
+lo_qch:                         ; stage 3's pieces (2:86F1, 2:8701)
+    db 0xA6,0xA7,0xAA,0xAB, 0xA8,0xA9,0xAC,0xAD
+    db 0xB6,0xB7,0xB2,0xB3, 0xB8,0xB9,0xB4,0xB5
+    db 0xAE,0xA7,0xAF,0xAB, 0xBB,0xB7,0xBA,0xB3
+lo_qpat:                        ; byte 6 0, or not
+    db BPAT,BPAT+1,BPAT+2,BPAT+3, BPAT+4,BPAT+1,BPAT+5,BPAT+3
+lo_qch5:                        ; stage 4's flyers (2:8E5F, 2:8E6B: 4 x 3)
+    db 0x00,0xBA,0xBC,0xBD, 0xBB,0x00,0xBE,0xBF     ; the first drawing's top
+    db 0x00,0xC0,0x00,0x00, 0xC1,0x00,0x00,0x00     ; the bottom row, shared
+    db 0x00,0xBA,0xC2,0xC3, 0xBB,0x00,0xC4,0xC5     ; the second drawing's top
+lo_qpat5:                       ; middle row BC, or C2
+    db BPAT,BPAT+1,BPAT+2,BPAT+3, BPAT+4,BPAT+5,BPAT+2,BPAT+3
 
     assert $ <= LO_APAL
     org lo_qret

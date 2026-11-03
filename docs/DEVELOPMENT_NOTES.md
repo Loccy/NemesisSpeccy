@@ -1102,6 +1102,11 @@ of the same tree.
   character at a time; they are now lifted out and shown as sprites at
   Konami's positions.  The code no longer fitted below the Next's sprite
   buffers, so part of it lives in two free stretches of the buffer area.
+  Stage 4's mid-boss, a stream of flyers in the same slots drawn the same
+  way, moved in the same 8-pixel jumps and is handled by the same code.
+  Konami blanks the background at each flyer's four corners as it draws
+  it; lifted out, the corners show the background instead, since black
+  squares would have to be drawn on purpose.
 * **The ship's and the status line's colours.**  The ship's line colours
   and the status line came from the stage's palette, so the ship's red
   canopy turned brown in stage 3 and the status line looked different

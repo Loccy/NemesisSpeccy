@@ -1196,15 +1196,16 @@ the character pool, 9.5.)
   stages' stage file and bank 47 their maps (9.5).  Banks 39-45 are unused.
 * Bank 8's buffers sit above its code (which ends below 2000): Konami's
   sprite patterns as last sent and the character enemies' 4-bit patterns
-  (2000-32FF), the scenery objects' flags (3300-333F), the stage 3 boss
-  pieces' positions (3340-335A, 9.3), the changed-pattern flags,
+  (2000-32FF), the scenery objects' flags (3300-333F), the boss pieces'
+  positions and kind (3340-335C, 9.3), the changed-pattern flags,
   line-coloured sprites, the volcano rocks' pattern and the sprite
   attributes (3440-3A5F), the stage's tables for our drawings and the
   character enemies' palettes and frames (3B00-3B3F and 3C40-3CA5), the
   character enemies' colour bytes (3D00-3FBF), and the stage's palette and
   the pool's working bytes (3FC0-3FF2).  The code no longer fits below
-  2000 whole: the pieces' pattern maker and sprite writer are assembled
-  into two free parts of this map, 3360-342A and 3B40-3BB2.
+  2000 whole: the pieces' pattern maker, and their sprite writer with its
+  tables, are assembled into two free parts of this map, 3360-3428 and
+  3B40-3C02.
 * The CPU runs at 28 MHz (NEXTREG 07h).  The game runs at 30 ticks a
   second, the original's rate on a 60 Hz MSX (two frames a tick at
   59.94 Hz): screens are at most 2, 2, 1 frames apart in turn (`lo_tick`,
@@ -1341,6 +1342,16 @@ the character pool, 9.5.)
   patterns, which is never on screen with them, and sent as the Big Core's
   are.  Without the pool the pieces stay in the map as before.  Konami's
   collisions use its own position, which is now the sprites'.
+  Stage 4's mid-boss (boss 5) is the same machinery: up to eight flyers
+  in the same slots, each moved 2 pixels a tick along a fixed route (2:8D7C
+  on) and drawn by Konami as 4 by 3 characters (2:8E45, through 0:490C)
+  in two drawings that alternate every 4 frames (2:8E5F, 2:8E6B; the
+  middle row's first character, BC or C2, tells `lo_pieces` which).
+  Konami writes the drawings' blank corners as character 00, blanking the
+  background there; lifted out, the corners are transparent instead.  Its
+  six patterns are the top halves of the two drawings and the shared
+  bottom row; each kind has its own tables of characters and patterns
+  (`lo_qch`, `lo_qpat`; `lo_qch5`, `lo_qpat5`).
 
 ### 9.4 Konami's instructions the Next build takes over
 

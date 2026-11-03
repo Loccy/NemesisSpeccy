@@ -111,7 +111,8 @@ hardware where the 128K has to make do:
 * The status line and the ship keep the colours they have in stage 1 for
   the whole game.
 * The bosses of stages 1 to 6 glide smoothly where the MSX moves them a
-  character at a time, and so do the round pieces of stage 3's boss.
+  character at a time, and so do the round pieces of stage 3's boss and
+  the flyers of stage 4's mid-boss.
 
 The redrawn enemies and scenery, the colour changes and the smooth bosses
 are our own changes, not the patch's.
