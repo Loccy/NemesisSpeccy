@@ -1194,18 +1194,23 @@ the character pool, 9.5.)
   redrawn sprite enemies (9.5, 9.6), bank 32 the character pool's maps for
   stages 1-8 and banks 33-38 its blocks (9.3); bank 46 holds the bonus
   stages' stage file and bank 47 their maps (9.5).  Banks 39-45 are unused.
+  Bank 27's second 8K (page 55) holds `nx_tur.asm`, the code that draws
+  stage 5's turrets and skeletons and every stage's shots (9.3), with its
+  variables; `lo_tur` maps it at 6000 for the call.
 * Bank 8's buffers sit above its code (which ends below 2000): Konami's
   sprite patterns as last sent and the character enemies' 4-bit patterns
   (2000-32FF), the scenery objects' flags (3300-333F), the boss pieces'
   positions and kind (3340-335C, 9.3), the changed-pattern flags,
   line-coloured sprites, the volcano rocks' pattern and the sprite
-  attributes (3440-3A5F), the stage's tables for our drawings and the
-  character enemies' palettes and frames (3B00-3B3F and 3C40-3CA5), the
-  character enemies' colour bytes (3D00-3FBF), and the stage's palette and
-  the pool's working bytes (3FC0-3FF2).  The code no longer fits below
-  2000 whole: the pieces' pattern maker, and their sprite writer with its
-  tables, are assembled into two free parts of this map, 3360-3428 and
-  3B40-3C02.
+  attributes (3440-3A5F), the stage's table of our drawings (3B00-3B3F),
+  the character enemies' palettes and frames (3C70-3CA5), our drawings'
+  palette bytes (3CA6-3CE5), the character enemies' colour bytes
+  (3D00-3FBF), and the stage's palette and the pool's working bytes
+  (3FC0-3FF2).  The code no longer fits below 2000 whole: the pieces'
+  pattern maker, their sprite writer with its tables, the call into
+  `nx_tur.asm`, and a few short routines it and the sprite colours use, are
+  assembled into three free parts of this map, 3360-3434, 3448-34B3 and
+  3B40-3C17.
 * The CPU runs at 28 MHz (NEXTREG 07h).  The game runs at 30 ticks a
   second, the original's rate on a 60 Hz MSX (two frames a tick at
   59.94 Hz): screens are at most 2, 2, 1 frames apart in turn (`lo_tick`,
@@ -1352,7 +1357,40 @@ the character pool, 9.5.)
   six patterns are the top halves of the two drawings and the shared
   bottom row; each kind has its own tables of characters and patterns
   (`lo_qch`, `lo_qpat`; `lo_qch5`, `lo_qpat5`).
-
+* **Stage 5's turrets and skeletons** slide out of the floor, the ceiling
+  or a ledge, and Konami draws them a character row a step, so they rose
+  8 pixels at a time.  `nx_tur.asm`, called after `lo_cells` (`lo_tur`),
+  draws them again a pixel step at a time, with the pool for the whole
+  stage only (`lo_pool` 1).  Each is a rectangle of Konami's characters, of
+  which Konami draws only the rows that are out; it is shown as Konami has
+  it in its map (blocks from the pool) moved back by what is left of the
+  step, inside its rectangle, which is cleared first and its cells marked
+  to be drawn again from the map (both screens), so it never shows where
+  Konami has not put it.  The turrets (Konami's four of E880: 4 by 4
+  characters, a step every 5 ticks, 3:B145, drawn by 3:B431) are shown
+  back by 8, 6, 5, 3 and 2 pixels with 5 to 1 ticks to go; a turret
+  sliding on takes in the row it has just left, if Konami has left it
+  blank.  The skeletons (the small pieces of E700, types 1, 3 and 4: 5 by 5
+  characters, Konami's next drawing every 8 ticks the same skeleton a row
+  further out, 3:B2DA, 3:B3EA, drawings at 3:B537) are shown back by 8 to
+  1 pixels.  Konami makes their last step as the skeleton is out and no
+  longer counts ticks for it; the Next counts that one itself.  The
+  skeleton's open mouth, once out, is Konami's change of drawing.
+* **The shots and the laser.**  Konami writes the ship's shot and laser
+  characters into its map over what it keeps, so on the MSX each such cell
+  is a black 8 by 8 with the shot through it, which showed as black boxes
+  over the scenery and over the enemies drawn from the pool.  In every
+  stage `nx_tur.asm` (`tu_shots`, after stage 5's work) draws each of their
+  cells again: what was under it, as `lo_cells` draws a cell (`lo_tcell`),
+  then the shot's lit lines over it as `lo_cells` draws the shot's
+  character, with a black line above and below them so the beam stays
+  visible.  What was under a cell is what Konami saved (Konami's six shot
+  slots at E260: a shot's covered character at byte 8, the laser's from
+  byte 17 on; Konami's map no longer has stage 5's turrets and skeletons
+  by then); a cell that stage 5's smooth drawing painted this screen is
+  overlaid as it is.  Enemies drawn with characters and lifted out as
+  sprites have the scenery under them, which Konami's lifting already
+  gives.
 ### 9.4 Konami's instructions the Next build takes over
 
 | Site | Konami's | The Next's | Why |
@@ -1497,7 +1535,14 @@ load: every byte it writes matches, apart from characters Konami animates
 in play.  Sprite colours follow the patch's: fixed colours for most of
 Konami's entries (alternating screen by screen where the patch's two
 sprite lists differ), Konami's colour for enemies, and line-by-line colours
-for the ship and some capsules, drawn as 4-bit patterns.
+for the ship and some capsules, drawn as 4-bit patterns.  The patch marks
+the line-coloured ones by colour bytes 60h, 70h and 80h (its tables of
+line colours); 80h, which it gives the stars stage 5's skeletons release
+(Konami's object type 1Ch, colour 9 in the original), is not the MSX's
+early clock bit with colour 0, so for Konami's objects (sprite entries
+10-21) it takes table 80h and no 32-pixel shift (`lo_isec`, `lo_lcod`).
+Read as the early clock, it showed the stars 32 pixels to the left of
+where Konami puts them, away from the skeletons' mouths.
 
 ### 9.6 Departures from the patch
 
@@ -1535,7 +1580,15 @@ for the ship and some capsules, drawn as 4-bit patterns.
   (its own patterns 47-50, after the arcade's frame for frame) and its
   spoked wheel (55-58), which the arcade has no match for: Konami's shapes,
   shaded in palette 4 and lit from the top left so that the light stays
-  put as the spokes turn.
+  put as the spokes turn.  Stage 5's own enemies have no match in the
+  arcade either: Konami's shapes are shaded, lit from the top left, the
+  holes inside the MSX pattern as darker shading.  The crescents (its
+  patterns 40-43) are salmon and orange, with a red twin for those that
+  leave a capsule; the balls (52-59: clusters of three and the single balls
+  they break into) are pink, their inner ring of dots a band one step
+  darker; the bone claws (60-63) are gold and the stars (51) ice blue.
+  They use two more sprite palettes, 14 and 15 (13 is the ship's), which
+  `lo_pal1415` loads with the others; up to 64 drawings now (`NART`).
   `local/tools/arcade/gen_art.py` made the sprite drawings from the arcade
   sprite sheets once; they are kept as data in `spec/nx_art.py`, so the
   build does not need the sheets.  `nx_pack.py` stores them in bank 25's
@@ -1593,6 +1646,14 @@ for the ship and some capsules, drawn as 4-bit patterns.
   entries D1h-DFh (`spec/nxgfx/scenery.bin`; `nx_pack.py` puts it in the
   stage's tables at + 40h, `lo_apply` loads it, `lo_fadestep` fades it).
   The bonus stages take stage 2's, their balls recoloured (9.5).
+  Stage 5's bones, which the patch draws in cream, grey-beige and black and
+  shades by stippling, are shaded instead on a 9-step ramp from ivory to a
+  warm brown in the stage's scenery palette (D1h-D9h), lit from the top
+  left by each shape's outline, the stippling smoothed and the patch's
+  black shading inside the bone turned into dark steps of the ramp; the
+  eggs keep their blues.  `local/tools/pool/art/st5_scenery_make.py` made
+  the blocks from every screen sampled in a run through the stage (each
+  character takes, pixel by pixel, the result it gets most often).
 * **Stage 2's brick-row end caps** (characters A1 and A4) are blank.  In
   play Konami puts them at the two ends of each row of bricks (the map
   dumped from the running game: A1 45 46 ... 45 46 A4, A4 47 48 49 ...
@@ -1605,6 +1666,10 @@ for the ship and some capsules, drawn as 4-bit patterns.
 * The patch recolours the Big Core at each boss (it switches pattern
   table and rewrites colours there); the Next keeps the stage's colours
   for it, which were liked better.
+* Konami's objects of colour 0 flash between two colours, as in the patch
+  (8 and 0Ah; 5 and 0Ah in stage 3).  Stage 3's Moai rings (type 0Eh)
+  flash between 5 and 0Dh instead, blue and purple (`lo_c0`); the stage's
+  palette has no red.
 
 ### 9.7 Checks
 
@@ -1623,7 +1688,8 @@ share.
   scenery is shown up to 7 pixels to the right of where Konami has it, so a
   collision can look up to 7 pixels off.
 * Objects Konami moves 8 pixels at a time by its own code, rather than
-  through its scroll helper, still move in steps (the Big Core excepted,
+  through its scroll helper, still move in steps (the Big Core, stage 3's
+  and stage 4's boss pieces and stage 5's turrets and skeletons excepted,
   9.3).
 * A second Konami cartridge (F0F4) is not supported, so its extra sprites
   are not loaded.

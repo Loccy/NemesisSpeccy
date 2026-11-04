@@ -56,7 +56,7 @@ L2_BANK1    equ 13
 ; (lo_pconv).
 LO_ART      equ (25*2+1)
 LO_TAB      equ (26*2+1)
-TAB_PAL     equ 0x0000          ; LO_TAB: sprite palettes 2-12, entries 2-15
+TAB_PAL     equ 0x0000          ; LO_TAB: sprite palettes 2-12, then 14 and 15, entries 2-15
 TAB_APAL    equ 0x0180          ; the sprite drawings' palette bytes
 TAB_STAGE   equ 0x0200          ; 512 bytes a stage: LO_OVR, and at + 40h the
                                 ; stage's scenery palette (Layer 2 D1-DF)
@@ -64,9 +64,9 @@ TAB_FRAMES  equ 0x1200          ; Konami's frames' four characters (MSX 5:91D1)
 TAB_BONUS   equ 0x1400          ; the bonus stages' tables (9-12), 512 bytes each
 BONUS_BANK  equ 46              ; the bonus stages' stage file (nx_pack.py)
 BONUS_MAPS_BANK equ 47          ; and their character pool maps, 2K each
-NART        equ 48              ; sprite drawings at most (LO_APAL: 3C40-3C6F)
+NART        equ 64              ; sprite drawings at most (LO_APAL: 3CA6-3CE5)
 LO_OVR      equ 0x3B00          ; Konami pattern -> our drawing (1 on; 0 none)
-LO_APAL     equ 0x3C40          ; the sprite drawings' palette bytes (palette * 16,
+LO_APAL     equ 0x3CA6          ; the sprite drawings' palette bytes (palette * 16,
                                 ; + 1: the next palette for those leaving a capsule)
 LO_OPAL     equ 0x3C70          ; the character enemies recorded: palette offsets (lo_pconv)
 LO_OFRM     equ 0x3C90          ; and their frames (byte 12; lo_chars)
@@ -344,6 +344,7 @@ lo_apply:
     ld c,a
     cp 0xD2
     jr c,.pl
+    call lo_pal1415             ; and palettes 14 and 15, sprites only
     db 0xED,0x91,0x43,0x00
     ld a,(lo_tabh)              ; this stage's tables
     ld h,a
@@ -747,6 +748,7 @@ lo_render:
     ld a,c
     ld (lo_dlow),a
     call lo_cells
+    call lo_tur                 ; stage 5's turrets and skeletons, smooth; the shots
     call lo_sprites
     jp unborrow_page            ; Konami's page back at C000
 
@@ -2832,8 +2834,9 @@ lo_pieces:
     jp nz,.pc
     ret
 
-; lo_qmake and lo_qspr are kept in free parts of the bank's RAM map (the
-; code must end below LO_SPAT): 3360-343F and 3B40-3C3F.
+; lo_qmake, lo_qspr, lo_tur, lo_tcell, lo_isec, lo_lcod and lo_c0 are kept in
+; free parts of the bank's RAM map (the code must end below LO_SPAT):
+; 3360-343F, 3448-34FF and 3B40-3C6F.
 lo_qret = $
     org 0x3360
 ; The six patterns, sent as lo_bconv sends the Big Core's: LO_QOK 1, or 2 if
@@ -2968,7 +2971,104 @@ lo_qmake:
 .out:
     db 0xED,0x91,0x52,0x0A
     ret
+; Stage 5's turrets and skeletons drawn smooth, and in every stage the shots
+; and the laser drawn over the scenery (nx_tur.asm): its code and
+; variables are in 8K page LO_TURP (nx_pack.py), at 6000 for the call; the
+; page's 6000-7FFF is back as it was (MMU3 0Bh: lo_cells has put it back).
+LO_TURP     equ 55
+lo_tur:
+    db 0xED,0x91,0x53,LO_TURP
+    call 0x6000
+    db 0xED,0x91,0x53,0x0B
+    ret
     assert $ <= LO_PFLAG
+
+    org 0x3448
+; For nx_tur.asm: cell D (row in the third lo_third), column E, drawn as
+; lo_cells draws it (the screen's third at MMU6/7 already), with nx_tur's
+; page at 6000 again on return.  IX and IY not kept.
+lo_tcell:
+    db 0xED,0x91,0x52,13
+    db 0xED,0x91,0x53,9
+    call lo_cell
+    db 0xED,0x91,0x53,LO_TURP
+    db 0xED,0x91,0x52,0x0A
+    ret
+
+; The MSX2 patch's colour 80 for Konami's objects (entries 10-21; its type
+; 1C, the stars stage 5's skeletons release) is its line-colour table 80,
+; not the early clock with colour 0: the patch shows it where it is.
+; lo_isec: NZ if entry C's sprite has the early clock.  lo_lcod: A = entry
+; C's colour (10-21), the early clock aside, 80 kept.  Both preserve BC, DE,
+; HL.
+lo_isec:
+    ld a,(lo_ac)
+    cp 0x80
+    jr nz,.b
+    ld a,c
+    sub 10
+    cp 12
+    jr c,.no                    ; the patch's 80
+    ld a,0x80
+.b:
+    bit 7,a
+    ret
+.no:
+    xor a
+    ret
+lo_lcod:
+    ld a,(lo_ac)
+    cp 0x80
+    ret z
+    and 0x7f
+    ret
+
+; Konami's colour 0 for entry C (10-21: E300 slot C - 10), as the patch shows
+; it: 8 on one screen (lo_par 0), 0A on the next; in stage 3 5 and 0A, and
+; there the Moai's rings (type 0E) 5 and 0D (our choice).  A = the colour.
+; Preserves BC, DE, HL.
+lo_c0:
+    ld a,(0xE061-0x3100)
+    cp 3
+    jr nz,.n
+    push hl
+    push de
+    ld a,c
+    sub 10
+    ld l,a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld de,0xE300-0x3100
+    add hl,de
+    ld a,(hl)                   ; its type
+    pop de
+    pop hl
+    cp 0x0E
+    ld a,(lo_par)
+    jr z,.ring
+    or a
+    ld a,5
+    ret z
+    ld a,0x0A
+    ret
+.ring:
+    or a
+    ld a,5
+    ret z
+    ld a,0x0D
+    ret
+.n:
+    ld a,(lo_par)
+    or a
+    ld a,8
+    ret z
+    ld a,0x0A
+    ret
+    assert $ <= LO_MPAT
     org 0x3B40
 
 ; The pieces' sprites at DE (moved on), after the others, as many as fit.
@@ -3080,7 +3180,22 @@ lo_qch5:                        ; stage 4's flyers (2:8E5F, 2:8E6B: 4 x 3)
 lo_qpat5:                       ; middle row BC, or C2
     db BPAT,BPAT+1,BPAT+2,BPAT+3, BPAT+4,BPAT+5,BPAT+2,BPAT+3
 
-    assert $ <= LO_APAL
+; Sprite palettes 14 and 15 (entries E2-EF, F2-FF; entry 1 of each is a Konami
+; colour's, lo_setpal) from TAB_PAL, after palettes 2-12: our drawings of
+; stage 5's enemies.  Sprites only: Layer 2's E0-FF are the dissolve's copy
+; and the status line's (lo_cell).  From lo_apply, LO_TAB at 4000.
+lo_pal1415:
+    db 0xED,0x91,0x43,0x20
+    ld hl,0x4000+TAB_PAL+11*28
+    ld c,0xE2
+    call lo_apply.p28
+    ld de,28
+    add hl,de
+    ld c,0xF2
+    jp lo_apply.p28
+
+    assert $ <= LO_OPAL
+
     org lo_qret
 
 ; Note Konami pattern C as changed.  Preserves BC, DE, HL.
@@ -3170,8 +3285,7 @@ lo_attr:
     ld a,(lo_ax)                ; X + 32 (+ 0 with the early clock) + B
     ld l,a
     ld h,0
-    ld a,(lo_ac)
-    bit 7,a
+    call lo_isec
     jr nz,.ec
     ld a,l
     add a,32
@@ -3285,21 +3399,12 @@ lo_ecol:
     jr nc,.fixed
     call lo_rock                ; the volcano rocks: fire colours
     ret z
-    ld a,(lo_ac)
-    and 0x7f
+    call lo_lcod                ; the colour, the early clock aside
     cp 0x10
     jr nc,.tab
     or a
     ret nz                      ; Konami's own (carry clear)
-    ld a,(lo_par)               ; 0: 8 (5 in stage 3); other screens 0A
-    or a
-    ld a,0x0A
-    jr nz,.c0
-    ld a,(0xE061-0x3100)
-    cp 3
-    ld a,8
-    jr nz,.c0
-    ld a,5
+    call lo_c0                  ; 8 and 0A (stage 3: lo_c0)
 .c0:
     call .setc
     or a

@@ -1141,6 +1141,51 @@ of the same tree.
   red for those that leave a capsule, and those four stages now take ours
   wherever Konami's own characters show it, in the colours Konami gives
   them there.
+* **Stage 5, the bone stage.**  An MSX-only stage, so there is no arcade
+  art to follow.  The patch draws the bones in two colours and black and
+  shades them by stippling; they are now shaded on a 9-step ramp from ivory
+  to a warm brown in the stage's scenery palette, lit from the top left,
+  the stippling smoothed into tones.  Rather than redraw each character by
+  hand, every screen of a run through the stage was rebuilt from the pool
+  and reshaded as a whole, and each character took the result it got most
+  often.  The stage's own enemies were shaded the same way from Konami's
+  shapes: crescents in salmon and orange (with a red twin), the balls in
+  pink with their inner ring of dots as a darker band, the bone claws in
+  gold and the stars in ice blue, in two new sprite palettes.
+* **The turrets and skeletons rise smoothly.**  Stage 5's turrets, which
+  slide out of the floor, the ceiling or a ledge, and its skeletons, which
+  come out of the floor and down from the ceiling, are characters that
+  Konami draws a row at a time, so
+  they rose 8 pixels a step.  They are now redrawn every screen a pixel
+  step at a time, inside the rectangle Konami draws them in, so they never
+  show where Konami has not put them.  Konami makes a skeleton's last step
+  as it is out and no longer counts ticks for it, which first showed as a
+  final 9-pixel jump; the Next counts that step itself.  The open mouth is
+  still Konami's instant change of drawing: a few pixels, and it suits the
+  sound.  The code did not fit in the Next's code bank, so it has an 8K
+  page of its own, called once a screen.
+* **The laser's black boxes.**  Konami writes the shot and the laser into
+  its map, and on the MSX each of their cells is a black 8 by 8 with the
+  shot through it.  On the Next's detailed scenery these showed as black
+  boxes over bones, rocks and enemies.  Every shot cell is now drawn again
+  over what Konami saved from under it, the shot's lit lines on top with a
+  one-pixel black edge above and below, so the beam stays visible over
+  bright scenery.  It works in every stage, not only over stage 5's
+  skulls.  Two details needed care: stage 5's smooth drawing has already
+  painted some cells this screen, which must be kept rather than redrawn at
+  Konami's position, and the scenery under a lifted-out enemy is Konami's
+  map, not the enemy.
+* **The stars that missed the skeletons' mouths.**  The stars the stage 5
+  skeletons release appeared about 48 pixels to the left of the mouth.
+  It was not timing: Konami creates each star on the right tick and at
+  the mouth.  The patch gives these stars the colour byte 80h, its code
+  for a table of line colours, and the Next read bit 7 of it as the MSX's
+  early clock bit, which shifts a sprite 32 pixels left.  For Konami's
+  objects 80h is now the patch's table, with no shift.
+* **The Moai's rings.**  They flashed between blue and a greenish yellow
+  (the patch's colours for objects of colour 0 in stage 3).  They now
+  flash between blue and purple; the stage's palette has no red.  Only the
+  rings change: nothing else in stage 3 takes the new pair.
 * **One tree.**  The Next's changes to shared files are under `ifdef NEXT`,
   its takeovers of Konami's instructions are in `gen.py` with the 128K's,
   and the 128K builds are byte for byte those of 0.110.  `verify.sh` builds

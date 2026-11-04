@@ -24,8 +24,8 @@ its top four lines 68, as the patch has it in stage 4).
 nx_gfx.dat: banks 16 on.  Banks 16-23: the stage files.  Banks 24-31: each
 stage's 64 sprite patterns in fire colours (Next 4-bit, 128 bytes each; edge
 pixels 3, one in 4, deeper 5).  Bank 24 also holds, from 2000, the logo;
-bank 25, from 2000, our drawings, and bank 26, from 2000, their tables
-(art_page()).  Bank 32: the character pool's maps, 2K a stage; banks 33 on:
+bank 25, from 2000, our drawings, bank 26, from 2000, their tables
+(art_page()), and bank 27, from 2000, the code of nx_tur.asm.  Bank 32: the character pool's maps, 2K a stage; banks 33 on:
 the pool (char_pool())."""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -153,12 +153,17 @@ def tab_stage(s):
 # their maps; scenery_bonus.bin, their scenery palettes): the stage file in
 # bank 46, the maps in bank 47 (nx_l2.asm lo_apply)
 BONUS_BANK, BONUS_MAPS_BANK = 46, 47
+TUR_PAGE = 55                   # nx_tur.asm's 8K page (bank 27's second half)
 # the explosion, the shot, the pod, the robot, the jet, the materialising
 # enemy, the walker (Konami's patterns)
 SPR_GROUPS = [range(30, 34), [34], range(35, 40), range(40, 44), range(44, 47), range(47, 51), range(52, 64)]
-# and those of later stages' own patterns (nx_art.STAGED): stage 3's disc, its wheel
-STAGED_GROUPS = [[(3, k) for k in range(47, 51)], [(3, k) for k in range(55, 59)]]
-NART = 48                       # drawings at most (nx_l2.asm NART, LO_APAL)
+# and those of later stages' own patterns (nx_art.STAGED): stage 3's disc, its
+# wheel; stage 5's crescents, star, balls (the clusters and the singles), claws
+STAGED_GROUPS = [[(3, k) for k in range(47, 51)], [(3, k) for k in range(55, 59)],
+                 [(5, k) for k in range(40, 44)], [(5, 51)], [(5, k) for k in range(52, 60)],
+                 [(5, k) for k in range(60, 64)]]
+NART = 64                       # drawings at most (nx_l2.asm NART, LO_APAL; page 51 holds 64)
+PALS = list(range(2, 13)) + [14, 15]   # our sprite palettes (13 is the ship's), in TAB_PAL in this order
 
 def orig_load(rom, s):
     """VRAM (colours 0000, sprite patterns 1800, patterns 2000) after Konami's
@@ -220,10 +225,12 @@ def art_page(rom, data, maps, pool):
     num = {}
     for i, (sk, pal, rows) in enumerate(pats):
         art[i * 128:i * 128 + 128] = nibbles(rows); tab[TAB_APAL + i] = pal; num[sk] = i + 1
-    for p in range(2, 13):
-        o = TAB_PAL + (p - 2) * 28
+    for i, p in enumerate(PALS):
+        o = TAB_PAL + i * 28
         tab[o:o + 28] = bytes(b for e in nx_art.PALETTES[p][2:] for b in e)
-    assert TAB_PAL + 11 * 28 <= TAB_APAL and TAB_APAL + NART <= TAB_STAGE
+    assert sorted(nx_art.PALETTES) == PALS
+    assert TAB_PAL + len(PALS) * 28 <= TAB_APAL and TAB_APAL + NART <= TAB_STAGE
+    assert NART * 128 <= len(art)
     frames = rom[5 * 0x2000 + 0x11D1:5 * 0x2000 + 0x11D1 + 274]
     tab[TAB_FRAMES:TAB_FRAMES + len(frames)] = frames
     loads = {s: orig_load(rom, s) for s in range(1, 13)}
@@ -241,6 +248,7 @@ def art_page(rom, data, maps, pool):
                         on[k] = num[sk]
         for k, n in on.items():
             tab[o + k] = n
+        assert not any(tab[o:o + 10])       # lo_tur reads LO_OVR's first 10 bytes as 0
         report.append('stage %d: patterns %s' % (s, ','.join(map(str, sorted(on))) or '-'))
     return bytes(art), bytes(tab), report
 
@@ -295,6 +303,15 @@ def pack(rom):
     o = 2 * 0x4000 + 0x2000
     assert not any(fires[o:o + 0x2000])
     fires[o:o + len(tab)] = tab
+    # bank 27's second 8K (page 55): stage 5's turrets and skeletons and the
+    # shots over the scenery, code assembled at 6000 (nx_tur.asm; nx_l2.asm
+    # LO_TURP)
+    tur = open(os.path.join(HERE, 'nx_tur.bin'), 'rb').read()
+    sym = open(os.path.join(HERE, 'nx_low.sym')).read()
+    assert 'LO_TURP: EQU 0x%08X' % TUR_PAGE in sym
+    o = (TUR_PAGE // 2 - 24) * 0x4000 + 0x2000
+    assert TUR_PAGE % 2 and len(tur) <= 0x2000 and not any(fires[o:o + 0x2000])
+    fires[o:o + len(tur)] = tur
     print('our drawings:\n  ' + '\n  '.join(report))
     pool, n = char_pool(maps, pool)
     print('character pool: %d blocks, banks 32-%d' % (n, 31 + len(pool) // 0x4000))

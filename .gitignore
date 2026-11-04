@@ -21,6 +21,10 @@ spec/nx_syms.inc
 spec/nx_low.bin
 spec/nx_low.lst
 spec/nx_low.sym
+spec/nx_lsyms.inc
+spec/nx_tur.bin
+spec/nx_tur.lst
+spec/nx_tur.sym
 spec/nxbuild.log
 spec/nx_gfx.dat
 *.nex

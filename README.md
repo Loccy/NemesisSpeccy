@@ -102,20 +102,26 @@ hardware where the 128K has to make do:
   turrets, power-up capsules, shots and explosions. Those that leave a
   power-up are red, as in the arcade. Later stages get them where their
   enemies are the same as stage 1's, and the turrets in every stage that
-  has them. Stage 2's materialising enemy and stage 3's disc and wheel are
-  redrawn too.
+  has them. Stage 2's materialising enemy, stage 3's disc and wheel, and
+  stage 5's own enemies (the crescents, balls, claws and stars) are redrawn
+  too.
 * Stage 2's bricks and balls are the arcade's, and stage 3's Moai heads
-  and stone are shaded in the arcade's colours. The bonus stages have the
-  patch's graphics with stage 2's arcade bricks, and balls in each bonus
-  stage's own colour.
+  and stone are shaded in the arcade's colours. Stage 5's bones are shaded
+  in tones from ivory to brown instead of the patch's stippling. The bonus
+  stages have the patch's graphics with stage 2's arcade bricks, and balls
+  in each bonus stage's own colour.
 * The status line and the ship keep the colours they have in stage 1 for
   the whole game.
 * The bosses of stages 1 to 6 glide smoothly where the MSX moves them a
-  character at a time, and so do the round pieces of stage 3's boss and
-  the flyers of stage 4's mid-boss.
+  character at a time, and so do the round pieces of stage 3's boss, the
+  flyers of stage 4's mid-boss, and stage 5's turrets and skeletons as
+  they rise.
+* The shot and the laser are drawn over the scenery with a thin black
+  edge, instead of in the black 8 by 8 boxes the MSX shows them in.
+* Stage 3's Moai rings flash blue and purple.
 
-The redrawn enemies and scenery, the colour changes and the smooth bosses
-are our own changes, not the patch's.
+The redrawn enemies and scenery, the colour changes, the smooth bosses and
+the shots over the scenery are our own changes, not the patch's.
 
 The title screen shows the version ending in N: V0.110N. So far the Next
 version has been tested in emulators.
