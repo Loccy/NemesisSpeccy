@@ -5,7 +5,11 @@ the stage graphics were put in at the stage load and the background is drawn
 from the character pool (lo_pool on, few characters marked as written by
 Konami since the stage load: tile_cdirty, tile_pdirty), and that the Next's
 code bank (bank 8 at 0000) still holds its code as built: every instruction
-byte of nx_low.lst bar the operands the code rewrites itself.
+byte of nx_low.lst bar the operands the code rewrites itself.  It plays a
+copy of the .NEX made invulnerable (Konami's la_nave_ha_muerto, 1:75F0, made
+a RET; found by the listing's bytes), so that the ship's dying cannot put
+the scroll back between its two samples, and at 28 MHz
+(--allowturbotbbluerom: without it ZEsarUX holds a .NEX at 14 MHz).
 
   nx_smoke.py file.nex [--msx2]
 ZEsarUX: $ZESARUX (the binary), or zesarux on the PATH.  It runs headless
@@ -77,6 +81,33 @@ def code_bytes(here):
                     code.pop(sym[name] + int(n), None)
     return code
 
+def invulnerable(nex, here):
+    """A copy of the .NEX in which the ship cannot die (Konami's 1:75F0, the
+    ship's death, returns at once), or None if the routine is not found."""
+    lines = open(os.path.join(here, 'nemesis_next.lst')).read().splitlines()
+    addr = want = None
+    for i, line in enumerate(lines):
+        if line.rstrip().endswith('m1_75F0:'):
+            addr = int(line.split('+')[1].split()[0], 16)
+            want = []
+            for l2 in lines[i + 1:i + 12]:           # its first bytes, as listed
+                m = re.match(r'\s*\d+\+?\s*([0-9A-F]{4})\s+((?:[0-9A-F]{2} )+)', l2)
+                if m: want += [int(x, 16) for x in m.group(2).split()]
+            want = want[:6]
+            break
+    if addr is None or addr < 0xC000 or len(want) < 4:
+        return None
+    data = bytearray(open(nex, 'rb').read())
+    # the .NEX: a 512-byte header, then 16K banks 5, 2, 0, 1, 3, 4, 6, 7, ...
+    hits = [512 + i * 0x4000 + addr - 0xC000 for i in range(8)
+            if list(data[512 + i * 0x4000 + addr - 0xC000:][:len(want)]) == want]
+    if len(hits) != 1:
+        return None
+    data[hits[0]] = 0xC9
+    out = nex[:-4] + '_smoke_invulnerable.nex'
+    open(out, 'wb').write(data)
+    return out
+
 def main():
     nex = os.path.abspath(sys.argv[1]); msx2 = '--msx2' in sys.argv
     zes = os.environ.get('ZESARUX') or shutil.which('zesarux')
@@ -90,9 +121,13 @@ def main():
             if m:
                 sym[m.group(1)] = int(m.group(2), 16) & 0xFFFF
     lo_enh = sym.get('lo_enh')
+    play = invulnerable(nex, here)
+    if play is None:
+        print('nx_smoke: the ship\'s death routine (1:75F0) not found: playing the .NEX as it is')
+        play = nex
     p = subprocess.Popen([zes, '--noconfigfile', '--vo', 'null', '--ao', 'null',
-                          '--machine', 'TBBlue', '--tbblue-fast-boot-mode',
-                          '--enable-remoteprotocol', '--quickexit', '--snap', nex],
+                          '--machine', 'TBBlue', '--tbblue-fast-boot-mode', '--allowturbotbbluerom',
+                          '--enable-remoteprotocol', '--quickexit', '--snap', play],
                          cwd=os.path.dirname(os.path.abspath(zes)),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
@@ -112,6 +147,8 @@ def main():
         bad = sorted(a for a, b in code.items() if lo[a] != b)
     finally:
         p.kill()
+        if play != nex:
+            os.remove(play)
     ok = dist2 > dist1 > 0
     print('nx_smoke: scroll distance %d -> %d%s' % (dist1, dist2,
           '' if enh is None else ', MSX2 graphics %s' % ('in' if enh else 'not in')))

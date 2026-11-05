@@ -82,8 +82,10 @@ lo_pblk     equ 0x3FE4          ; their blocks (page, number),
 lo_popal    equ 0x3FEC          ; the record's LO_OPAL entry,
 lo_pours    equ 0x3FEE          ; bit 7: a block of our drawings,
 lo_ppal     equ 0x3FEF          ; its palette * 16
-lo_fade     equ 0x3FF0          ; lo_fadestep: screens drawn in the dissolve,
-lo_flv      equ 0x3FF1          ; the level
+lo_fade     equ 0x3FF0          ; lo_fadestep: 0 before the dissolve's first screen, 1 after
+                                ; (29: no fade on this screen, lo_ovclr)
+lo_flv      equ 0x3FF1          ; the fade's step (0-21, lo_fprog)
+LO_FMAP     equ 0x3FF3          ; and each level (0-7) of a channel at that step (8 bytes)
 lo_pq       equ 0x3FF2          ; lo_pconv: the blocks to make (4, or 2: the top two)
 
 lo_npend:   db 0                ; character enemies' patterns to send
@@ -758,13 +760,16 @@ lo_render:
 
 ; Konami's screen dissolve (dz_on: after the stage 7 boss and the stage 8
 ; brain; it eats the colour and pattern copies in about 35 ticks): the pool
-; goes on drawing the scenery (lo_cmap) while Layer 2's colours fade to black,
-; a step every 4 screens drawn: the stage's 16 (entries 0-15, from LO_PAL16),
-; palettes 2-12 (entries 22h-CFh, from LO_TAB) and the stage's scenery
-; palette (D1h-DFh, from its table in LO_TAB), each component less the
-; level.  On the dissolve's first screen the stage's 16 go to entries E0-EF as
-; they are and every cell is drawn again: lo_cell puts what Konami spares
-; (the status line, the stars) there.  lo_apply puts it all back.
+; goes on drawing the scenery (lo_cmap) while Layer 2's colours fade to black
+; in 21 steps, as far as Konami's dissolve has gone (lo_fprog): the stage's
+; 16 (entries 0-15, from LO_PAL16), palettes 2-12 (entries 22h-CFh, from
+; LO_TAB) and the stage's scenery palette (D1h-DFh, from its table in
+; LO_TAB), each channel scaled by (21 - step) / 21 and rounded (LO_FMAP), so
+; a colour keeps its hue and all of them reach black together; the steps
+; fall on different colours at different times, which reads as a fade.  On the dissolve's first screen the stage's 16
+; go to entries E0-EF as they are and every cell is drawn again: lo_cell puts
+; what Konami spares (the status line, the stars) there.  lo_apply puts it
+; all back.
 lo_fadestep:
     ld a,(dz_on)
     or a
@@ -773,22 +778,16 @@ lo_fadestep:
     ld a,(hl)
     cp 29
     ret nc
-    inc (hl)
     or a
     jr z,.first
-    ld c,a
-    and 3
-    ret nz
-    ld a,c
-    rrca
-    rrca
-    and 7
-    ld (lo_flv),a
+    call lo_fprog
+    ret z
+    call .map
     db 0xED,0x91,0x43,0x10      ; Layer 2's first palette
     db 0xED,0x91,0x40,0x00
     ld hl,LO_PAL16
     ld b,16
-    call .ent
+    call lo_fent
     db 0xED,0x91,0x52,LO_TAB
     ld hl,0x4000+TAB_PAL
     ld c,0x22
@@ -797,7 +796,7 @@ lo_fadestep:
     db 0xED,0x92,0x40
     push bc
     ld b,14
-    call .ent
+    call lo_fent
     pop bc
     ld a,c
     add a,0x10
@@ -809,68 +808,43 @@ lo_fadestep:
     ld l,0x42
     db 0xED,0x91,0x40,0xD1
     ld b,15
-    call .ent
+    call lo_fent
     db 0xED,0x91,0x52,0x0A
     db 0xED,0x91,0x43,0x00
     ret
+.map:                           ; LO_FMAP for the step: level * (21 - step) / 21, rounded
+    ld a,(lo_flv)
+    neg
+    add a,21
+    ld d,a
+    ld e,10
+    ld hl,LO_FMAP
+    ld b,8
+.ml:
+    ld a,e
+    ld c,0xFF
+.dl:
+    inc c
+    sub 21
+    jr nc,.dl
+    ld (hl),c
+    inc hl
+    ld a,e
+    add a,d
+    ld e,a
+    djnz .ml
+    ret
 .first:
+    inc (hl)
     ld (lo_flv),a
+    call .map
     db 0xED,0x91,0x43,0x10
     db 0xED,0x91,0x40,0xE0
     ld hl,LO_PAL16
     ld b,16
-    call .ent
+    call lo_fent
     db 0xED,0x91,0x43,0x00
     jp dirty_all
-.ent:                           ; B colours at HL (moved on), each less lo_flv
-    push bc
-    ld a,(lo_flv)
-    ld c,a
-    ld a,(hl)                   ; RRRGGGBB
-    inc hl
-    ld d,a
-    rlca
-    rlca
-    rlca
-    and 7
-    call .dn
-    rrca
-    rrca
-    rrca
-    ld e,a                      ; R
-    ld a,d
-    rrca
-    rrca
-    and 7
-    call .dn
-    add a,a
-    add a,a
-    or e
-    ld e,a                      ; R, G
-    ld a,(hl)                   ; the second byte: B's low bit in bit 0
-    rra
-    ld a,d
-    rla
-    and 7
-    call .dn
-    ld b,a
-    srl a
-    or e
-    db 0xED,0x92,0x44
-    ld a,(hl)
-    inc hl
-    and 0xFE
-    srl b
-    adc a,0
-    db 0xED,0x92,0x44
-    pop bc
-    djnz .ent
-    ret
-.dn:
-    sub c
-    ret nc
-    xor a
-    ret
 
 ; 16 bytes (F6, F7) at HL against DE, copied; C set if they differed.
 lo_render.stc:
@@ -3108,6 +3082,119 @@ lo_c0:
     ld a,0x0A
     ret
     assert $ <= LO_MPAT
+
+    org 0x3A60
+; The dissolve's fade (lo_fadestep): the step from how far Konami's dissolve
+; has gone (3:A6C0: E1A0 0 while it turns the backgrounds black, which it does
+; in its first tick; 1 while it eats the patterns, a quarter of the table a
+; tick, E1A1 the quarter (0, 40h, 80h, C0h), E1A2 the mask, FEh, FCh ... 80h,
+; then 00h; 2 on when all is black), 0-32 quarters, as a step of 21: P * 21 /
+; 32.
+; Z: the same step as before; NZ: a new one, in lo_flv.
+lo_fprog:
+    ld a,(0xE1A0-0x3100)
+    or a
+    jr z,.p                     ; the backgrounds: 0
+    dec a
+    ld a,32
+    jr nz,.p                    ; all black
+    ld a,(0xE1A2-0x3100)        ; the patterns: the mask's pass (FE 1 ... 00 8)
+    ld b,8
+    or a
+    jr z,.n
+    ld b,0
+.tz:
+    rrca
+    jr c,.n
+    inc b
+    jr .tz
+.n:
+    ld a,b
+    dec a
+    add a,a
+    add a,a
+    ld b,a
+    ld a,(0xE1A1-0x3100)        ; and the quarters of this pass done
+    rlca
+    rlca
+    and 3
+    add a,b
+.p:
+    ld l,a                      ; * 21 / 32
+    ld h,0
+    ld d,h
+    ld e,l
+    add hl,hl
+    add hl,hl
+    add hl,de
+    add hl,hl
+    add hl,hl
+    add hl,de
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld a,h
+    ld hl,lo_flv
+    cp (hl)
+    ret z
+    ld (hl),a
+    or 1                        ; NZ
+    ret
+
+; B colours at HL (moved on, two bytes each: RRRGGGBB, then B's low bit),
+; each channel through LO_FMAP, to the palette entries from the one selected.
+lo_fent:
+    push bc
+    ld a,(hl)                   ; RRRGGGBB
+    inc hl
+    ld d,a
+    rlca
+    rlca
+    rlca
+    and 7
+    call .dn
+    rrca
+    rrca
+    rrca
+    ld e,a                      ; R
+    ld a,d
+    rrca
+    rrca
+    and 7
+    call .dn
+    add a,a
+    add a,a
+    or e
+    ld e,a                      ; R, G
+    ld a,(hl)                   ; the second byte: B's low bit in bit 0
+    rra
+    ld a,d
+    rla
+    and 7
+    call .dn
+    ld b,a
+    srl a
+    or e
+    db 0xED,0x92,0x44
+    ld a,(hl)
+    inc hl
+    and 0xFE
+    srl b
+    adc a,0
+    db 0xED,0x92,0x44
+    pop bc
+    djnz lo_fent
+    ret
+.dn:
+    push hl
+    ld hl,LO_FMAP
+    add a,l
+    ld l,a
+    ld a,(hl)
+    pop hl
+    ret
+    assert $ <= LO_OVR
+
     org 0x3B40
 
 ; The pieces' sprites at DE (moved on), after the others, as many as fit.

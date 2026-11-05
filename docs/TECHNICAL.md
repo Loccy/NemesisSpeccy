@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 0.110 (1 November 2026). 
+Version 1.0 (5 November 2026); the 128K build's game is that of 0.110 (1 November 2026). 
 
 ## 1. What it is
 
@@ -82,7 +82,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the fast edition
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 0.110           # the release, tape and snapshot, in release/
+sh release.sh 1.0             # the release, tape, snapshot and .nex, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 
@@ -1192,10 +1192,10 @@ the character pool, 9.5.)
   where the 128K flips its screens.
 * Banks 16-31 hold the stage files of stages 1-8, the fire copies and the
   redrawn sprite enemies (9.5, 9.6), bank 32 the character pool's maps for
-  stages 1-8 and banks 33-39 its blocks (9.3); bank 46 holds the bonus
-  stages' stage file and bank 47 their maps (9.5).  Bank 40's first 8K
-  (page 80) holds the Big Core's drawings in the arcade's style (9.3); the
-  rest of banks 40-45 (pages 81-91) is unused.
+  stages 1-8 and banks 33-40 its blocks (pages 66-80, 9.3); bank 46 holds
+  the bonus stages' stage file and bank 47 their maps (9.5).  Bank 41's
+  first 8K (page 82) holds the Big Core's drawings in the arcade's style
+  (9.3); page 81 and pages 83-91 (banks 41-45) are unused.
 * Bank 27's second 8K (page 55) holds `nx_tur.asm`, the code that draws
   stage 5's turrets and skeletons, every stage's shots, stage 6's brains,
   the ghosts of pieces leaving at the left, stage 8's electricity, the
@@ -1217,12 +1217,12 @@ the character pool, 9.5.)
   attributes (3440-3A5F), the stage's table of our drawings (3B00-3B3F),
   the character enemies' palettes and frames (3C70-3CA5), our drawings'
   palette bytes (3CA6-3CE5), the character enemies' colour bytes
-  (3D00-3FBF), and the stage's palette and the pool's working bytes
-  (3FC0-3FF2).  The code no longer fits below 2000 whole: the pieces'
+  (3D00-3FBF), and the stage's palette, the pool's working bytes and the
+  fade's (3FC0-3FFA).  The code no longer fits below 2000 whole: the pieces'
   pattern maker, their sprite writer with its tables, the call into
   `nx_tur.asm`, and a few short routines it and the sprite colours use, are
-  assembled into three free parts of this map, 3360-3434, 3448-34E6 and
-  3B40-3C38.  The code below 2000 ends at 1FFD.
+  assembled into four free parts of this map, 3360-3434, 3448-34E6,
+  3A60-3AE3 (the dissolve's fade) and 3B40-3C38.  The code below 2000 ends at 1FFD.
 * Sprite patterns: 0-63 are Konami's; 64-85 the character enemies lifted
   out; 86-95 stage 8's bolts or the Big Core's core; 96-101 the MSX2
   patch's line-coloured sprites; 102 the volcano rocks; 103 takes the rest
@@ -1252,7 +1252,7 @@ the character pool, 9.5.)
   that changed, as on the 128K.  During a stage a cell is copied from the
   **character pool** (`lo_pcell`, `lo_cmap`): every character of every
   stage as an 8 by 8 block of Layer 2 pixels, each different block once
-  (1,771 blocks in banks 33-39), with a map per stage (bank 32, and bank
+  (1,806 blocks in banks 33-40), with a map per stage (bank 32, and bank
   47 for the bonus stages: the block of each character of each third; bit
   7 of a block's number marks a block of our drawings).  The pool is the
   Next's character artwork (9.5).  A
@@ -1286,10 +1286,21 @@ the character pool, 9.5.)
   secret is not found, the stage 7 boss; 6.6) eats the colour and pattern tables over about 35 ticks.  On
   the Next it is a fade to black instead (`lo_fadestep`): from its first
   tick (`dz_on`) to the next stage load the pool draws every character
-  whatever Konami has written, and every 4 screens drawn the Layer 2
-  palette goes a step darker, each colour component less one (seven steps
-  to black), for the stage's 16 colours, palettes 2-12 and the stage's
-  scenery palette.  What Konami's dissolve spares stays: the status line,
+  whatever Konami has written, and the Layer 2 palette fades in 21 steps
+  for the stage's 16 colours, palettes 2-12 and the stage's scenery
+  palette.  The step follows how far Konami's dissolve has gone
+  (`lo_fprog`: E1A0, the pass; E1A2, the mask; E1A1, the quarter of the
+  table; 32 quarters in all, a quarter a tick), so the fade ends when
+  Konami's dissolve does.  Each channel of each colour is scaled by
+  (21 - step) / 21 and rounded (`LO_FMAP`, a level-to-level table for the
+  step), so a colour keeps its hue and every colour reaches black at the
+  same step; colours of different brightness change at different steps,
+  so something on screen changes at nearly every step.  The first version
+  (until 5 November) took one level off every channel every 4 screens
+  drawn: seven steps, with the dim colours gone after two or three, which
+  showed as a few separate steps.  Taking one level off one channel at a
+  time gave 21 steps but shifted every pale colour's hue at each step, and
+  was dropped.  What Konami's dissolve spares stays: the status line,
   in its own entries (F0h-FFh), which are not faded, and the stars
   (characters F6 on), which `lo_cell` draws in entries E0h-EFh, holding
   the stage's 16 colours unfaded.  Konami's logic runs as before, so the
@@ -1354,7 +1365,7 @@ the character pool, 9.5.)
   collisions still use its whole-character position.
   The blocks show the arcade's Big Core rather than Konami's characters
   (`local/tools/arcade/bigcore_make.py`, from the arcade's bosses sheet,
-  kept as `spec/nx_bigcore.py`; page 80).  When a block's characters
+  kept as `spec/nx_bigcore.py`; page 82).  When a block's characters
   change, `lo_bconv` jumps to `lo_bart`, and `tu_bc` (in `nx_tur.asm`)
   sends the arcade's block instead of converting Konami's.  The body is
   trimmed to the 88 pixels of Konami's 11 characters, its cut edge shaded
@@ -1475,7 +1486,7 @@ the character pool, 9.5.)
   where it was), its bolt flickers sparsely for 16 ticks and goes.  The
   fight ends on Konami's timer, or when no objects are left (2:889C); in
   Konami's dissolve the bolts' palettes fade with the room (`tu_s8pal`,
-  by `lo_flv`), and they go when the dissolve clears the map.  Only drawn:
+  through `LO_FMAP`), and they go when the dissolve clears the map.  Only drawn:
   Konami's game is unchanged.
 * **The ending's zoom.**  In steps 4 and 5 of Konami's ending (E1D1;
   0:4BD8, 0:4C16) the Vic Viper flies from the exploding base towards the
@@ -1530,7 +1541,7 @@ those Konami rewrites in play.  `spec/nxgfx/` holds, ours to change:
 * `pool.bin`: the character pool, 8 by 8 blocks of Layer 2 pixels, a byte
   a pixel (a stage colour 0-15, palette * 16 + colour for our drawings, or
   D1h-DFh, a colour of the stage's scenery palette), each different block
-  once (1,771 blocks);
+  once (1,806 blocks);
 * `maps.bin`: 2K a stage (1-8), two bytes for each character of each
   third: the 8K page of its block in the `.nex` (66 on: bank 33 on, 128
   blocks a page) and its number in that page; page 0: none;
@@ -1549,7 +1560,7 @@ those Konami rewrites in play.  `spec/nxgfx/` holds, ours to change:
   colours, object and shot colours, the bosses' colour tables, map
   pieces), as bank, address, Konami's byte and ours.
 
-`nx_pack.py` packs them into banks 16-39, 46 and 47 with each stage's
+`nx_pack.py` packs them into banks 16-41, 46 and 47 with each stage's
 sprites in fire colours (9.6) and the redrawn sprite enemies, marking the
 maps' blocks of our drawings (bit 7 of the number), and puts each stage's
 scenery palette in its tables (9.6).  A `.nex` built from the stage files
@@ -1779,6 +1790,16 @@ where Konami puts them, away from the skeletons' mouths.
   characters (A1-BF on that screen) are blank, the electricity being
   sprites (9.3).  Each of these characters is used once on that screen
   and nowhere else in the stage (`local/tools/pool/art/st8_brain_make.py`).
+* **The enemy hatches** (Konami's background objects of types 1 and 2,
+  each drawn as 4 by 4 characters from the table at 1:6370, a second set
+  of characters once it has been shot, 1:7AB0) keep the patch's drawing,
+  but their darkest colours are lighter, since they merged into the black
+  background: in stages 1, 2 and 4 the blue hatch's dark navy (stage
+  colour 4) is (1,3,3) and the shot hatch's dark brown (stage colour 6)
+  (4,3,0), in the stage's scenery palette (D2h, D3h); stage 8's ceiling
+  hatch's dark olive is (2,3,1) (DDh).  The arcade's hatch was tried in a
+  mock-up and not taken.  `local/tools/pool/art/hatch_light_make.py` made
+  the blocks.
 * **Stage 2's brick-row end caps** (characters A1 and A4) are blank.  In
   play Konami puts them at the two ends of each row of bricks (the map
   dumped from the running game: A1 45 46 ... 45 46 A4, A4 47 48 49 ...
@@ -1812,7 +1833,13 @@ builds the `.nex` as well as the tape and snapshot, and, if ZEsarUX is
 available, plays it for a minute (`nx_smoke.py`: the game must start, its
 scroll must move, the stage graphics must be in, the background must be
 drawn from the character pool, and the Next's code bank must still hold
-its code as built).  The
+its code as built).  It plays a copy made invulnerable (Konami's 1:75F0,
+the ship's death, made a RET, found by its bytes in the listing) at 28 MHz:
+before 1.0 it played the `.nex` as it was, and the ship usually died
+before the second scroll sample, so the check failed on every build.  The
+whole game is played by `local/tools/nexttest/fulltest.py` (the route with
+every bonus stage, two loops, and deaths to game over), which was run on
+1.0 before its release.  The
 lockstep checks of section 4 cover Konami's logic, which the two builds
 share.
 

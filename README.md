@@ -131,8 +131,8 @@ hardware where the 128K has to make do:
 The redrawn enemies and scenery, the colour changes, the smooth bosses and
 the shots over the scenery are our own changes, not the patch's.
 
-The title screen shows the version ending in N: V0.110N. So far the Next
-version has been tested in emulators.
+The title screen shows the version ending in N: V1.0N. It has been played
+on a ZX Spectrum Next (KS2) and an N-Go, as well as in emulators.
 
 ## Playing it
 
@@ -160,7 +160,7 @@ Since 0.110 there is one edition. It draws every game tick while the game
 keeps up with the MSX's pace, and skips drawing one tick in two (no more)
 when it falls behind, so quiet stretches move smoothly and busy ones keep
 their speed. The title screen shows the version in the top right corner,
-ending in A: V0.110A. (The Spectrum Next version ends in N.)
+ending in A: V1.0A. (The Spectrum Next version ends in N.)
 
 Versions 0.98 to 0.109 came in two editions, fast (one tick in two drawn)
 and smooth (four in five). Both can still be built (see Building).
@@ -222,7 +222,7 @@ It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3 and sjasmplus
 ```
 python3 build.py              # nemesis.sna
 python3 make_tap.py           # nemesis.tap from it
-sh release.sh 0.110           # the release, tape and snapshot, in release/
+sh release.sh 1.0             # the release: tape, snapshot and .nex, in release/
 sh verify.sh                  # the regression checks
 ```
 

@@ -1537,8 +1537,8 @@ tu_s8make:
     xor a
     ld (tu_s8fv),a
 
-; Palettes 14 and 15, each colour component less A (to 0), as Konami's
-; dissolve fades the room (lo_fadestep: lo_flv).
+; Palettes 14 and 15 for the dissolve's step A (0: as they are), each
+; channel through LO_FMAP, as Konami's dissolve fades the room (lo_fadestep).
 tu_s8pal:
     ld (tu_s8f),a
     ld bc,0x243B                ; the palette control as it is, put back after
@@ -1606,13 +1606,21 @@ tu_s8pal:
     pop bc
     djnz .e
     ret
-.dim:
-    push hl
-    ld hl,tu_s8f
-    sub (hl)
+.dim:                           ; the level A at the dissolve's step (LO_FMAP), if
+    push hl                     ; it is fading (tu_s8f not 0)
+    push bc
+    ld b,a
+    ld a,(tu_s8f)
+    or a
+    ld a,b
+    jr z,.dz
+    ld hl,LO_FMAP
+    add a,l
+    ld l,a
+    ld a,(hl)
+.dz:
+    pop bc
     pop hl
-    ret nc
-    xor a
     ret
 
 ; The Big Core in the arcade's drawing (nx_pack.py BC_PAGE, mapped at 4000
@@ -1624,7 +1632,7 @@ tu_s8pal:
 ; palette 14): grey when it comes, bluer every two hits, none once the core
 ; has gone (E155, or face 2 in E786).  Palettes 14 and 15 are the arcade's
 ; while the Big Core is there, and the stage's again after (lo_pal1415).
-BC_PAGE     equ 80
+BC_PAGE     equ 82
 BC_CORES    equ 0x4000+44*128   ; the five cores
 BC_PAL      equ 0x5900          ; palettes 14 and 15, entries 2-15
 BC_PAT      equ 86              ; the core's pattern

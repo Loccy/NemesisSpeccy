@@ -177,11 +177,11 @@ S8_PAGE = 59
 #                  rest from page 63's 0000
 VV_PAGES = (61, 63)
 # the Big Core in the arcade's drawing (nx_bigcore.py, made by
-# local/tools/arcade/bigcore_make.py) in bank 40's first half, which nx_tur.asm
+# local/tools/arcade/bigcore_make.py) in bank 41's first half, which nx_tur.asm
 # maps at 4000 (BC_*): 0000 its 44 drawings (the 20 blocks that never change,
 # then the wall blocks for walls 0-5), 1600 its five cores, 1900 palettes 14
 # and 15 (entries 2-15, 28 bytes each)
-BC_PAGE = 80
+BC_PAGE = 82
 S8_PATNO = [104 + i for i in range(24)] + [86 + i for i in range(10)]
 # the explosion, the shot, the pod, the robot, the jet, the materialising
 # enemy, the walker (Konami's patterns)

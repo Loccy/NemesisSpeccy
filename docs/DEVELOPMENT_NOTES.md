@@ -895,7 +895,7 @@ method (24 presses, no beam term); measured exactly as the port is, it is
 (the screen flips in the interrupt at a frame's start, not its end) and
 were corrected before use.
 
-## After 0.110: the Spectrum Next build
+## 1.0: the Spectrum Next build
 
 What began as a question about what a Next could add became a second build
 of the same tree.
@@ -1242,19 +1242,54 @@ of the same tree.
 * **Memory.**  Bank 8's code area is full (3 bytes left below 2000), so
   the new code went into `nx_tur.asm`'s page, which then overflowed; stage
   6's tables moved to the top of that page.  The new drawings are in pages
-  of their own (57, 59, 61, 63 and 80), mapped in only while they are
-  read.  Pages 81-91 (88K) are still free.
+  of their own (57, 59, 61, 63 and, since 5 November, 82), mapped in only
+  while they are read.  Page 81 and pages 83-91 (80K) are still free.
 * **A packer bug.**  A build broke every stage's graphics within seconds
   of the start: a loop added to `nx_pack.py` for the ending's drawings
   reused the variable that held the offset of stage 6's tables, which were
   then written over the wrong place.  The pack step's loop variables are
   now kept distinct, and stage 6's tables were checked in the file and in
   the game after the move.
+* **The dissolve's fade.**  After the release candidate was tried on a
+  real Next, the fade at the stage 7 boss and the stage 8 brain was found
+  to look like a few separate steps rather than a fade.  It took one level
+  off every colour channel every 4 screens: seven steps, and dim colours
+  went black after two or three.  The Next's palette has only 8 levels a
+  channel, so a fade that keeps every colour's hue has at most 7 steps for
+  a grey.  Taking one level off one channel at a time gives 21 steps, but
+  rendering the frames showed stage 7's pale lilac-greys turning cream,
+  green and blue in turn, which was dropped before it was tried.  The fade
+  now scales every channel by the same fraction and rounds, in 21 steps
+  that follow Konami's own progress through the dissolve, so it ends when
+  the dissolve ends; bright and dim colours change at different steps, so
+  the screen changes at nearly every step (18 different frames on stage
+  7's screen).  The high, warbling sound under it is Konami's (sound 3E,
+  which the dissolve starts), as on the MSX.
+* **The hatches.**  The arcade's hatch (its body, with the last two frames
+  of its opening doors upright on top) was mocked up for the enemy hatches,
+  and the patch's drawing was preferred after all; what made the patch's
+  hard to see was its darkest navy, close enough to black that the eye
+  took it for background.  The navy, and the dark brown of the shot
+  hatch, are now a step lighter wherever the hatch appears (stages 1, 2
+  and 4, and stage 8's own colours), and only in the hatch's own
+  characters.  The extra blocks took the character pool past its old last
+  page into the Big Core's, so the Big Core's drawings moved two pages up.
+  Scorch marks and a dent on the shot hatch were mocked up as well and
+  dropped: at that size they read as a corrupted graphic.
 * **One tree.**  The Next's changes to shared files are under `ifdef NEXT`,
   its takeovers of Konami's instructions are in `gen.py` with the 128K's,
-  and the 128K builds are byte for byte those of 0.110.  `verify.sh` builds
-  the `.nex` too, and `release.sh` makes it and, with ZEsarUX, plays it for
-  a minute.
+  and the 128K builds are byte for byte those of 0.110 apart from the
+  version on the title.  `verify.sh` builds the `.nex` too, and
+  `release.sh` makes it and, with ZEsarUX, plays it for a minute.
+* **1.0.**  Both builds take the version 1.0 (V1.0A, V1.0N; the letters
+  stay: A for the 128K's adaptive pacing, N for the Next), shown right-
+  aligned at the top right of the title.  The Next's smoke test never
+  passed before: it played the game as it was and the ship died before the
+  scroll was sampled again; it now plays an invulnerable copy at 28 MHz.
+  Before the release the Next build was played through in ZEsarUX (every
+  bonus stage, two whole loops, deaths to game over from six stages) with
+  its code and data checked throughout, and on a real Next (KS2) and an
+  N-Go.
 
 ## How releases are checked
 
@@ -1269,7 +1304,7 @@ part of the game that changed (0.107's dissolves).  The released files are
 compared byte for byte with the builds that were checked, and the source
 package is rebuilt from scratch to make sure it reproduces them.
 
-## Where it stands (0.110)
+## Where it stands (1.0; the 128K's game as of 0.110)
 
 * The test build matches the MSX original in Konami's RAM and video memory
   with all weapons through the whole first loop and well into the second,
