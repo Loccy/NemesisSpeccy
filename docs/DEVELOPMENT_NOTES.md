@@ -1186,6 +1186,70 @@ of the same tree.
   (the patch's colours for objects of colour 0 in stage 3).  They now
   flash between blue and purple; the stage's palette has no red.  Only the
   rings change: nothing else in stage 3 takes the new pair.
+* **Stage 6.**  The robots are the arcade's, in the fans' palette.  The
+  brains and the ball chains on them, which Konami moves a character at a
+  time, are lifted out and shown as sprites in the arcade's drawing: a
+  brain glides towards its next step, and each ball slides from its place
+  in the chain's old drawing to its place in the new.  Konami takes a
+  brain off as soon as it touches the left edge, so brains and their
+  chains vanished there; they now glide on off the screen as ghosts that
+  nothing collides with.  The first version kept one ghost per brain
+  slot, and a new brain arriving in that slot cut the ghost short; each
+  slot now has a ghost of its own.
+* **Stage 7.**  The amoeba and its doughnut and burst follow the arcade's
+  pink cell, in a palette 15 of the stage's own.  The conveyor belts were
+  restyled like stage 5's bones, from every screen of a run through the
+  belt section: one lilac band with a darker rim, and white hollow rings
+  for the patch's green beads.
+* **Ghosts in stages 3 and 4.**  The pieces of stage 3's boss and the
+  flyers of stage 4's mid-boss vanished at the left edge in the same way:
+  Konami clears only the first byte of a piece's slot, leaving its X
+  wrapped past the edge.  Each piece's steps are now watched, and one
+  that leaves this way glides on off the screen at its own rate.  A piece
+  that is shot does not move off the screen first, so it is not ghosted.
+* **Stage 8's brain.**  The patch's brain, Konami's characters recoloured,
+  was replaced by the arcade's, which the arcade draws as part of the
+  scenery and which fits Konami's 8 by 8 characters at full size once it
+  is moved a pixel right and three down.  Konami's tendrils became blank
+  and the electricity six bolts of sprites from the brain to the six
+  sockets, taken from the arcade's lines and squashed to fit.  They are on
+  from when the brain's screen scrolls in, flicker throughout and swap
+  cyan and green now and then, which reads as arcing better than a plain
+  swap of colours did.  A bolt goes when its socket is shot.  The fight
+  can end after only a few sockets are shot, because Konami ends it on a
+  timer as well; that is Konami's game and is unchanged.  In a first
+  version the bolts stayed on screen through the dissolve; they now fade
+  with the room.  Konami's tendrils never collided: the disassembly's
+  comment on the map collision routine says the opposite of what the
+  code does (characters 01h-76h are solid, 77h and above only in stages 3
+  and 4).
+* **The ending.**  The Vic Viper's flight towards the camera, 6 drawings in
+  the patch, has 16 sizes drawn from a head-on model of the ship (its
+  wing tips swept up a little), timed by Konami's own counters so the
+  ending's length is Konami's.
+* **The arcade's Big Core.**  The Big Core is now the arcade's drawing in
+  the arcade's colours, which do not change from boss to boss.  It is
+  wider than Konami's 11 characters, so it is trimmed, and the cut edge is
+  shaded a step darker so the crop does not look sliced off.  The core is
+  a sprite of its own, so it can be placed to the pixel and turn from grey
+  to blue as the boss is hit, and disappear when the boss is beaten, as in
+  the arcade.  A first try drew the walls as vertical lines; a frame of
+  the arcade game showed them as a strip of four bars and a ball in the
+  mouth, which is what is drawn now, with bars taken away as Konami takes
+  its walls away.  Pictures of the boss for this work were made from the
+  ROM and the arcade sheet directly rather than from runs of the game,
+  which was much quicker.
+* **Memory.**  Bank 8's code area is full (3 bytes left below 2000), so
+  the new code went into `nx_tur.asm`'s page, which then overflowed; stage
+  6's tables moved to the top of that page.  The new drawings are in pages
+  of their own (57, 59, 61, 63 and 80), mapped in only while they are
+  read.  Pages 81-91 (88K) are still free.
+* **A packer bug.**  A build broke every stage's graphics within seconds
+  of the start: a loop added to `nx_pack.py` for the ending's drawings
+  reused the variable that held the offset of stage 6's tables, which were
+  then written over the wrong place.  The pack step's loop variables are
+  now kept distinct, and stage 6's tables were checked in the file and in
+  the game after the move.
 * **One tree.**  The Next's changes to shared files are under `ifdef NEXT`,
   its takeovers of Konami's instructions are in `gen.py` with the 128K's,
   and the 128K builds are byte for byte those of 0.110.  `verify.sh` builds

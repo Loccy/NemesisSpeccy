@@ -46,6 +46,7 @@ LO_QN       equ 0x3341          ; the pieces shown,
 LO_QTAB     equ 0x3342          ; and each one's X, Y, drawing (8 x 3)
 LO_QK       equ 0x335A          ; the boss kind they were made for (E152: 1, 5, 6)
 LO_QPP      equ 0x335B          ; lo_qspr: the kind's pattern table (2 bytes)
+LO_QG       equ 0x335D          ; the ghosts' sprites (nx_tur: tu_qtick), or 0
 L2_BANK0    equ 9
 L2_BANK1    equ 13
 
@@ -55,16 +56,19 @@ L2_BANK1    equ 13
 ; lo_apply.  The character enemies are drawn from the stage's character pool
 ; (lo_pconv).
 LO_ART      equ (25*2+1)
+LO_ART2     equ (28*2+1)        ; our drawings 65 on (nx_pack.py ART2_PAGE)
 LO_TAB      equ (26*2+1)
 TAB_PAL     equ 0x0000          ; LO_TAB: sprite palettes 2-12, then 14 and 15, entries 2-15
 TAB_APAL    equ 0x0180          ; the sprite drawings' palette bytes
+TAB_PAL6    equ 0x1320          ; stage 6's palette 15 (its brains, lo_pal1415)
+TAB_PAL7    equ 0x1340          ; stage 7's (its amoeba)
 TAB_STAGE   equ 0x0200          ; 512 bytes a stage: LO_OVR, and at + 40h the
                                 ; stage's scenery palette (Layer 2 D1-DF)
 TAB_FRAMES  equ 0x1200          ; Konami's frames' four characters (MSX 5:91D1)
 TAB_BONUS   equ 0x1400          ; the bonus stages' tables (9-12), 512 bytes each
 BONUS_BANK  equ 46              ; the bonus stages' stage file (nx_pack.py)
 BONUS_MAPS_BANK equ 47          ; and their character pool maps, 2K each
-NART        equ 64              ; sprite drawings at most (LO_APAL: 3CA6-3CE5)
+NART        equ 90              ; sprite drawings at most (LO_APAL: 3CA6-3CFF)
 LO_OVR      equ 0x3B00          ; Konami pattern -> our drawing (1 on; 0 none)
 LO_APAL     equ 0x3CA6          ; the sprite drawings' palette bytes (palette * 16,
                                 ; + 1: the next palette for those leaving a capsule)
@@ -2470,6 +2474,7 @@ lo_bpats:
 ; Block A: lo_bk's characters (top left, bottom left, top right, bottom
 ; right; the top row in lo_bk+4) -> 4-bit pattern BPAT + A, sent.
 lo_bconv:
+    jp lo_bart                  ; the arcade's drawing instead (nx_tur.asm tu_bc)
     push af
     ld a,PAGE_D
     call borrow_page
@@ -2632,8 +2637,9 @@ lo_bossspr:
     add a,32
     ld (de),a
     inc de
-    ld a,h                      ; palette offset 0, X bit 8
+    ld a,h                      ; palette 15 (the arcade's drawing), X bit 8
     and 1
+    or 0xF0
     ld (de),a
     inc de
     pop bc
@@ -2702,6 +2708,7 @@ lo_btmp:    ds 128              ; the boss pattern being made (lo_bconv, lo_qmak
 ; showing the background), two drawings alternating every 4 frames (2:8E5F,
 ; 2:8E6B; told apart by the middle row's first character, BC or C2).
 lo_pieces:
+    call lo_qgh                 ; the ghosts first (LO_QTAB still last tick's)
     xor a
     ld (LO_QN),a
     ld hl,0xE151-0x3100
@@ -2712,6 +2719,8 @@ lo_pieces:
     ld a,(hl)
     cp 1
     jr z,.on
+    cp 2
+    jp z,lo_brain               ; stage 6's brains: nx_tur.asm
     cp 5
     jr z,.on
     cp 6
@@ -2995,6 +3004,36 @@ lo_tcell:
     db 0xED,0x91,0x52,0x0A
     ret
 
+; Stage 6's brains (Konami's boss 2), in nx_tur.asm's page: lo_brain from
+; lo_pieces (LO_QK 2; takes them out of the map and works out their
+; sprites), lo_bspr from lo_qspr (the sprites at DE, moved on).
+lo_brain:
+    ld (LO_QK),a
+    db 0xED,0x91,0x53,LO_TURP
+    call 0x6003
+    db 0xED,0x91,0x53,0x0B
+    ret
+lo_bspr:
+    db 0xED,0x91,0x53,LO_TURP
+    call 0x6006
+    db 0xED,0x91,0x53,0x0B
+    ret
+; Pieces Konami takes off at the left edge (stages 3 and 4), and brains left
+; when stage 6's boss ends, gliding off: lo_qgh from lo_pieces, their sprites
+; through lo_bspr.
+lo_qgh:
+    db 0xED,0x91,0x53,LO_TURP
+    call 0x6009
+    db 0xED,0x91,0x53,0x0B
+    ret
+; The Big Core's block A in the arcade's drawing, sent (from lo_bpats, in
+; place of lo_bconv's).
+lo_bart:
+    db 0xED,0x91,0x53,LO_TURP
+    call 0x600C
+    db 0xED,0x91,0x53,0x0B
+    ret
+
 ; The MSX2 patch's colour 80 for Konami's objects (entries 10-21; its type
 ; 1C, the stars stage 5's skeletons release) is its line-colour table 80,
 ; not the early clock with colour 0: the patch shows it where it is.
@@ -3078,9 +3117,16 @@ lo_qspr:
     ret z
     ld a,(LO_QN)
     or a
+    jr nz,.any
+    ld a,(LO_QG)                ; none: any ghosts
+    or a
     ret z
+    jp lo_bspr
+.any:
     ld b,a
     ld a,(LO_QK)                ; the kind's patterns
+    cp 2
+    jp z,lo_bspr                ; stage 6's brains: nx_tur.asm
     cp 5
     ld hl,lo_qpat
     jr nz,.k
@@ -3159,7 +3205,7 @@ lo_qspr:
     inc ix
     pop bc
     djnz .p
-    ret
+    jp lo_bspr                  ; and the ghosts (nx_tur)
 .full:
     pop bc
     ret
@@ -3191,6 +3237,15 @@ lo_pal1415:
     call lo_apply.p28
     ld de,28
     add hl,de
+    ld a,(0xE061-0x3100)        ; stages 6 and 7: their own palette 15
+    cp 6
+    jr nz,.p7
+    ld hl,0x4000+TAB_PAL6
+.p7:
+    cp 7
+    jr nz,.p15
+    ld hl,0x4000+TAB_PAL7
+.p15:
     ld c,0xF2
     jp lo_apply.p28
 
@@ -3885,7 +3940,15 @@ lo_sprflip:
     inc b
     in a,(c)
     push af
+    ld a,e                      ; 1-64 in LO_ART, 65 on in LO_ART2
+    cp 65
     ld a,LO_ART
+    jr c,.k1
+    ld a,e
+    sub 64
+    ld e,a
+    ld a,LO_ART2
+.k1:
     db 0xED,0x92,0x52
     pop af
     pop bc
@@ -3974,6 +4037,7 @@ lo_sprflip:
     out (c),a
     ret
 .send:                          ; 4-bit pattern A from HL (moved on)
+lo_psend:                       ; (for nx_tur.asm)
     ld b,a
     srl a
     rr b                        ; bit 0 -> b bit 7

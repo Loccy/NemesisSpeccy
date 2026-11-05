@@ -1192,15 +1192,27 @@ the character pool, 9.5.)
   where the 128K flips its screens.
 * Banks 16-31 hold the stage files of stages 1-8, the fire copies and the
   redrawn sprite enemies (9.5, 9.6), bank 32 the character pool's maps for
-  stages 1-8 and banks 33-38 its blocks (9.3); bank 46 holds the bonus
-  stages' stage file and bank 47 their maps (9.5).  Banks 39-45 are unused.
-  Bank 27's second 8K (page 55) holds `nx_tur.asm`, the code that draws
-  stage 5's turrets and skeletons and every stage's shots (9.3), with its
-  variables; `lo_tur` maps it at 6000 for the call.
+  stages 1-8 and banks 33-39 its blocks (9.3); bank 46 holds the bonus
+  stages' stage file and bank 47 their maps (9.5).  Bank 40's first 8K
+  (page 80) holds the Big Core's drawings in the arcade's style (9.3); the
+  rest of banks 40-45 (pages 81-91) is unused.
+* Bank 27's second 8K (page 55) holds `nx_tur.asm`, the code that draws
+  stage 5's turrets and skeletons, every stage's shots, stage 6's brains,
+  the ghosts of pieces leaving at the left, stage 8's electricity, the
+  ending's zoom and the Big Core's blocks (9.3), with its variables (code
+  to 7514), and stage 6's tables from 7600 (its sprite drawings and the
+  sizes and places of the brains' and chains' sprites, made by
+  `nx_pack.py`); `lo_tur` and four short calls in bank 8 map it at 6000
+  (a jump table at 6000-600E).  Its data are in the second 8K of other
+  banks, which it maps at 4000 (MMU2) while it reads them and puts back
+  after: page 57 (bank 28) holds our sprite drawings 65 on (9.6), page 59
+  (bank 29) stage 8's electricity, pages 61 and 63 (banks 30 and 31) the
+  ending's zoom.
 * Bank 8's buffers sit above its code (which ends below 2000): Konami's
   sprite patterns as last sent and the character enemies' 4-bit patterns
   (2000-32FF), the scenery objects' flags (3300-333F), the boss pieces'
-  positions and kind (3340-335C, 9.3), the changed-pattern flags,
+  positions and kind (3340-335C, 9.3), the number of sprites the ghosts
+  and the Big Core's core add to them (335D), the changed-pattern flags,
   line-coloured sprites, the volcano rocks' pattern and the sprite
   attributes (3440-3A5F), the stage's table of our drawings (3B00-3B3F),
   the character enemies' palettes and frames (3C70-3CA5), our drawings'
@@ -1209,8 +1221,18 @@ the character pool, 9.5.)
   (3FC0-3FF2).  The code no longer fits below 2000 whole: the pieces'
   pattern maker, their sprite writer with its tables, the call into
   `nx_tur.asm`, and a few short routines it and the sprite colours use, are
-  assembled into three free parts of this map, 3360-3434, 3448-34B3 and
-  3B40-3C17.
+  assembled into three free parts of this map, 3360-3434, 3448-34E6 and
+  3B40-3C38.  The code below 2000 ends at 1FFD.
+* Sprite patterns: 0-63 are Konami's; 64-85 the character enemies lifted
+  out; 86-95 stage 8's bolts or the Big Core's core; 96-101 the MSX2
+  patch's line-coloured sprites; 102 the volcano rocks; 103 takes the rest
+  of a send the interrupt cut short; 104-127 the boss blocks, shared by
+  the Big Core, stage 3's and stage 4's pieces, stage 6's brains, stage 8's
+  bolts and the ending's zoom, never two of them at once.
+* Sprite palettes 14 and 15 change with the stage: stage 5's enemies;
+  stage 6's brains and stage 7's amoeba in 15; stage 8's bolts and the
+  ending's zoom; the Big Core's colours while it is on screen, the stage's
+  again after.
 * The CPU runs at 28 MHz (NEXTREG 07h).  The game runs at 30 ticks a
   second, the original's rate on a 60 Hz MSX (two frames a tick at
   59.94 Hz): screens are at most 2, 2, 1 frames apart in turn (`lo_tick`,
@@ -1230,7 +1252,7 @@ the character pool, 9.5.)
   that changed, as on the 128K.  During a stage a cell is copied from the
   **character pool** (`lo_pcell`, `lo_cmap`): every character of every
   stage as an 8 by 8 block of Layer 2 pixels, each different block once
-  (1,427 blocks in banks 33-38), with a map per stage (bank 32, and bank
+  (1,771 blocks in banks 33-39), with a map per stage (bank 32, and bank
   47 for the bonus stages: the block of each character of each third; bit
   7 of a block's number marks a block of our drawings).  The pool is the
   Next's character artwork (9.5).  A
@@ -1330,6 +1352,23 @@ the character pool, 9.5.)
   next step is always
   known then, so the boss glides without falling behind the game; Konami's
   collisions still use its whole-character position.
+  The blocks show the arcade's Big Core rather than Konami's characters
+  (`local/tools/arcade/bigcore_make.py`, from the arcade's bosses sheet,
+  kept as `spec/nx_bigcore.py`; page 80).  When a block's characters
+  change, `lo_bconv` jumps to `lo_bart`, and `tu_bc` (in `nx_tur.asm`)
+  sends the arcade's block instead of converting Konami's.  The body is
+  trimmed to the 88 pixels of Konami's 11 characters, its cut edge shaded
+  a step darker.  The four blocks of the mouth (6, 7, 12 and 13) show the
+  arcade's wall strip, four bars and a ball, with as many bars as Konami's
+  life / 4 (E789) gives walls, as Konami's own wall characters follow it
+  (1:7E91).  The core is a sprite of its own (pattern 86, palette 14, 36
+  pixels right and 24 down from the boss's corner, from `tu_bspr`): grey
+  when the boss comes, a step bluer every two hits (Konami's life starts
+  at 22), and gone once the core is destroyed (E155) or the face has gone
+  (E786 2).  The blocks are in palette 15.  While the Big Core is there
+  (stages 1-6, E151, E780 1) `tu_bcq` gives palettes 14 and 15 the
+  arcade's colours, and the stage's again after (`lo_pal1415`).  Konami's
+  collisions are unchanged.
 * **Stage 3's boss pieces** (Konami's boss 1 in E152; boss 6, one piece,
   on later rounds) are up to eight round pieces in the slots at E780 (16
   bytes each: byte 0 alive, Y in byte 3 and X in byte 5, whole pixels,
@@ -1357,6 +1396,16 @@ the character pool, 9.5.)
   six patterns are the top halves of the two drawings and the shared
   bottom row; each kind has its own tables of characters and patterns
   (`lo_qch`, `lo_qpat`; `lo_qch5`, `lo_qpat5`).
+  A piece that leaves at the left edge (bosses 1 and 6: 2:85C3, 2:8630,
+  2:8520, its X gone below 0; boss 5: 2:8E1D, past F0h) is taken off by
+  clearing only byte 0 of its slot, so it vanished as it touched the edge.
+  `tu_qtick` (from `lo_qgh`, at the start of `lo_pieces`) watches each
+  piece's steps, and one that goes this way glides on off the screen as a
+  ghost, at the same step and rate, drawn as `lo_qspr` draws the pieces,
+  until it is 32 pixels past the edge.  A piece that is shot keeps its X
+  on the screen and is not ghosted.  The ghosts are only drawn: nothing
+  collides with them.  `LO_QG` (335D) holds how many sprites they add, and
+  `lo_qspr` adds them (through `lo_bspr`) after the pieces.
 * **Stage 5's turrets and skeletons** slide out of the floor, the ceiling
   or a ledge, and Konami draws them a character row a step, so they rose
   8 pixels at a time.  `nx_tur.asm`, called after `lo_cells` (`lo_tur`),
@@ -1391,6 +1440,58 @@ the character pool, 9.5.)
   overlaid as it is.  Enemies drawn with characters and lifted out as
   sprites have the scenery under them, which Konami's lifting already
   gives.
+* **Stage 6's brains** (Konami's boss 2; its step 1:7F74, its drawing
+  2:8290) are two brains, at E790 and E7C0, each with up to two chains of
+  seven balls (2:8308 places them from the brain).  Konami draws them with
+  characters at the cell of their position, and moves a brain only in
+  steps: every 10 ticks, 8 pixels left and 8 up or down towards the ship
+  (2:8144); a chain aims at the ship, Konami choosing its next drawing
+  every 5 to 8 ticks (2:8113, 2:81D5).  `tu_btick` (from `lo_pieces`,
+  through `lo_brain`) takes their characters out of the screen copy with
+  the background put back, and shows them as sprites (`lo_qspr`,
+  `lo_bspr`): a brain as far towards its next step left as its count has
+  come, its rise or fall gliding over the ten ticks after the step that
+  made it, and each ball moving from its place in the chain's old drawing
+  to its place in the new over 6 ticks, relative to the brain shown.  The
+  drawings (13 patterns: the big brain's two frames, the small ones, the
+  two balls) and the sizes and places of each drawing's sprites are
+  stage 6's tables in page 55 (7600 on); they are sent to the boss blocks'
+  patterns once a boss.  A brain Konami takes off at the left edge, and
+  any left when the boss ends, glides on off the screen as a ghost with
+  its chains (`tu_ghost`, a copy of its state in `tu_gh0` or `tu_gh1`, so
+  that a new brain in the same slot does not cut it short).  Konami's
+  collisions use its own positions.
+* **Stage 8's electricity.**  The brain at the end of stage 8 is drawn
+  with characters in the arcade's style (9.6), and Konami's tendril
+  characters are blank; the electricity is six bolts of sprites from the
+  brain to Konami's six sockets (its type 11h objects, 2:88D3, placed by
+  the boss script at 2:88F8), 29 sprites in all (patterns 104-127 and
+  86-90), made by `local/tools/pool/art/st8_brain_make.py` and kept as
+  `spec/nx_st8.py` (page 59).  `tu_s8` shows them from 40 columns before
+  the scroll stops (distance 19Fh) and moves them with the scenery.  Each
+  bolt is shown 5 ticks in 8, at random, and swaps its cyan and green
+  (palettes 14 and 15) now and then, so the bolts flicker and arc
+  throughout.  When a socket is shot (its object no longer of type 11h
+  where it was), its bolt flickers sparsely for 16 ticks and goes.  The
+  fight ends on Konami's timer, or when no objects are left (2:889C); in
+  Konami's dissolve the bolts' palettes fade with the room (`tu_s8pal`,
+  by `lo_flv`), and they go when the dissolve clears the map.  Only drawn:
+  Konami's game is unchanged.
+* **The ending's zoom.**  In steps 4 and 5 of Konami's ending (E1D1;
+  0:4BD8, 0:4C16) the Vic Viper flies from the exploding base towards the
+  camera in 6 drawings of characters (A1h-EAh, rows 6-11, columns 10-21,
+  table 0:4EDA), shown for 64, 40, 16, 12, 8 and 4 ticks.  `tu_zoom`
+  takes those characters out of the screen copy (blanked in
+  `name_shadow`, their cells marked) and shows the ship as sprites in 16
+  sizes instead, drawn from a head-on model
+  (`local/tools/arcade/vv_model.py`, `vv_zoom_make.py`; kept as
+  `spec/nx_vvzoom.py`, pages 61 and 63), palette 15.  The size follows
+  Konami's own timing: the tick of the zoom is the start of Konami's
+  drawing (E1D9) plus that drawing's length less the ticks it has left
+  (E1D2), and a table gives the size for each of its 176 ticks.  Each
+  size's drawings are sent as it comes, to patterns 104-114 and 116-126
+  in turn, so the size on screen keeps its own.
+
 ### 9.4 Konami's instructions the Next build takes over
 
 | Site | Konami's | The Next's | Why |
@@ -1429,7 +1530,7 @@ those Konami rewrites in play.  `spec/nxgfx/` holds, ours to change:
 * `pool.bin`: the character pool, 8 by 8 blocks of Layer 2 pixels, a byte
   a pixel (a stage colour 0-15, palette * 16 + colour for our drawings, or
   D1h-DFh, a colour of the stage's scenery palette), each different block
-  once (1,427 blocks);
+  once (1,771 blocks);
 * `maps.bin`: 2K a stage (1-8), two bytes for each character of each
   third: the 8K page of its block in the `.nex` (66 on: bank 33 on, 128
   blocks a page) and its number in that page; page 0: none;
@@ -1448,7 +1549,7 @@ those Konami rewrites in play.  `spec/nxgfx/` holds, ours to change:
   colours, object and shot colours, the bosses' colour tables, map
   pieces), as bank, address, Konami's byte and ours.
 
-`nx_pack.py` packs them into banks 16-38, 46 and 47 with each stage's
+`nx_pack.py` packs them into banks 16-39, 46 and 47 with each stage's
 sprites in fire colours (9.6) and the redrawn sprite enemies, marking the
 maps' blocks of our drawings (bit 7 of the number), and puts each stage's
 scenery palette in its tables (9.6).  A `.nex` built from the stage files
@@ -1588,7 +1689,18 @@ where Konami puts them, away from the skeletons' mouths.
   they break into) are pink, their inner ring of dots a band one step
   darker; the bone claws (60-63) are gold and the stars (51) ice blue.
   They use two more sprite palettes, 14 and 15 (13 is the ship's), which
-  `lo_pal1415` loads with the others; up to 64 drawings now (`NART`).
+  `lo_pal1415` loads with the others.  Stage 6's robots (Konami's type 0Ch,
+  frames 29-2C, characters EC-F5, in the pool) are the arcade's, in
+  palette 4; Konami's four frames share their left half, so all four take
+  the arcade's first frame's left half (`local/tools/pool/art/
+  st6_robots_make.py`).  Stage 6's brains and their balls are the arcade's
+  brain (its second frame the first a quarter turn round, the small brains
+  reduced from it) and two of its balls, purple and grey-brown, drawn as
+  sprites (9.3).  Stage 7's amoeba (Konami's type 0Dh: patterns 56-59 as it
+  wobbles, 55 when it has stopped, the doughnut; type 14h bursts through
+  60-63) is the arcade's pink cell.  Stage 6 and stage 7 each give palette
+  15 colours of their own (`TAB_PAL6`, `TAB_PAL7`).  Up to 90 drawings now
+  (`NART`): 1-64 in page 51, 65 on in page 57.
   `local/tools/arcade/gen_art.py` made the sprite drawings from the arcade
   sprite sheets once; they are kept as data in `spec/nx_art.py`, so the
   build does not need the sheets.  `nx_pack.py` stores them in bank 25's
@@ -1654,6 +1766,19 @@ where Konami puts them, away from the skeletons' mouths.
   eggs keep their blues.  `local/tools/pool/art/st5_scenery_make.py` made
   the blocks from every screen sampled in a run through the stage (each
   character takes, pixel by pixel, the result it gets most often).
+  Stage 7's conveyor belts are in the arcade's style: a lilac band with a
+  darker rim, and white hollow rings, the arcade's links, in place of the
+  patch's green beads (`local/tools/pool/art/st7_belts_make.py`, from the
+  screens of a run through the belt section, `st7_screens.z`; each
+  character takes a ring where most of its appearances have one).
+  Stage 8's brain is the arcade's (the bosses sheet), put at full size in
+  Konami's 8 by 8 characters (rows 7-14, columns 12-19 where the scroll
+  stops) a pixel right and three down from their middle, where none of it
+  falls outside them, in the stage's scenery palette; its sockets (one
+  character each) take the arcade's socket, and Konami's tendril
+  characters (A1-BF on that screen) are blank, the electricity being
+  sprites (9.3).  Each of these characters is used once on that screen
+  and nowhere else in the stage (`local/tools/pool/art/st8_brain_make.py`).
 * **Stage 2's brick-row end caps** (characters A1 and A4) are blank.  In
   play Konami puts them at the two ends of each row of bricks (the map
   dumped from the running game: A1 45 46 ... 45 46 A4, A4 47 48 49 ...
@@ -1664,8 +1789,17 @@ where Konami puts them, away from the skeletons' mouths.
 * The status line and the ship keep stage 1's colours throughout (9.5).
 * Konami's screen dissolve is a fade to black (9.3).
 * The patch recolours the Big Core at each boss (it switches pattern
-  table and rewrites colours there); the Next keeps the stage's colours
-  for it, which were liked better.
+  table and rewrites colours there); the Next shows the arcade's Big Core
+  in the arcade's own colours at every boss, with its wall strip in the
+  mouth and its core a separate sprite that turns bluer as it is hit
+  (9.3).
+* Stage 8's brain is the arcade's, with electricity from it to the
+  sockets that flickers, arcs and goes with each socket shot (9.3); the
+  patch keeps Konami's characters there.
+* The ending's zoom has 16 sizes of a new drawing of the Vic Viper for the
+  patch's 6 (9.3).
+* Stage 3's and stage 4's boss pieces and stage 6's brains glide off at
+  the left edge instead of vanishing as they touch it (9.3).
 * Konami's objects of colour 0 flash between two colours, as in the patch
   (8 and 0Ah; 5 and 0Ah in stage 3).  Stage 3's Moai rings (type 0Eh)
   flash between 5 and 0Dh instead, blue and purple (`lo_c0`); the stage's
@@ -1689,7 +1823,10 @@ share.
   collision can look up to 7 pixels off.
 * Objects Konami moves 8 pixels at a time by its own code, rather than
   through its scroll helper, still move in steps (the Big Core, stage 3's
-  and stage 4's boss pieces and stage 5's turrets and skeletons excepted,
-  9.3).
+  and stage 4's boss pieces, stage 5's turrets and skeletons and stage 6's
+  brains excepted, 9.3).
+* Stage 8's electricity is only drawn: touching it does nothing, as
+  touching Konami's tendrils did nothing (characters 77h and above
+  collide only in stages 3 and 4).
 * A second Konami cartridge (F0F4) is not supported, so its extra sprites
   are not loaded.

@@ -146,6 +146,8 @@ def fire(p):
 # Konami's sprite patterns (and the walkers) as they are.
 import nx_art
 TAB_PAL, TAB_APAL, TAB_STAGE, TAB_FRAMES = 0x0000, 0x0180, 0x0200, 0x1200
+TAB_PAL6 = 0x1320                # stage 6's palette 15 (nx_l2.asm TAB_PAL6), after the frames
+TAB_PAL7 = 0x1340                # stage 7's (TAB_PAL7)
 TAB_BONUS = 0x1400              # the bonus stages' tables (9-12), after the frames
 def tab_stage(s):
     return TAB_STAGE + (s - 1) * 0x200 if s <= 8 else TAB_BONUS + (s - 9) * 0x200
@@ -154,6 +156,33 @@ def tab_stage(s):
 # bank 46, the maps in bank 47 (nx_l2.asm lo_apply)
 BONUS_BANK, BONUS_MAPS_BANK = 46, 47
 TUR_PAGE = 55                   # nx_tur.asm's 8K page (bank 27's second half)
+ART2_PAGE = 57                  # our drawings 65 on (bank 28's second half; nx_l2.asm LO_ART2)
+# stage 8's electricity (nx_st8.py, made by local/tools/pool/art/st8_brain_make.py)
+# in bank 29's second half, which nx_tur.asm maps at 4000 (nx_tur.asm S8_*):
+#   0000  the drawings, 128 bytes each (4-bit), sent to patterns 104-127, then
+#         86 on (S8_PATNO)
+#   1000  the sprites: their number, then each one's bolt (0-5), X, Y and
+#         pattern (as tu_put takes it: the pattern - 104, mod 256)
+#   1100  the sockets' objects: X, Y for each bolt
+#   1200  palettes 14 and 15, entries 2-15 (28 bytes each, Next 9-bit)
+#   1300  the number of drawings
+S8_PAGE = 59
+# the ending's Vic Viper zoom (nx_vvzoom.py, made by local/tools/arcade/vv_zoom_make.py)
+# in banks 30 and 31's second halves, which nx_tur.asm maps at 4000 (VV_*):
+#   page 61  0000  the size for each tick of the zoom (176)
+#            00C0  each size: its first drawing, its number of drawings
+#            00E0  palette 15, entries 2-15 (28 bytes, Next 9-bit)
+#            0100  each drawing's sprite: X, Y
+#            0200  the drawings, 128 bytes each (4-bit): 0-59 here, the
+#                  rest from page 63's 0000
+VV_PAGES = (61, 63)
+# the Big Core in the arcade's drawing (nx_bigcore.py, made by
+# local/tools/arcade/bigcore_make.py) in bank 40's first half, which nx_tur.asm
+# maps at 4000 (BC_*): 0000 its 44 drawings (the 20 blocks that never change,
+# then the wall blocks for walls 0-5), 1600 its five cores, 1900 palettes 14
+# and 15 (entries 2-15, 28 bytes each)
+BC_PAGE = 80
+S8_PATNO = [104 + i for i in range(24)] + [86 + i for i in range(10)]
 # the explosion, the shot, the pod, the robot, the jet, the materialising
 # enemy, the walker (Konami's patterns)
 SPR_GROUPS = [range(30, 34), [34], range(35, 40), range(40, 44), range(44, 47), range(47, 51), range(52, 64)]
@@ -161,8 +190,9 @@ SPR_GROUPS = [range(30, 34), [34], range(35, 40), range(40, 44), range(44, 47), 
 # wheel; stage 5's crescents, star, balls (the clusters and the singles), claws
 STAGED_GROUPS = [[(3, k) for k in range(47, 51)], [(3, k) for k in range(55, 59)],
                  [(5, k) for k in range(40, 44)], [(5, 51)], [(5, k) for k in range(52, 60)],
-                 [(5, k) for k in range(60, 64)]]
-NART = 64                       # drawings at most (nx_l2.asm NART, LO_APAL; page 51 holds 64)
+                 [(5, k) for k in range(60, 64)],
+                 [(7, k) for k in range(55, 60)], [(7, k) for k in range(60, 64)]]   # stage 7's amoeba, its burst
+NART = 90                       # drawings at most (nx_l2.asm NART, LO_APAL); 1-64 in page 51, 65 on in page 57
 PALS = list(range(2, 13)) + [14, 15]   # our sprite palettes (13 is the ship's), in TAB_PAL in this order
 
 def orig_load(rom, s):
@@ -215,7 +245,7 @@ def art_page(rom, data, maps, pool):
     (one enemy's patterns: no enemy drawn half ours, half Konami's) only when
     every pattern of the group is there."""
     spr = bool(int(os.environ.get('NEM_ARC_SPR', '1')))
-    art = bytearray(0x2000); tab = bytearray(0x2000)
+    art = bytearray(0x4000); tab = bytearray(0x2000)       # art: pages 51 and 57
     pats = [((1, k),) + nx_art.SPRITES[k] for k in sorted(nx_art.SPRITES)] + \
            [((1, k),) + nx_art.WALKERS[k] for k in sorted(nx_art.WALKERS)] + \
            [(sk,) + nx_art.STAGED[sk] for sk in sorted(nx_art.STAGED)]
@@ -230,6 +260,10 @@ def art_page(rom, data, maps, pool):
         tab[o:o + 28] = bytes(b for e in nx_art.PALETTES[p][2:] for b in e)
     assert sorted(nx_art.PALETTES) == PALS
     assert TAB_PAL + len(PALS) * 28 <= TAB_APAL and TAB_APAL + NART <= TAB_STAGE
+    # stages 6 and 7's palette 15 (lo_pal1415), after Konami's frames
+    for o, pal in ((TAB_PAL6, nx_art.STAGE6_PAL15), (TAB_PAL7, nx_art.STAGE7_PAL15)):
+        assert TAB_FRAMES + 274 <= o and o + 28 <= TAB_BONUS
+        tab[o:o + 28] = bytes(b for e in pal[2:] for b in e)
     assert NART * 128 <= len(art)
     frames = rom[5 * 0x2000 + 0x11D1:5 * 0x2000 + 0x11D1 + 274]
     tab[TAB_FRAMES:TAB_FRAMES + len(frames)] = frames
@@ -263,6 +297,102 @@ def char_pool(maps, pool):
     pages += bytes(-len(pages) % 0x4000)
     assert POOL_BANK + len(pages) // 0x4000 <= 48
     return bytes(maps) + bytes(pages), len(pool) // 64
+
+# Stage 6's brains (Konami's boss 2: brains at E790 and E7C0, each with up to
+# two chains of seven balls at +10h and +20h, drawn as characters from bank
+# 10's tables AAA6 and AAB0) shown as sprites by nx_tur.asm: its tables at
+# TB6 in page 55, after its code.  Our patterns (nx_art.STAGE6, 13), then
+# for each of the five brain drawings its size in characters and its sprites
+# (X, Y, pattern; four at most), for each of the 40 chain drawings its size
+# and its balls' top left corners, in order along the chain from the end at
+# the brain (the red one fourth).
+TB6 = 0x1600                    # in the page (6000 + 1600 = 7600: nx_tur.asm TB)
+def stage6_tables(rom):
+    v = orig_load(rom, 6)
+    def u8(bank, a): return rom[bank * 0x2000 + (a & 0x1FFF)]
+    def entry(base, i):
+        p = u8(10, base + 2 * i) | u8(10, base + 2 * i + 1) << 8
+        W, H = u8(10, p), u8(10, p + 1)
+        return W, H, [u8(10, p + 3 + k) for k in range(W * H)]
+    def render(W, H, cs, third=1):
+        g = [[0] * (W * 8) for _ in range(H * 8)]
+        for r in range(H):
+            for c in range(W):
+                ch = cs[r * W + c]
+                if not ch: continue
+                for y in range(8):
+                    pat = v[0x2000 + third * 0x800 + ch * 8 + y]; col = v[third * 0x800 + ch * 8 + y]
+                    for x in range(8):
+                        g[r * 8 + y][c * 8 + x] = (col >> 4) if pat & (0x80 >> x) else (col & 15)
+        return g
+    out = bytearray()
+    for rows in nx_art.STAGE6:
+        out += nibbles(rows)
+    assert len(out) == 13 * 128
+    def bbox_c(pts):
+        xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+        return (min(xs) + max(xs) + 1) / 2, (min(ys) + max(ys) + 1) / 2
+    brs = bytearray(); dims = bytearray()
+    for i in range(5):
+        W, H, cs = entry(0xAAA6, i)
+        dims += bytes([W, H])
+        if i < 2:
+            spr = [(16 * (q & 1), 16 * (q >> 1), 4 * i + q) for q in range(4)]
+        else:
+            g = render(W, H, cs)
+            kc = bbox_c([(x, y) for y in range(len(g)) for x in range(len(g[0])) if g[y][x]])
+            n = 8 + i - 2
+            rows = nx_art.STAGE6[n]
+            oc = bbox_c([(x, y) for y in range(16) for x in range(16) if rows[y][x] != '0'])
+            spr = [(int(round(kc[0] - oc[0])), int(round(kc[1] - oc[1])), n)]
+        b = bytes([len(spr)]) + b''.join(bytes([x & 255, y & 255, n]) for x, y, n in spr)
+        brs += b + bytes(13 - len(b))
+    T = [u8(2, 0x8377 + d) for d in range(40)]
+    T = [t - 256 if t > 127 else t for t in T]
+    tpl = None
+    chd = bytearray(); chb = bytearray()
+    for d in range(40):
+        W, H, cs = entry(0xAAB0, d)
+        g = render(W, H, cs)
+        left = {(x, y) for y in range(len(g)) for x in range(len(g[0])) if g[y][x]}
+        if tpl is None:             # a ball: the first drawing's top one, as an 8 x 8 mask
+            x0, y0 = min(left, key=lambda q: (q[1], q[0]))
+            comp = []; st = [(x0, y0)]; seen = {(x0, y0)}
+            while st:
+                q = st.pop(); comp.append(q)
+                for n in ((q[0] + 1, q[1]), (q[0] - 1, q[1]), (q[0], q[1] + 1), (q[0], q[1] - 1)):
+                    if n in left and n not in seen and abs(n[1] - y0) < 8: seen.add(n); st.append(n)
+            bx = min(q[0] for q in comp); by = min(q[1] for q in comp)
+            tpl = sorted(((x - bx, y - by) for x, y in comp), key=lambda q: (q[1], q[0]))
+            assert len(tpl) == 47, len(tpl)
+        balls = []
+        while left:
+            fx, fy = min(left, key=lambda q: (q[1], q[0]))
+            ox, oy = fx - tpl[0][0], fy - tpl[0][1]
+            cells = [(ox + a, oy + c) for a, c in tpl]
+            assert all(q in left for q in cells), d
+            for q in cells: left.remove(q)
+            balls.append((ox, oy, sum(g[y][x] in (6, 8) for x, y in cells) > 20))
+        assert len(balls) == 7 and sum(b[2] for b in balls) == 1, d
+        # the brain's centre from this drawing's top left, as Konami places it
+        # (2:8308; the big brain): above it for drawings 0-9 and 30-39 (the
+        # chain at +10h), below for 10-29 (+20h)
+        if d < 10 or d >= 30: bc = (8 - T[d], H * 8 + 16)
+        else: bc = (8 - T[d], -16)
+        dist = lambda b, q: (b[0] + 4 - q[0]) ** 2 + (b[1] + 4 - q[1]) ** 2
+        path = [min(balls, key=lambda b: dist(b, bc))]
+        while len(path) < 7:
+            last = path[-1]
+            path.append(min((b for b in balls if b not in path), key=lambda b: dist(b, (last[0] + 4, last[1] + 4))))
+        assert path[3][2], (d, path)
+        chd += bytes([W, H])
+        chb += b''.join(bytes([x, y]) for x, y, _ in path)
+    out += dims + bytes(6) + brs
+    assert len(out) == 0x690 + 65
+    out += bytes(0x6E0 - len(out)) + chd
+    out += bytes(0x730 - len(out)) + chb
+    assert len(out) == 0x730 + 560
+    return bytes(out)
 
 def pack(rom):
     """-> nx_gfx.dat (bytes) from spec/nxgfx and nem.rom."""
@@ -299,7 +429,10 @@ def pack(rom):
     assert TAB_FRAMES + 274 <= TAB_BONUS and TAB_BONUS + 4 * 0x200 <= 0x2000
     tab = bytes(tab)
     o = 0x4000 + 0x2000
-    fires[o:o + len(art)] = art
+    fires[o:o + 0x2000] = art[:0x2000]
+    o = ART2_PAGE // 2 * 0x4000 - 24 * 0x4000 + 0x2000     # drawings 65 on
+    assert ART2_PAGE % 2 and not any(fires[o:o + 0x2000])
+    fires[o:o + 0x2000] = art[0x2000:]
     o = 2 * 0x4000 + 0x2000
     assert not any(fires[o:o + 0x2000])
     fires[o:o + len(tab)] = tab
@@ -310,14 +443,52 @@ def pack(rom):
     sym = open(os.path.join(HERE, 'nx_low.sym')).read()
     assert 'LO_TURP: EQU 0x%08X' % TUR_PAGE in sym
     o = (TUR_PAGE // 2 - 24) * 0x4000 + 0x2000
-    assert TUR_PAGE % 2 and len(tur) <= 0x2000 and not any(fires[o:o + 0x2000])
+    assert TUR_PAGE % 2 and len(tur) <= TB6 and not any(fires[o:o + 0x2000])
     fires[o:o + len(tur)] = tur
+    import nx_st8
+    o8 = (S8_PAGE // 2 - 24) * 0x4000 + 0x2000
+    assert S8_PAGE % 2 and not any(fires[o8:o8 + 0x2000])
+    assert len(nx_st8.PATS) <= len(S8_PATNO) and len(nx_st8.SOCKETS) == 6
+    for i, rows in enumerate(nx_st8.PATS):
+        fires[o8 + i * 128:o8 + i * 128 + 128] = bytes.fromhex(''.join(rows))
+    spr = bytes([len(nx_st8.SPR)]) + bytes(b for (n, x, y, k) in nx_st8.SPR for b in (n, x, y, (S8_PATNO[k] - 104) & 255))
+    fires[o8 + 0x1000:o8 + 0x1000 + len(spr)] = spr
+    fires[o8 + 0x1100:o8 + 0x110C] = bytes(b for xy in nx_st8.SOCKETS for b in xy)
+    fires[o8 + 0x1300] = len(nx_st8.PATS)
+    for k, pal in enumerate((nx_st8.PAL14, nx_st8.PAL15)):
+        fires[o8 + 0x1200 + k * 28:o8 + 0x1200 + k * 28 + 28] = bytes(b for e in pal[2:] for b in e)
+    import nx_vvzoom as vz
+    o61, o63 = [(p // 2 - 24) * 0x4000 + 0x2000 for p in VV_PAGES]
+    assert all(p % 2 for p in VV_PAGES) and not any(fires[o61:o61 + 0x2000]) and not any(fires[o63:o63 + 0x2000])
+    assert len(vz.TABLE) <= 0xC0 and len(vz.FRAMES) <= 16
+    fires[o61:o61 + len(vz.TABLE)] = bytes(vz.TABLE)
+    k = 0; pos = b''
+    for i, spr in enumerate(vz.FRAMES):
+        fires[o61 + 0xC0 + 2 * i:o61 + 0xC2 + 2 * i] = bytes([k, len(spr)])
+        for (x, y, rows) in spr:
+            ov = o61 + 0x200 + k * 128 if k < 60 else o63 + (k - 60) * 128
+            fires[ov:ov + 128] = bytes.fromhex(''.join(rows))
+            pos += bytes([x & 255, y & 255]); k += 1
+    assert k <= 60 + 64 and len(pos) <= 0x100
+    fires[o61 + 0x100:o61 + 0x100 + len(pos)] = pos
+    fires[o61 + 0xE0:o61 + 0xE0 + 28] = bytes(b for e in vz.PAL15[2:] for b in e)
+    t6 = stage6_tables(rom)
+    assert TB6 + len(t6) <= 0x2000
+    fires[o + TB6:o + TB6 + len(t6)] = t6
     print('our drawings:\n  ' + '\n  '.join(report))
     pool, n = char_pool(maps, pool)
     print('character pool: %d blocks, banks 32-%d' % (n, 31 + len(pool) // 0x4000))
     out = bytearray(data + fires) + pool
     assert 16 + len(out) // 0x4000 <= BONUS_BANK
     out += bytes((BONUS_BANK - 16) * 0x4000 - len(out))
+    import nx_bigcore as bc
+    ob = (BC_PAGE // 2 - 16) * 0x4000
+    assert not BC_PAGE % 2 and 16 + (len(data) + len(fires) + len(pool)) // 0x4000 <= BC_PAGE // 2 and not any(out[ob:ob + 0x2000])
+    assert len(bc.TILES) == 44 and len(bc.CORES) == 5
+    for i, rows in enumerate(bc.TILES + bc.CORES):
+        out[ob + i * 128:ob + i * 128 + 128] = bytes.fromhex(''.join(rows))
+    for k, pal in enumerate((bc.PAL14, bc.PAL15)):
+        out[ob + 0x1900 + k * 28:ob + 0x1900 + k * 28 + 28] = bytes(b for e in pal[2:] for b in e)
     bonus = open(os.path.join(GFX, 'bonus.bin'), 'rb').read()
     assert len(bonus) == 0x4000
     out += bonus

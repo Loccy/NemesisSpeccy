@@ -107,6 +107,7 @@ lo_tick:
 .nochars:
     xor a
     ld (LO_QN),a
+    ld (LO_QG),a
     ld (lo_nobj),a
     ld (lo_bon),a
     ret

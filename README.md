@@ -103,19 +103,27 @@ hardware where the 128K has to make do:
   power-up are red, as in the arcade. Later stages get them where their
   enemies are the same as stage 1's, and the turrets in every stage that
   has them. Stage 2's materialising enemy, stage 3's disc and wheel, and
-  stage 5's own enemies (the crescents, balls, claws and stars) are redrawn
-  too.
+  stage 5's own enemies (the crescents, balls, claws and stars), stage 6's
+  robots and brains, and stage 7's amoeba are redrawn too.
 * Stage 2's bricks and balls are the arcade's, and stage 3's Moai heads
   and stone are shaded in the arcade's colours. Stage 5's bones are shaded
   in tones from ivory to brown instead of the patch's stippling. The bonus
   stages have the patch's graphics with stage 2's arcade bricks, and balls
-  in each bonus stage's own colour.
+  in each bonus stage's own colour. Stage 7's conveyor belts are in the
+  arcade's style.
+* The Big Core is the arcade's, in the arcade's colours, with its walls in
+  the mouth and a core that turns from grey to blue as it is hit.
+* Stage 8's brain is the arcade's, with flickering electricity to its
+  sockets that goes as each socket is shot.
+* At the end of the game the Vic Viper flies towards the camera in 16
+  sizes of a new drawing, where the patch has 6.
 * The status line and the ship keep the colours they have in stage 1 for
   the whole game.
 * The bosses of stages 1 to 6 glide smoothly where the MSX moves them a
   character at a time, and so do the round pieces of stage 3's boss, the
-  flyers of stage 4's mid-boss, and stage 5's turrets and skeletons as
-  they rise.
+  flyers of stage 4's mid-boss, stage 6's brains and their chains, and
+  stage 5's turrets and skeletons as they rise. Pieces and brains that
+  leave at the left glide off the screen instead of vanishing at its edge.
 * The shot and the laser are drawn over the scenery with a thin black
   edge, instead of in the black 8 by 8 boxes the MSX shows them in.
 * Stage 3's Moai rings flash blue and purple.
