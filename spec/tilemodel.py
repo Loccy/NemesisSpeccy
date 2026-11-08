@@ -7,12 +7,12 @@ convert(pat, col, third, ch, state, stage, dist) -> (rows, attr)
   (E063-E064) when 1.0 converts it.
 
 Follows convert.asm's order: the colour fit (convert_tile, modelled by
-fit_model.heur_q), bar_style (barstyle.asm), then tile_post (plat_spec.asm):
+fit_model.heur_q), bar_style (1.0's barstyle.asm), then tile_post (1.0's plat_spec.asm):
 the title logo (logo_tile) on the title, otherwise the stage colour rules
-(rules.asm, modelled by stage_rules.rule) and tile_invert, then the nuke
-capsule's cyan.  Not modelled: the dissolve's own path (dz_tile, conv_dz) and
-the pattern-only recolouring of the stars (recolour_tile), which the native
-build replaces.
+(1.0's rules.asm, modelled by stage_rules.rule) and tile_invert, then the nuke
+capsule's cyan.  dz_post models the dissolve's own path (dz_tile, conv_dz)
+for its colour pass.  Not modelled: the pattern-only recolouring of the
+stars (recolour_tile), which the native build replaces.
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -49,7 +49,11 @@ def logo_tile(pat, col):
         rows.append(pat[r] & ((0xAA if (8 - r) & 1 else 0x55) if st else 0xFF))
     return rows, (0x45 if cyan else 0x47)
 
+LAST_INVERTED = False
+
 def convert(pat, col, third, ch, state, stage, dist):
+    global LAST_INVERTED
+    LAST_INVERTED = False
     t = heur_q(tuple(zip(pat, col)))
     rows, attr = list(t[:8]), t[8]
     rows, attr = bar_style(pat, col, third, ch, rows, attr)
@@ -59,9 +63,34 @@ def convert(pat, col, third, ch, state, stage, dist):
     if ru:
         if ru[0] == 'paint': rows, attr = list(ru[1]), ru[2]
         else: attr = ru[1](attr)
+    a0 = attr
     rows, attr = invert(rows, attr)
     rows = list(rows)
+    LAST_INVERTED = attr != a0      # stored the other way round (the dissolve needs to know)
     if 0x77 <= ch <= 0x7A:
         if attr & 0x38 == 0: attr = (attr & 0xB8) | 0x45
         else: attr = (attr & 0x87) | 0x68
     return rows, attr
+
+def dz_post(pat, col, rows, attr):
+    """1.0's tile once Konami's dissolve has made every background black (its
+    colour pass: the colours ANDed with F0), from the tile as it was (rows,
+    attr): dz_tile (1.0's convert_e.asm).  The colour that showed the foreground
+    (the old ink, or the old paper if it drew more of the pattern's pixels)
+    becomes the ink on black paper, bright kept; a row's pixels stay if its
+    foreground colour is strictly nearer that ink than black."""
+    from fit_model import D
+    a = attr & 0x7F
+    if a & 0x38 == 0: paper = False
+    elif a & 7 == 0: paper = True
+    else:
+        e = 0
+        for r in range(8):
+            for x in range(8):
+                if pat[r] & (0x80 >> x):
+                    e += 1 if rows[r] & (0x80 >> x) else -1
+        paper = (e & 0x80) != 0
+    c = (a >> 3) & 7 if paper else a & 7
+    br = 1 if a & 0x40 else 0
+    out = [pat[r] & (0xFF if c and D[br][col[r] >> 4][c] < D[br][col[r] >> 4][0] else 0) for r in range(8)]
+    return out, (a & 0x40) | c

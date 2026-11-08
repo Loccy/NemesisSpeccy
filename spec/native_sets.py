@@ -24,7 +24,9 @@ _argv = sys.argv; sys.argv = ['x']
 import gfxcap, msxsim
 import lockstep_spec as LS
 sys.argv = _argv
+import tilemodel
 from tilemodel import convert
+INV = None          # a set: the characters converted the other way round are added to it
 
 MOAI = set()     # stage 3: characters 1.0 first shows before distance 195h (the census), (third, char)
 for l in open(os.path.join(NEM, 'spec', 'native_moai.txt')):
@@ -73,6 +75,7 @@ def tile(v, k, state, stage, dist=None):
     pat = [v[0x2000 + o + r] for r in range(8)]; col = [v[o + r] for r in range(8)]
     if dist is None: dist = 0 if (stage != 3 or (t, c) in MOAI) else 0x195
     rows, attr = convert(pat, col, t, c, state, stage, dist)
+    if INV is not None and tilemodel.LAST_INVERTED: INV.add(k)
     return bytes(rows) + bytes([attr])
 
 def spr(v, i): return bytes(v[0x1800 + i * 32:0x1820 + i * 32])
@@ -109,8 +112,13 @@ def events():
         m.mem[0xE061] = n; gfxcap.call(m, 0x422A)
         ch, sp = written(m.vdp.vram)
         v = m.vdp.vram
-        ev[('stage', n)] = dict(full=True, tiles={k: (tile(v, k, 5, n) if k in ch else bytes(9)) for k in range(768)},
-                                 spr={i: spr(v, i) for i in range(64)})
+        global INV
+        INV = set()
+        tl = {k: (tile(v, k, 5, n) if k in ch else bytes(9)) for k in range(768)}
+        inv, INV = INV, None
+        ev[('stage', n)] = dict(full=True, tiles=tl, inv=inv,
+                                 spr={i: spr(v, i) for i in range(64)}, spr_written=set(sp))
+        if n in (7, 8): ev[('stage', n)]['dz'] = dz_patch(v, tl, inv)
         if n <= 6:
             gfxcap.call(m, 0x4A6D); ch, sp = written(m.vdp.vram)
             ev[('bigcore', n)] = dict(full=False, tiles={k: tile(v, k, 5, n, 0x195 if n == 3 else 0) for k in ch},
@@ -132,6 +140,36 @@ def events():
     ev[('ending',)] = dict(full=False, tiles={k: tile(em.vdp.vram, k, 5, 8) for k in ch},
                            spr={i: spr(em.vdp.vram, i) for i in sp})
     return ev
+
+def dz_dissolved(k):
+    """Konami's dissolve works on characters 00-F5 of each third, except
+    00-43 of the bottom third (the score and the bar)."""
+    t, c = divmod(k, 256)
+    return c <= 0xF5 and not (t == 2 and c < 0x44)
+
+def dz_rule(rows, attr, inv):
+    """The native colour pass (native.asm, dz_col): a tile stored the other
+    way round goes back to ink on paper with its old paper as the ink; then
+    black paper, bright kept."""
+    if inv:
+        return [r ^ 0xFF for r in rows], (attr & 0x40) | ((attr >> 3) & 7)
+    return list(rows), attr & 0x47
+
+def dz_patch(v, tl, inv):
+    """The characters whose tile after the dissolve's colour pass is not
+    what dz_rule gives (as shown: the attribute of a tile with no pixels does
+    not count): 1.0's (tilemodel.dz_post) for them."""
+    out = {}
+    for k in range(768):
+        if not dz_dissolved(k) or tl[k] == bytes(9): continue      # (characters the load leaves alone are blank)
+        t, c = divmod(k, 256); o = t * 0x800 + c * 8
+        pat = [v[0x2000 + o + r] for r in range(8)]; col = [v[o + r] for r in range(8)]
+        rows, attr = list(tl[k][:8]), tl[k][8]
+        pr, pa = tilemodel.dz_post(pat, col, rows, attr)
+        qr, qa = dz_rule(rows, attr, k in inv)
+        if pr != qr or (any(pr) and pa != qa):
+            out[k] = bytes(pr) + bytes([pa])
+    return out
 
 def zx0(b):
     with tempfile.TemporaryDirectory() as d:

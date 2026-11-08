@@ -42,6 +42,7 @@ DATA_PLACE = {4: ('B', 0xC000, 0x6000), 5: ('B', 0xE000, 0x8000),
               11: ('E', 0xC000, 0x8000), 12: ('E', 0xE000, 0xA000)}
 # Bytes of each data bank actually emitted (default: all 8KB).
 DATA_RANGE = {}
+NO_EMIT = set()          # data banks placed (for their addresses) but not carried
 if TARGET == 'spec':
     # Banks 9/10/12 share page E (24 Oct).  With no attract cycle (no demo,
     # no illustration) bank 12 is only read at A000-A2A7 (whole-game census,
@@ -62,6 +63,14 @@ if TARGET == 'spec':
     # 0:505A; the port's RDSLT answers FF, so it never does), and 9BE4-9FFF is
     # FF padding.  Its place in page B (F8B9-FFFF) takes the colour fit.
     DATA_RANGE[5] = (0x8000, 0x98B9)
+    # The native build (no MSX graphics, claude/native-128k-plan.md): the
+    # graphics streams and character lists are gone; the game reads only
+    # bank 5's object shapes (formas_de_objeto, 91D1-92E2) in play, bank 9's
+    # two title panels (names, 9B3F-9C56) and bank 10 from A000 less the
+    # ending's graphics (A0DB-A808).  Bank 4 is not carried at all.
+    DATA_RANGE[5] = (0x91D1, 0x92E3)
+    DATA_RANGE[9] = (0x9B3F, 0x9C57)
+    NO_EMIT = {4}
 # Parts of a data bank emitted away from the bank's own placement, each with
 # its own displacement: bank -> [(first, end, section, Spectrum address)].
 # Pointers into them (data tables, code operands) are given the piece's
@@ -82,7 +91,7 @@ if TARGET == 'spec':
     # high-score table's frame, sprites and code, part of the attract cycle,
     # never shown here), and the room the colour fit left (F692-FB03) and its
     # cache (FC13-FFFF).
-    DATA_SKIP[10] = [(0xA758, 0xAAA6)]                 # -> E769+0x758 = EEC1 .. F20E
+    DATA_SKIP[10] = [(0xA0DB, 0xA758), (0xA758, 0xAAA6)]   # the ending's graphics; A758-AAA5 -> E769+0x758 = EEC1 .. F20E
     DATA_PIECES[12] = [(0xA2D8, 0xA428, 'E', 0xEEC1),  # stage 9's script
                        (0xA578, 0xA668, 'E', 0xF011),  # stage 11's
                        (0xA668, 0xA878, 'E', 0xF692),  # stage 12's
@@ -161,14 +170,12 @@ SPEC_PATCH = {
     (0, 0x47E7): ['    ret'],
     (0, 0x47CE): ['    call spr_upload'],     # an upload shows the sprites again (after quita_los_sprites)
     (0, 0x475B): ['    jp blink_native'],            # parpadea_dos_caracteres: star tile rows, done natively
-    (0, 0x49B9): ['    jp descomprime_native'],      # the graphics decompressor, through a buffer
     # No Konami logo and no attract cycle (demo, illustration): straight to the
     # 1/2 player select, which waits there (Paul, 24 Oct; frees banks 9/10/12 space).
     (0, 0x52D9): ['    jp spec_title'],              # estado_0 sub 1: the title (and the controls) instead of the logo
     (0, 0x5308): ['    jp title_tick'],              # estado_1: the attract cycle's tune, looped on the title (0.102)
     (0, 0x537F): ['    jp title_end'],               # estado_3 (the game starting): the title's tune stopped (0.102)
     (0, 0x530F): ['    jp m0_5BD3'],                 # estado_1: keep blinking the choice, never the attract cycle
-    (3, 0xA6C0): ['    call dz_mark'],               # apaga_la_pantalla, the screen dissolve: noted for the renderer (0.107)
     (3, 0xA765): ['    jp dz_chunk'],                # come_un_trozo, one chunk of the dissolve, done natively (0.107)
     # di that only matter on the MSX (see 'mapper di' in emit_item): before the
     # sound request's pushes (the queue itself, 4A02-4A11, keeps its di), and
@@ -177,8 +184,43 @@ SPEC_PATCH = {
     (0, 0x49E9): ['    nop'],
     (0, 0x57B6): ['    nop'],
 }
-for _a in (0x49CD, 0x49D7, 0x567D, 0x5691, 0x5697, 0x56D2, 0x58F7, 0x5BA9):
+for _a in (0x567D, 0x5691, 0x5697, 0x56D2, 0x58F7, 0x5BA9):
     SPEC_PATCH[(0, _a)] = ['    call vdp_out_a']   # out (c),a to the VDP data port
+# The native build: Konami's graphics loads become native loads of sets
+# converted when the game is built (spec/native_sets.py, nl_load in
+# native.asm).  Each site is a load event the census of 8 November 2026
+# found (claude/native-128k-plan.md, sections 13 and 15).
+SPEC_PATCH.update({
+    (0, 0x422A): ['    jp nl_stage'],               # carga_los_graficos_de_la_fase: the stage's set
+    (0, 0x4A8A): ['    call nl_bigcore'],           # the Big Core's characters (its call of carga_fichas)
+    (0, 0x4B04): ['    call nl_ending'],            # the ending's graphics (its call of carga_el_marcador)
+    (0, 0x4C2E): ['    call nl_marcador'],          # the ending, step 6: the status line again
+    (0, 0x5300): ['    call nl_title'],             # estado_0: the title's graphics (its call of carga_el_marcador)
+    (0, 0x53D4): ['    call nl_prestage'],          # the screen before each life (its call of carga_la_fuente)
+    (0, 0x54DD): ['    call nl_gameover'],          # game over (its call of carga_el_marcador_en_dos_tercios)
+    (0, 0x5A54): ['    ret'],                       # presentacion: its loads are in the title's set
+    # Konami's block routines into VRAM, reached now only from dead code
+    # (the attract cycle) or code the native build replaces
+    (0, 0x4960): ['    ret'], (0, 0x4964): ['    ret'], (0, 0x4977): ['    ret'],
+    (0, 0x4988): ['    ret'], (0, 0x49B3): ['    ret'], (0, 0x49B9): ['    ret'],
+})
+# Items left out of the native build (bank, first, last item start): the
+# loaders and their data, and the calls the events above take the place of.
+LEAVE_OUT = [(0, 0x422D, 0x4298),     # carga_los_graficos_de_la_fase's body (4299 stays: devuelve_el_reparto_de_siempre)
+             (0, 0x42B3, 0x4498),     # graficos_por_fase, the character lists, the mirrors (4499-449E stay: 0:41CA's
+                                      # base for the table at 449F is 4499)
+             (0, 0x4961, 0x4963), (0, 0x4965, 0x4976), (0, 0x4978, 0x4987), (0, 0x4989, 0x4997),
+             (0, 0x49B4, 0x49B8), (0, 0x49BC, 0x49DD),    # the block routines and the decompressor
+             (0, 0x4A96, 0x4A98),     # the Big Core's call of monta_un_espejo
+             (0, 0x4B11, 0x4B2B),     # the ending's three loads
+             (0, 0x53F0, 0x5425),     # the screen before each life: its six blocks
+             (0, 0x544F, 0x5451),     # ... and its call of carga_el_marcador_en_dos_tercios
+             (0, 0x5851, 0x5A45),     # the status line's loaders and their data
+             (0, 0x5A57, 0x5A67),     # presentacion's loads
+             (0, 0x5B4D, 0x5B61)] if TARGET == 'spec' else []
+def left_out(b, a):
+    return any(lb == b and lo <= a <= hi for lb, lo, hi in LEAVE_OUT)
+
 # Writes into Konami's map buffer (ED00-EFBF), found by a census of 30,000
 # ticks, and on 24 Oct by censuses through every stage with each weapon
 # (spec/census.py, census_check.py).  Each drawing routine notes the region it writes (cell, width,
@@ -389,6 +431,8 @@ class Gen:
     def emit_item(self, b, it, sec, out):
         raw = self.raw[b]; org = ORG[b]; I = self.identity
         a, n = it[0], it[1]
+        if not I and left_out(b, a):
+            self.report['left out'] += 1; return
         if not I and TARGET == 'spec' and (b, a) in NEXT_PATCH and not getattr(self, 'in_next', False):
             was = raw[a - org:a - org + n].hex()
             assert was == NEXT_PATCH_WAS[(b, a)], 'Next hook %d:%04X is %s, not %s' % (b, a, was, NEXT_PATCH_WAS[(b, a)])
@@ -631,6 +675,7 @@ class Gen:
             out += body
             out.append('section_%s_end:' % sec)
         for b, data in self.placed_data().items():
+            if b in NO_EMIT: continue
             sec, base, org = DATA_PLACE[b]
             lo, hi = DATA_RANGE.get(b, (org, org + 0x2000))
             fn = NEM_ROOT + '/reloc/data_%s_bank%d.bin' % (TARGET, b)
@@ -693,4 +738,4 @@ if __name__ == '__main__':
     for k, v in sorted(g.report.items()): print(k, v)
     print('far stubs:', len(g.stubs))
     if TARGET == 'spec':
-        assert g.report['next patched'] == len(NEXT_PATCH), 'a Next hook site is not an item start'
+        assert g.report['next patched'] == len([k for k in NEXT_PATCH if not left_out(*k)]), 'a Next hook site is not an item start'

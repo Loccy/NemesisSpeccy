@@ -47,176 +47,6 @@ KRAM equ 0xAF00 - 0xE000          ; add to an MSX RAM address
 TILE_PAGES equ 0xDB                ; converted tiles: page TILE_PAGES+9*third+row, low byte = id
 SPR_PAT equ 0xF800                 ; sprite pattern table (VRAM 1800-1FFF), page 7
 COL_SHADOW equ 0xE800              ; VRAM 0000-17FF, page C
-; One chunk of Konami's dissolve (dz_chunk, 0.107): HL = VRAM address, BC =
-; bytes (a multiple of 8), SH = the shadow of table TB, MAP its dirty bitmap.
-    macro DZ_CHUNK sh, tb, map
-    ld de,sh-tb
-    add hl,de                   ; HL = the shadow's byte
-    push bc
-    ; the mask for each byte of a tile: step 0 (E1A0) the same for every byte,
-    ; then turned three bits right after each, so every tile (8 bytes, 24
-    ; bits) starts again with E1A2
-    ld a,(0xE1A0+KRAM)
-    ld c,a
-    ld a,(0xE1A2+KRAM)
-    ld (.m0+1),a
-    call .turn
-    ld (.m1+1),a
-    call .turn
-    ld (.m2+1),a
-    call .turn
-    ld (.m3+1),a
-    call .turn
-    ld (.m4+1),a
-    call .turn
-    ld (.m5+1),a
-    call .turn
-    ld (.m6+1),a
-    call .turn
-    ld (.m7+1),a
-    pop bc
-    srl b
-    rr c
-    srl b
-    rr c
-    srl b
-    rr c                        ; C = tiles
-    ld a,0xff                   ; every cell redrawn at the end of the tick,
-    ld (chg_n),a                ; as for a load (tick_tiles)
-    ld a,1
-    ld (star_stale),a
-    ld de,0xEA00+KRAM           ; Konami's buffer, left as Konami leaves it
-.tile:
-    ld b,0                      ; bytes changed
-    ld a,(hl)
-.m0:
-    and 0
-    ld (de),a
-    cp (hl)
-    jr z,.s0
-    ld (hl),a
-    inc b
-.s0:
-    inc l
-    inc e
-    ld a,(hl)
-.m1:
-    and 0
-    ld (de),a
-    cp (hl)
-    jr z,.s1
-    ld (hl),a
-    inc b
-.s1:
-    inc l
-    inc e
-    ld a,(hl)
-.m2:
-    and 0
-    ld (de),a
-    cp (hl)
-    jr z,.s2
-    ld (hl),a
-    inc b
-.s2:
-    inc l
-    inc e
-    ld a,(hl)
-.m3:
-    and 0
-    ld (de),a
-    cp (hl)
-    jr z,.s3
-    ld (hl),a
-    inc b
-.s3:
-    inc l
-    inc e
-    ld a,(hl)
-.m4:
-    and 0
-    ld (de),a
-    cp (hl)
-    jr z,.s4
-    ld (hl),a
-    inc b
-.s4:
-    inc l
-    inc e
-    ld a,(hl)
-.m5:
-    and 0
-    ld (de),a
-    cp (hl)
-    jr z,.s5
-    ld (hl),a
-    inc b
-.s5:
-    inc l
-    inc e
-    ld a,(hl)
-.m6:
-    and 0
-    ld (de),a
-    cp (hl)
-    jr z,.s6
-    ld (hl),a
-    inc b
-.s6:
-    inc l
-    inc e
-    ld a,(hl)
-.m7:
-    and 0
-    ld (de),a
-    cp (hl)
-    jr z,.s7
-    ld (hl),a
-    inc b
-.s7:
-    inc hl
-    inc de
-    ld a,b
-    or a
-    jr z,.next
-    push de
-    push hl
-    ld de,(-(sh+8)) & 0xffff
-    add hl,de                   ; HL = the tile's offset in its table
-    ld a,l
-    and 0x38
-    rrca
-    rrca
-    rrca
-    ld e,a
-    ld d,bitmask>>8
-    ld a,(de)                   ; its bit
-    add hl,hl
-    add hl,hl
-    ld l,h                      ; offset >> 6: its byte
-    ld h,map>>8
-    ld e,a
-    ld a,l
-    add a,map&0xff
-    ld l,a
-    ld a,e
-    or (hl)
-    ld (hl),a                   ; marked (dz_flag flags it at the end of the tick)
-    pop hl
-    pop de
-.next:
-    dec c
-    jp nz,.tile
-    ret
-.turn:
-    inc c
-    dec c
-    ret z
-    rrca
-    rrca
-    rrca
-    ret
-    endm
 PAT_SHADOW equ 0xE800              ; VRAM 2000-37FF, page D
 
     ifndef HOLD_TICKS
@@ -259,13 +89,15 @@ HOLD_TICKS equ 12               ; fire held this many ticks: power-up as well (f
 
 ; The dissolve's pattern chunks (0.107), here since 0.109 to make room in
 ; 8000-96FF: rarely run, so contended memory does not matter.
+; The native build's loads and dissolve (native.asm), after Konami's bank 0
+; (shorter by the loaders it leaves out).
+    org section_fixed_end
+    include "native.asm"
+    include "native_tables.asm"
+native_end:
+    assert native_end <= edge_pat
     org 0x7C58
-    assert section_fixed2_end <= far_dz_pat
-far_dz_pat:
-    call far_go
-    db PAGE_D
-    dw dz_pat
-    assert $ <= 0x7C60
+    assert section_fixed2_end <= 0x7C58
 ; ===========================================================================
 ; Low fixed RAM after Konami's moved data (7C58-7FFF).
     org 0x7C60
@@ -324,94 +156,60 @@ bios_0053:                      ; SETWRT: address HL
     ret
 
 bios_0056:                      ; FILVRM: BC bytes of A from HL
-    push af
-    push bc
-    push de
+    push af                     ; Only the name table and the sprite attributes
+    push bc                     ; are kept (3800-3BFF): the native build has
+    push de                     ; no pattern or colour tables, and Konami fills
+    push hl                     ; those only in the loads it no longer makes
+    ld (.v+1),a                 ; (and the boot's clearing of the whole VRAM)
+    ex de,hl
+    ld h,b
+    ld l,c
+    add hl,de                   ; HL = the end, DE = the start
     push hl
-    ld (vdp_addr),hl
-    push bc
-    ld hl,dc_buf                ; a buffer of the value, written in pieces
-    ld b,DC_LEN
-.f:
-    ld (hl),a
-    inc hl
-    djnz .f
-    pop bc
-.loop:
-    ld a,b
-    or c
+    ld bc,0x3c00
+    or a
+    sbc hl,bc
+    pop hl
+    jr c,.e
+    ld h,b
+    ld l,c                      ; end = min(end, 3C00)
+.e:
+    ld a,d
+    cp 0x38
+    jr nc,.s
+    ld de,0x3800                ; start = max(start, 3800)
+.s:
+    or a
+    sbc hl,de                   ; HL = the count
+    jr c,.done
     jr z,.done
-    call dc_piece               ; HL = min(BC, DC_LEN), BC -= that
-    push bc
+    ld (vdp_addr),de
     ld b,h
     ld c,l
-    ld hl,dc_buf
-    call vbulk
-    pop bc
-    jr .loop
+.f:
+.v:
+    ld a,0
+    call vram_write
+    dec bc
+    ld a,b
+    or c
+    jr nz,.f
 .done:
     pop hl
     pop de
     pop bc
-    pop af
-    ret
-
-; HL = min(BC, DC_LEN); BC -= HL.
-dc_piece:
-    ld hl,DC_LEN
-    ld a,b
-    or a
-    jr nz,.big
-    ld a,c
-    cp DC_LEN
-    jr nc,.big
-    ld l,a
-.big:
-    ld a,c
-    sub l
-    ld c,a
-    ret nc
-    dec b
-    ret
-
-bios_005C:                      ; LDIRVM: BC bytes from RAM HL to VRAM DE
-    push af
-    push bc
-    push de
     push hl
-    ex de,hl
-    ld (vdp_addr),hl
-    ex de,hl
-.loop:
-    ld a,b
-    or c
-    jr z,.done
-    push hl
-    call dc_piece               ; through dc_buf: the source may be paged out by vbulk
-    ex (sp),hl                  ; HL = source, stack = n
-    pop de                      ; DE = n
-    push bc
-    ld b,d
-    ld c,e
-    push bc
-    ld de,dc_buf
-    ldir
-    pop bc
-    push hl
-    ld hl,dc_buf
-    call vbulk
-    pop hl
-    pop bc
-    jr .loop
-.done:                          ; as the BIOS leaves them: Konami's
-    pop hl                      ; vuelca_tres_tercios (MSX 4964) relies on
-    pop de                      ; HL = the VRAM address on return
-    pop bc
     add hl,bc
-    ex de,hl                    ; HL = VRAM address, DE = source + length
-    ld bc,0
+    ld a,h
+    and 0x3f
+    ld h,a
+    ld (vdp_addr),hl            ; as the BIOS leaves it
+    pop hl
     pop af
     ret
+
+bios_0059:                      ; LDIRMV: reached only from code the native
+    ret                         ; build leaves unused (the loaders, the dissolve)
 
 bios_013E:                      ; RDVDP: status (frame flag set)
     ld a,0x80
@@ -566,13 +364,6 @@ render_init:
     ld bc,6911
     ld (hl),0
     ldir
-    ; every tile's attribute flagged (bit 7): convert before first use
-    ld a,TILE_PAGES+8
-    call .flag
-    ld a,TILE_PAGES+17
-    call .flag
-    ld a,TILE_PAGES+26
-    call .flag
     ld a,PAGE_A
     call set_page
     ld a,0xff
@@ -583,81 +374,9 @@ render_init:
     ld (0x3D00),a               ; Next: nx_low.asm's erase lists
     ld (0x3E00),a
     endif
-    ld hl,tile_cdirty           ; every tile converts on first use
-    ld de,tile_cdirty+1
-    ld bc,95
-    ld (hl),a
-    ldir
     jp dirty_all
 
-.flag:
-    ld h,a
-    ld l,0
-.fl:
-    ld (hl),0x80
-    inc l
-    jr nz,.fl
-    ret
 
-
-; Read the VRAM byte at HL into A (only the regions kept).  Preserves the rest.
-vram_read:
-    push bc
-    push hl
-    ld a,h
-    and 0x3f
-    ld h,a
-    cp 0x18
-    jr c,.colour
-    cp 0x20
-    jr c,.sprite
-    cp 0x38
-    jr c,.pattern
-    cp 0x3b
-    jr nc,.none
-    ld bc,name_shadow-0x3800
-    add hl,bc
-    ld a,(hl)
-    jr .out
-.none:
-    xor a
-    jr .out
-.colour:
-    ld bc,COL_SHADOW
-    ld a,PAGE_C
-    jr .paged
-.sprite:
-    ld bc,SPR_PAT-0x1800
-    ld a,PAGE_7
-    jr .paged
-.pattern:
-    ld bc,PAT_SHADOW-0x2000
-    ld a,PAGE_D
-.paged:
-    add hl,bc
-    ld b,a
-    ld a,(cur_page)
-    ld c,a
-    ld a,b
-    call set_page
-    ld b,(hl)
-    ld a,c
-    call set_page
-    ld a,b
-.out:
-    pop hl
-    pop bc
-    ret
-
-    include "barstyle.asm"      ; the power-up bar design
-
-; recolour_tile is in page B; called from ensure_tile with page 7 mapped.
-recolour_e:
-    ld a,PAGE_B
-    call set_page
-    call recolour_tile
-    ld a,PAGE_7
-    jp set_page
 
 ; Map writers found by the 24 Oct censuses (here for want of room above 8000).
 nm_751d:                        ; MSX 1:751D: call 571B, then a 2x2 at HL is cleared
@@ -688,7 +407,6 @@ spec_title:
     call set_page
     ld de,ctl_text
     call m0_4998                ; escribe_caracteres
-    call title_dot              ; the version's full stop (page C)
     call title_start            ; the title's tune, at once
     pop af
     call set_page
@@ -1101,9 +819,8 @@ snd_fe_hi:
 ; ===========================================================================
 ; VDP data port and VRAM.  Konami's VRAM is not kept as such: each region goes
 ; where the Spectrum needs it.
-;   0000-17FF colours   -> page C shadow (marks the tile for conversion)
-;   1800-1FFF sprites   -> page 7 F800 (the renderer draws from it)
-;   2000-37FF patterns  -> page D shadow (marks the tile for conversion)
+;   0000-37FF patterns, colours, sprite patterns: not kept (the native
+;               build's graphics come converted, with its loads: nl_load)
 ;   3800-3AFF names     -> name_shadow (the renderer's source)
 ;   3B00-     sprite attributes: ignored (the renderer reads Konami's EC80)
 
@@ -1161,67 +878,10 @@ vram_write:
     pop de
     pop af
     ret
-.sprite:
-    ld hl,SPR_PAT-0x1800
-    add hl,de
-    ld a,PAGE_7
-    call poke_paged
+.sprite:                        ; the pattern, colour and sprite pattern tables:
+.colour:                        ; not kept (the native build's tiles and
+.pattern:                       ; sprite patterns come with its loads, nl_load)
     jr .done
-.colour:
-    push bc
-    ld hl,COL_SHADOW
-    add hl,de
-    ld bc,tile_cdirty
-    ld a,PAGE_C
-    call poke_paged_dirty
-    pop bc
-    jr .done
-.pattern:
-    push bc
-    ld hl,PAT_SHADOW-0x2000
-    add hl,de
-    ld a,d
-    sub 0x20
-    ld d,a
-    ld bc,tile_pdirty
-    ld a,PAGE_D
-    call poke_paged_dirty       ; also tries a straight row update (row_update)
-    pop bc
-    jr .done
-
-; Write vw_val to HL in page A, borrowed for the moment (cur_page stays
-; Konami's).  Preserves BC, DE.
-poke_paged:
-    call out_page
-    ld a,(vw_val)
-    ld (hl),a
-    jp unborrow_page
-
-; Same for the colour and pattern shadows; if the byte changes, mark tile
-; DE >> 3 in the bitmap at BC (tile_cdirty / tile_pdirty).
-poke_paged_dirty:
-    call out_page
-    ld a,(vw_val)
-    cp (hl)
-    jp z,unborrow_page
-    ld (hl),a
-    call unborrow_page
-    ld a,c
-    cp tile_pdirty&0xff
-    jr nz,.mark
-    call row_update             ; pattern byte: converted in place if possible
-    jr nc,.mark
-    ld a,e
-    and 7
-    ld (nt_row),a
-    call note_tile
-    jr .marked
-.mark:
-    ld h,b
-    ld l,c
-    call mark_tile
-.marked:
-    ret
 
 ; Back to Konami's page after a borrow.  Preserves BC, DE, HL.
 unborrow_page:
@@ -2118,12 +1778,6 @@ isr_flip:
 
     include "convert.asm"
     include "render.asm"
-    include "vbulk.asm"         ; bulk VRAM writes, the native decompressor
-dz_flag:                        ; tick_tiles (0.107): dz_flag7 in page 7
-    ld a,PAGE_7
-    call borrow_page
-    call dz_flag7
-    jp unborrow_page
     include "tables.asm"
     include "konami_spec_stubs.asm"
     include "ship.asm"          ; the ship's patterns (0.100), in the gap before the buffers
@@ -2209,70 +1863,12 @@ title_end:
     call z,m0_49E9              ; pide_sonido
     ld hl,0xE004+KRAM           ; estado_3 as Konami has it
     jp m0_5382
-; Konami's screen dissolve (0.107; MSX 3:A6C0, after the stage 8 brain and
-; the stage 7 boss): from its first tick (dz_mark, page C) to the next
-; graphics load or stage change, a changed tile whose MSX rows all have a
-; black background is redrawn by dz_tile (page B) instead of the colour fit,
-; and the stage colour rules leave it alone (rules_c).
-; From ensure_tile's full path: page 7 mapped, the inputs in cv_pat/cv_col.
-dz_on:      db 0
-conv_dz:
-    ld a,(dz_on)
-    or a
-    jp z,convert_cached
-    call .dz
-    ret nc
-    jp convert_cached
-.dz:
-    ld hl,6                     ; ensure_tile's DE (third, tile) on the stack
-    add hl,sp
-    ld a,(hl)
-    inc hl
-    ld h,(hl)                   ; H = third
-    ld l,a                      ; L = tile
-    ld a,h
-    add a,a
-    add a,a
-    add a,a
-    add a,h
-    add a,TILE_PAGES
-    ld h,a
-    ld de,cv_out                ; the tile as it is, rows and attribute
-    ld b,9
-.get:
-    ld a,(hl)
-    ld (de),a
-    inc de
-    inc h
-    djnz .get
-    ld a,PAGE_B
-    call set_page
-    call dz_tile                ; carry: not a dissolving tile
-    push af
-    ld a,PAGE_7
-    call set_page
-    pop af
-    ret
-    align 256
-tile_cdirty: ds 128             ; one bit per tile (third*256 + id): colour rows changed (96 bytes used)
-tile_pdirty: ds 96              ; pattern rows changed (tile_cdirty + 0x80)
-    assert tile_pdirty == tile_cdirty + 0x80 && (tile_cdirty & 0xff) == 0
 erase0:     ds 129              ; per screen: up to 32 sprite rects [cx, cy, cols, rows], 0xFF end
 erase1:     ds 129
 ; Small tables read with H fixed: kept in the alignment gap before DRAWN, so
 ; they never straddle a page as the code above them grows.
 drawn_n:    ds 8                ; cells in each drawn list: [screen * 4 + third]
 star_t80:   db 0,80,160         ; draw_stars: offset of each third's list
-; tile_post's way to the stage colour rules in page C (rules.asm), which
-; return by mapping page 7 again.
-stage_rules:
-    ld a,PAGE_C
-    call set_page
-    jp rules_c
-logo_far:
-    ld a,PAGE_C
-    call set_page
-    jp logo_tile
     assert (star_t80 >> 8) == ((star_t80 + 2) >> 8) && (drawn_n >> 8) == ((drawn_n + 7) >> 8)
     align 256
 DRAWN:      ds 512              ; draw_stars: per screen 0x100, per third 80 cells
@@ -2280,17 +1876,6 @@ platform_end:
     assert platform_end <= 0xAD00
 
     ; Konami's RAM and our boot stack start zeroed.
-; ===========================================================================
-; Page B, F900-FDxx (after MSX bank 5's used part, which ends at F8B8): the
-; colour fit.  Page B FE00-FFFF: its cache (convert_cached).
-    slot 3
-    page PAGE_B
-    org 0xF900
-page_fit_code:
-    include "convert_e.asm"
-page_fit_end:
-    assert page_fit_end <= CC_BASE
-
 ; Page C, after MSX bank 3: the title's own lines, in Konami's text stream
 ; format (VRAM address, characters = ASCII - 0x20, 0xFE next address, 0xFF
 ; end) for escribe_caracteres (0:4998).  The controls go over PLAY SELECT and
@@ -2300,22 +1885,6 @@ page_fit_end:
     slot 3
     page PAGE_C
     org section_C_end
-; Konami's font has no full stop: the title's version (ctl_text, top right)
-; uses tile 0E (ASCII '.' - 0x20, blank in the font) of the top third, given
-; one here, white like the rest of the title's text (MSX colour F0).
-; In page C since 0.109 (spec_title maps it; vbulk's borrowed pages come
-; back to it), to make room in fixed memory.
-title_dot:                      ; through LDIRVM, which copies via dc_buf: the
-    ld hl,.glyph                ; source is in page C, which vbulk's borrowed
-    ld de,0x2070                ; pages would hide
-    ld bc,8                     ; pattern table 2000 + third 0 + 0E * 8
-    call bios_005C
-    ld hl,.colour
-    ld de,0x0070                ; colour table 0000 + third 0 + 0E * 8
-    ld bc,8
-    jp bios_005C
-.glyph:  db 0,0,0,0,0,0,0x18,0x18
-.colour: db 0xF0,0xF0,0xF0,0xF0,0xF0,0xF0,0xF0,0xF0
 ctl_text:
     dw 0x39A3
     db 0x31,0x21,0x2F,0x30,0x00,0x00,0x33,0x30,0x21,0x23,0x25,0x00,0x26,0x29,0x32,0x25,0x00,0x00,0x2D,0x00,0x33,0x25,0x2C,0x25,0x23,0x34
@@ -2329,148 +1898,6 @@ ctl_text:
     include "version.inc"       ; the version, top right (row 0, ending at column 31)
     db 0xFF
 ctl_text_end:
-    include "rules.asm"
-; A converted tile (cv_out: 8 rows + attribute) with more than half its
-; pixels set is stored inverted: pixels flipped, ink and paper swapped.  It
-; looks the same, but its solid part is now paper, which a sprite passing
-; over keeps (draw_sprite16 sets only the ink), so solid terrain no longer
-; turns the sprite's colour.  Page C, run at the end of the stage colour
-; rules (rules_out), on every tile tile_post sees but the title logo's.
-; Preserves everything but AF.
-tile_invert:
-    push bc
-    push hl
-    ld a,(cv_out+8)
-    ld b,a
-    rrca
-    rrca
-    rrca
-    xor b
-    and 7
-    jr z,.out                   ; ink = paper: the pixels do not matter
-    ld hl,cv_out
-    ld c,0
-.byte:
-    ld a,(hl)
-.bit:
-    or a
-    jr z,.nb                    ; no more set pixels in this byte
-    add a,a
-    jr nc,.bit
-    inc c
-    jr .bit
-.nb:
-    inc l
-    ld a,l
-    cp (cv_out+8)&0xff
-    jr nz,.byte
-    ld a,c
-    cp 33
-    jr c,.out
-    ld hl,cv_out
-    ld b,8
-.inv:
-    ld a,(hl)
-    cpl
-    ld (hl),a
-    inc l
-    djnz .inv
-    ld a,(hl)                   ; swap ink (bits 0-2) and paper (3-5)
-    ld b,a
-    and 0xc0
-    ld c,a
-    ld a,b
-    and 7
-    rlca
-    rlca
-    rlca
-    or c
-    ld c,a
-    ld a,b
-    rrca
-    rrca
-    rrca
-    and 7
-    or c
-    ld (hl),a
-.out:
-    pop hl
-    pop bc
-    ret
-    assert (cv_out >> 8) == ((cv_out + 8) >> 8)
-; The title's NEMESIS logo, drawn by hand rather than by the colour fit.  On
-; the MSX each pixel line of it is one colour: white and grey for the frame
-; and the top band, then cyan, light blue and dark blue stripes down the
-; letters.  Here a cell with any cyan or light blue line is bright cyan, the
-; rest (the frame, the top band, the letters' base) bright white; light
-; blue lines, and dark blue ones in a cyan cell, are drawn as a 50% stipple.
-; Never inverted.  Preserves DE.  Page C (from logo_far); returns by
-; mapping page 7 again, tile_post's page.
-logo_tile:
-    push de
-    ld hl,cv_pat
-    ld de,cv_col
-    ld bc,0x0847                ; 8 lines; bright white
-.ink:
-    ld a,(hl)
-    or a
-    jr z,.ink_next
-    ld a,(de)
-    and 0xf0
-    cp 0x50                     ; light blue
-    jr z,.cyan
-    cp 0x70                     ; cyan
-    jr nz,.ink_next
-.cyan:
-    ld c,0x45                   ; bright cyan
-.ink_next:
-    inc hl
-    inc de
-    djnz .ink
-    ld hl,cv_pat                ; cv_col = cv_pat + 8, cv_out = cv_pat + 16
-    ld b,8
-.line:
-    ld a,l
-    add a,8
-    ld l,a
-    ld a,(hl)                   ; this line's colour
-    and 0xf0
-    ld e,a
-    ld a,l
-    sub 8
-    ld l,a
-    ld d,(hl)                   ; this line's pattern
-    ld a,e
-    cp 0x50                     ; light blue: stippled
-    jr z,.stipple
-    cp 0x40                     ; dark blue: stippled in a cyan cell
-    jr nz,.put
-    ld a,c
-    cp 0x45
-    jr nz,.put
-.stipple:
-    ld a,b
-    rrca
-    ld a,0xaa
-    jr c,.phase
-    ld a,0x55
-.phase:
-    and d
-    ld d,a
-.put:
-    ld a,l
-    add a,16
-    ld l,a
-    ld (hl),d
-    sub 15
-    ld l,a
-    djnz .line
-    ld a,c
-    ld (cv_out+8),a
-    pop de
-    ld a,PAGE_7
-    jp set_page
-    assert (cv_pat >> 8) == ((cv_out + 8) >> 8)
     ifdef ADAPT
 ; Adaptive pacing (0.110, experimental): called after each tick; carry: do
 ; not draw this tick.  pace_debt is how far the game is behind a rhythm of
@@ -2563,9 +1990,8 @@ pace_adapt:
     or a
     ret
     endif
-rules_end:
-    assert rules_end <= COL_SHADOW
-
+page_c_end:
+    assert page_c_end <= 0xE800
 ; Page 7, F600-F7FF (between the converted tiles and the sprite patterns).
     slot 3
     page PAGE_7
@@ -2625,75 +2051,6 @@ spr_colour:
     pop hl
     ret
 
-tile_post:
-    ld a,(0xE000+KRAM)          ; Konami's state: 0 or 1 = the title
-    cp 2
-    jr nc,.game
-    ld a,d
-    cp 2
-    jr nc,.game
-    ld a,e
-    cp 0x8d
-    jp nc,logo_far              ; the NEMESIS logo (thirds 0 and 1, tiles 8D-FF; page C)
-.game:
-    call stage_rules            ; stage colour rules, then tile_invert (rules.asm, page C)
-    ld a,e
-    sub 0x77
-    cp 4
-    ret nc
-    ld a,(cv_out+8)
-    ld b,a
-    and 0x38
-    jr nz,.paper
-    ld a,b                      ; black paper: bright cyan ink
-    and 0xb8
-    or 0x45
-    ld (cv_out+8),a
-    ret
-.paper:
-    ld a,b                      ; stored inverted: bright cyan paper
-    and 0x87
-    or 0x68
-    ld (cv_out+8),a
-    ret
-
-; Konami's stage changed (it is noted at every full comparison, through
-; star_check): every tile is converted again, under the new stage's colour
-; rules (rules.asm), before it is next drawn, and every cell is redrawn.
-; Page 7 mapped.
-stage_seen:
-    ld a,(0xE061+KRAM)
-    ld hl,seen_stage
-    cp (hl)
-    ret z
-    ld (hl),a
-    xor a
-    ld (dz_on),a                ; a dissolve is over by now (0.107)
-    ifndef NEXT                 ; (the Next draws from its copies and its pool,
-    ld hl,tile_cdirty           ; and takes these bits as Konami's writes since
-    ld b,96                     ; the stage load: nx_l2.asm, lo_pcell)
-.cd:
-    ld (hl),0xff                ; all tiles: a full conversion...
-    inc l
-    djnz .cd
-    endif
-    ld h,TILE_PAGES+8           ; ...flagged for the renderer (bit 7 of the
-    call .flag                  ; attribute) in each third
-    ld h,TILE_PAGES+17
-    call .flag
-    ld h,TILE_PAGES+26
-    call .flag
-    jp dirty_all
-.flag:
-    ld l,0
-.f:
-    set 7,(hl)
-    inc l
-    jr nz,.f
-    ret
-seen_stage: db 0
-
-
 ; draw_sprite16's colouring for a sprite flagged in spr_pmap (bit 7 of
 ; sp_ink; A = sp_ink, DE = the attribute of the box's top-left cell): only
 ; the cells with nothing in them (tile 0) or a star (F6/F7) take its colour;
@@ -2738,50 +2095,6 @@ attrs_keep:
     jr nz,.row
     jp draw_sprite16.arec
     assert (name_shadow & 0xff) == 0
-; The dissolve's tiles (0.107): every tile with a bit in tile_cdirty gets its
-; attribute's flag (bit 7: convert before drawing), as mark_tile would have.
-dz_flag7:
-    ld hl,tile_cdirty
-.byte:
-    ld a,(hl)
-    or a
-    jr z,.next
-    push hl
-    ld c,a
-    ld a,l
-    add a,a
-    add a,a
-    add a,a
-    ld e,a                      ; the byte's first tile: (L & 31) * 8
-    ld a,l
-    rlca
-    rlca
-    rlca
-    and 3                       ; the third
-    ld d,a
-    add a,a
-    add a,a
-    add a,a
-    add a,d
-    add a,TILE_PAGES+8
-    ld h,a
-    ld l,e
-.bit:
-    srl c
-    jr nc,.nb
-    set 7,(hl)
-.nb:
-    inc l
-    inc c
-    dec c
-    jr nz,.bit
-    pop hl
-.next:
-    inc l
-    ld a,l
-    cp 96
-    jr nz,.byte
-    ret
 page_7_end:
     assert page_7_end <= SPR_PAT
 ; Page D, E400-E7FF (after MSX bank 8's sound data, E000-E3DC): the full
@@ -2791,8 +2104,6 @@ page_7_end:
     org 0xE400
 page_d_code:
     include "fullcmp_gen.asm"
-dz_pat:                         ; dz_chunk's pattern half (rules.asm), 0.107
-    DZ_CHUNK PAT_SHADOW, 0x2000, tile_pdirty
     ifdef NEXT
 ; Spectrum Next (nextreg.txt): 28 MHz; the low area (nx_low.asm) at
 ; 0000-3FFF; Layer 2 shown, the ULA not; sprites on, sprite 0 on top as on
@@ -2888,6 +2199,10 @@ page_d_end:
     slot 3
     page PAGE_A
     endif
+
+; The native build's graphics, packed (native_pack.py): in the room the MSX
+; graphics, their copies and the colour fit left in pages A, B, C, D and E.
+    include "native_data.asm"
 
     ifdef TEST
     savesna "nemesis_test.sna", plat_boot

@@ -1,113 +1,21 @@
-; MSX TMS9918 tile (8 pattern rows, 8 colour rows) -> Spectrum tile (8 rows
-; and one attribute), at runtime, from Konami's own VRAM uploads.
+; The tile set's bookkeeping between Konami's play and the renderer (the
+; native build: the tiles come converted when the game is built and are
+; loaded by nl_load, native.asm; nothing here converts MSX characters).
 ;
-; Same method as the build-time fit the earlier renderers used, restricted so
-; it runs in reasonable time: for each bright level, the candidate ZX colours
-; are the nearest ZX colour of each MSX colour present; every (ink, paper)
-; pair of candidates is scored by summed squared RGB error, with the same
-; tie-breaks.  Checked against the full search on every tile of every stage:
-; 95% identical, 0.2% more total error (spec/fit_eval.py).  Distances are
-; squared RGB distance >> 8, so every sum fits 16 bits.
-;
-; Tiles are converted lazily: Konami's uploads only mark them (tile_cdirty
-; when a colour row changed, tile_pdirty when only pattern rows did), and the
-; renderer converts a tile the first time it draws it.  A pattern-only change
-; (the twinkling star tiles) keeps the tile's ink and paper and just maps the
-; new pixels, which is much cheaper than a full fit.
-
-; A = MSX colour; returns A = 0xFF if it is strictly nearer the chosen ink
-; than the paper (and ink != paper), else 0.  Preserves BC, IX, IY.
-nearer_ink:
-    push bc
-    add a,a
-    add a,a
-    add a,a
-    add a,a
-    ld c,a                      ; m * 16
-    ld a,(cv_best_ink)
-    ld b,a
-    ld a,(cv_best_pap)
-    cp b
-    jr z,.zero
-    add a,a
-    add a,c
-    ld l,a
-    ld a,(cv_dbase)
-    ld h,a
-    ld e,(hl)
-    inc l
-    ld d,(hl)                   ; DE = D[m][paper]
-    ld a,b
-    add a,a
-    add a,c
-    ld l,a
-    ld a,(hl)
-    inc l
-    ld h,(hl)
-    ld l,a                      ; HL = D[m][ink]
-    or a
-    sbc hl,de
-    jr nc,.zero
-    ld a,0xff
-    pop bc
-    ret
-.zero:
-    xor a
-    pop bc
-    ret
-
-cv_pat:     ds 8                ; input: pattern rows
-cv_col:     ds 8                ; input: colour rows (fg << 4 | bg)
-cv_out:     ds 9                ; output: 8 rows + attribute
-cv_best_ink: db 0
-cv_best_pap: db 0
-cv_dbase:   db 0                ; high byte of cv_dist for this bright
-
-; ---------------------------------------------------------------------------
-; Bookkeeping between Konami's uploads and the renderer.
+; chg_list: tiles whose look changed this tick (a star's row, or a whole
+; tile), redrawn where they show at the end of the tick (tick_tiles); after
+; a load every cell is redrawn.  The stars (F6, F7) are kept as rows
+; (star_rows, star_bytes) for draw_stars and redraw_star_rows.
 
 chg_list:   ds 48               ; tiles changed this tick: (third, id, row or 0xFF = whole tile)
 nt_row:     db 0xff             ; row for the next note_tile
 chg_n:      db 0                ; 0xFF = too many: redraw everything
 
-; Called by the VRAM shim when a byte of tile DE>>3 changed (DE = offset in
-; the colour or pattern table).  HL = the bitmap to mark (tile_cdirty or
-; tile_pdirty).  Clobbers A, B, HL.
-mark_tile:
-    ; bitmap byte = DE >> 6, bit = (DE >> 3) & 7
-    ld a,e
-    rlca
-    rlca
-    and 3
-    ld b,a
-    ld a,d
-    add a,a
-    add a,a
-    or b
-    add a,l
-    ld l,a
-    ld a,e
-    rrca
-    rrca
-    rrca
-    and 7
-    ld b,a
-    ld a,1
-    jr z,.bit
-.sh:
-    add a,a
-    djnz .sh
-.bit:
-    ld b,a
-    and (hl)
-    ret nz                      ; already waiting: its cells are marked already
-    ld a,b
-    or (hl)
-    ld (hl),a
-    call flag_tile
-    ld a,0xff                   ; the whole tile
+; Note that tile DE>>3 (DE = third * 0x800 + id * 8) looks different as a
+; whole now: its cells are redrawn on both screens.  Clobbers A, B, HL.
+note_whole:
+    ld a,0xff
     ld (nt_row),a
-    ; fall through: the cells showing it must be redrawn
 
 ; Note that tile DE>>3 looks different now: its cells are redrawn on both
 ; screens.  Clobbers A, B, HL.
@@ -158,43 +66,6 @@ note_tile:
     ld (hl),a
     ret
 
-; Flag tile DE>>3 (DE = offset in the colour or pattern table) in the tile
-; set: bit 7 of its attribute tells the renderer to convert it first.
-; Clobbers A, B, HL.
-flag_tile:
-    push af                     ; (a placeholder: the stack layout below counts it)
-    ld a,d
-    rrca
-    rrca
-    rrca
-    and 3
-    ld b,a                      ; third
-    add a,a
-    add a,a
-    add a,a
-    add a,b
-    add a,TILE_PAGES+8
-    ld h,a
-    ld a,e
-    rrca
-    rrca
-    rrca
-    and 31
-    ld l,a
-    ld a,d
-    and 7
-    rrca
-    rrca
-    rrca
-    or l
-    ld l,a                      ; id
-    ld a,PAGE_7
-    call borrow_page
-    set 7,(hl)
-    call unborrow_page
-    pop af
-    ret
-
 ; End of a tick: the cells showing tiles that changed are redrawn on both
 ; screens (all cells after a load).
 tick_tiles:
@@ -203,21 +74,7 @@ tick_tiles:
     jr z,.stars
     cp 0xff
     jr nz,.some
-    ; a load: every pending tile gets a full conversion, not a recolour
-    ld hl,tile_cdirty
-    ld b,96
-.or:
-    set 7,l
-    ld a,(hl)
-    ld (hl),0
-    res 7,l
-    or (hl)
-    ld (hl),a
-    inc l
-    djnz .or
-    ld a,(dz_on)                ; the dissolve marks only the bits: flag the
-    or a                        ; tiles for the renderer here (0.107)
-    call nz,dz_flag
+    ; a load (or a dissolve's chunk): every cell redrawn
     xor a
     ld (chg_n),a
     call star_reset
@@ -685,604 +542,6 @@ redraw_tile_row:
     pop af
     jp set_page
 
-; A pattern byte of tile DE>>3 (row E & 7, DE = offset in the pattern table)
-; changed to vw_val.  If the tile is converted and its ink and paper differ,
-; map the new row straight into the tile set (the twinkling stars), and
-; return carry set; otherwise carry clear.  Preserves BC, DE.
-ru_row:     db 0
-ru_id:      db 0
-ru_third:   db 0
-row_update:
-    push bc
-    push de
-    ld a,e
-    and 7
-    ld (ru_row),a
-    ld a,d                      ; id = (DE >> 3) & 255
-    and 7
-    ld b,a
-    ld a,e
-    srl b
-    rra
-    srl b
-    rra
-    srl b
-    rra
-    ld (ru_id),a
-    and 7
-    ld l,a
-    ld h,bitmask>>8
-    ld c,(hl)                   ; this tile's bit
-    ld a,d
-    rrca
-    rrca
-    rrca
-    and 3
-    ld (ru_third),a
-    rrca
-    rrca
-    rrca                        ; third * 32
-    ld b,a
-    ld a,(ru_id)
-    rrca
-    rrca
-    rrca
-    and 31
-    or b
-    ld l,a
-    ld h,tile_cdirty>>8
-    ld a,(hl)
-    set 7,l
-    or (hl)
-    and c
-    jp nz,.fail                 ; not converted yet: the renderer will
-    push af                     ; (a placeholder: the stack layout below counts it)
-    ; the tile's attribute (page 7)
-    ld a,PAGE_7
-    call borrow_page
-    ld a,(ru_third)
-    ld b,a
-    add a,a
-    add a,a
-    add a,a
-    add a,b
-    add a,TILE_PAGES+8
-    ld h,a
-    ld a,(ru_id)
-    ld l,a
-    ld b,(hl)
-    ld a,b
-    rrca
-    rrca
-    rrca
-    xor b
-    and 7
-    jp z,.fail_ei               ; ink = paper: needs a full conversion
-    ld a,b
-    and 7
-    ld (cv_best_ink),a
-    ld a,b
-    rrca
-    rrca
-    rrca
-    and 7
-    ld (cv_best_pap),a
-    ld a,b
-    rlca
-    rlca
-    and 1
-    add a,cv_dist>>8
-    ld (cv_dbase),a
-    ; the row's colour byte (page C)
-    ld a,PAGE_C
-    call borrow_page
-    pop af
-    pop de
-    push de
-    push af
-    ld hl,COL_SHADOW
-    add hl,de
-    ld a,(hl)
-    push af
-    rrca
-    rrca
-    rrca
-    rrca
-    and 15
-    call nearer_ink
-    ld c,a                      ; fg -> ink mask
-    pop af
-    and 15
-    call nearer_ink
-    ld b,a                      ; bg -> ink mask
-    ld a,(vw_val)
-    and c
-    ld c,a
-    ld a,(vw_val)
-    cpl
-    and b
-    or c
-    ld c,a                      ; the converted row
-    ld a,PAGE_7
-    call borrow_page
-    ld a,(ru_third)
-    ld b,a
-    add a,a
-    add a,a
-    add a,a
-    add a,b
-    add a,TILE_PAGES
-    ld b,a
-    ld a,(ru_row)
-    add a,b
-    ld h,a
-    ld a,(ru_id)
-    ld l,a
-    ld (hl),c
-    call unborrow_page
-    pop af
-.ok:
-    pop de
-    pop bc
-    scf
-    ret
-.fail_ei:
-    call unborrow_page
-    pop af
-.fail:
-    pop de
-    pop bc
-    or a
-    ret
-
-; parpadea_dos_caracteres (MSX 475B), done here rather than through six
-; WRTVRM calls: row 0 of the star tiles F6 and F7 in the three thirds is
-; (E062) AND a mask from the table at 4786 picked by the tick counter.  The
-; pattern shadow is kept as before; the converted row is worked out from a
-; cached fit of the row's two MSX colours to the tile's ink and paper (kept
-; per tile with the attribute and colour byte it was worked out for).
-blink_masks: db 0xFF,0x00,0xFF,0xFF,0x00,0xFF,0xFF,0xFF   ; MSX 4786
-bl_v6:      db 0                ; this tick's row for F6 / F7
-bl_v7:      db 0
-blrec:       ds 6*5              ; per tile: colour byte, cached attribute, colour, fg mask, bg mask
-
-    macro BL_PAT kx, addr, var
-        ld a,(var)
-        ld hl,addr
-        cp (hl)
-        jr z,.same
-        ld (hl),a
-        set kx,c
-.same:
-    endm
-    macro BL_COL kx, addr
-        bit kx,c
-        jr z,.skip
-        ld a,(addr)
-        ld (blrec+kx*5),a
-.skip:
-    endm
-    macro BL_TILE kx, tpg, id, drt, msk, var, lnx
-        bit kx,c
-        jr z,.done
-        ld a,(tile_cdirty+drt)
-        ld l,a
-        ld a,(tile_pdirty+drt)
-        or l
-        and msk
-        jr nz,.whole                ; not converted yet
-        ld a,(((tpg+8)<<8)+id)
-        ld e,a                      ; attribute
-        rrca
-        rrca
-        rrca
-        xor e
-        and 7
-        jr z,.whole                 ; ink = paper: needs a full conversion
-        ld a,e
-        ld hl,blrec+kx*5+1
-        cp (hl)
-        jr nz,.fit
-        inc hl
-        ld a,(blrec+kx*5)
-        cp (hl)
-        jr z,.fitted
-.fit:
-        ld hl,blrec+kx*5
-        call bl_fit
-.fitted:
-        ld hl,blrec+kx*5+3
-        ld a,(var)
-        and (hl)
-        ld d,a
-        inc hl
-        ld a,(var)
-        cpl
-        and (hl)
-        or d
-        ld (((tpg)<<8)+id),a
-        ld (star_bytes+kx),a        ; for redraw_star_rows: the row and its line
-        ld a,lnx
-        ld (star_rows+kx),a
-        jr .done
-.whole:
-        set kx,b
-.done:
-    endm
-    macro BL_NOTE kx, voff
-        bit kx,b
-        jr z,.done
-        push bc
-        ld de,voff
-        ld hl,tile_pdirty
-        call mark_tile
-        pop bc
-.done:
-    endm
-
-blink_native:
-    ifdef DRAW_EVERY
-    ifndef TEST                 ; (test builds keep the pattern copy in step
-    ld a,(logic_ctr)            ; with the MSX every tick, for the lockstep)
-    dec a                       ; only for a tick that will be drawn: the
-    ret nz                      ; star rows of an undrawn one are never shown
-    endif
-    endif
-    ld a,(0xE003+KRAM)
-    and 6
-    ld e,a
-    ld d,0
-    ld hl,blink_masks
-    add hl,de
-    ld c,(hl)
-    inc hl
-    ld b,(hl)
-    ifndef NEXT
-    ld a,(0xE062+KRAM)
-    ld e,a
-    else
-    ld a,0x10                   ; Next: the star stays mid-cell; the hardware
-    nop                         ; scroll moves it (on the MSX, E062's rotating
-    ld e,a                      ; bit did, a pixel a tick)
-    endif
-    and c
-    ld (bl_v6),a
-    ld a,e
-    and b
-    ld (bl_v7),a
-    push bc
-    push af                     ; (a placeholder: the stack layout below counts it)
-    ld a,PAGE_D                 ; the pattern shadow; C = which changed
-    call borrow_page
-    ld c,0
-    BL_PAT 0, PAT_SHADOW+0x07B0, bl_v6
-    BL_PAT 1, PAT_SHADOW+0x07B8, bl_v7
-    BL_PAT 2, PAT_SHADOW+0x0FB0, bl_v6
-    BL_PAT 3, PAT_SHADOW+0x0FB8, bl_v7
-    BL_PAT 4, PAT_SHADOW+0x17B0, bl_v6
-    BL_PAT 5, PAT_SHADOW+0x17B8, bl_v7
-    ld a,c
-    or a
-    jp z,.out
-    ld a,PAGE_C                 ; their colour bytes
-    call borrow_page
-    BL_COL 0, PAT_SHADOW+0x07B0
-    BL_COL 1, PAT_SHADOW+0x07B8
-    BL_COL 2, PAT_SHADOW+0x0FB0
-    BL_COL 3, PAT_SHADOW+0x0FB8
-    BL_COL 4, PAT_SHADOW+0x17B0
-    BL_COL 5, PAT_SHADOW+0x17B8
-    ld a,PAGE_7                 ; the converted rows; B = tiles needing conversion
-    call borrow_page
-    ld b,0
-    BL_TILE 0, TILE_PAGES+0, 0xF6, 30, 0x40, bl_v6, 0
-    BL_TILE 1, TILE_PAGES+0, 0xF7, 30, 0x80, bl_v7, 0
-    BL_TILE 2, TILE_PAGES+9, 0xF6, 62, 0x40, bl_v6, 8
-    BL_TILE 3, TILE_PAGES+9, 0xF7, 62, 0x80, bl_v7, 8
-    BL_TILE 4, TILE_PAGES+18, 0xF6, 94, 0x40, bl_v6, 16
-    BL_TILE 5, TILE_PAGES+18, 0xF7, 94, 0x80, bl_v7, 16
-    push bc
-    call unborrow_page
-    pop bc
-    pop af
-.di1:
-    ld a,c                      ; rows written: redraw_star_rows has work
-    xor b
-    jr z,.nostars
-    ld a,1
-    ld (star_any),a
-.nostars:
-    BL_NOTE 0, 0x07B0
-    BL_NOTE 1, 0x07B8
-    BL_NOTE 2, 0x0FB0
-    BL_NOTE 3, 0x0FB8
-    BL_NOTE 4, 0x17B0
-    BL_NOTE 5, 0x17B8
-    jr .regs
-.out:
-    call unborrow_page
-    pop af
-.regs:
-    pop bc                      ; as the original leaves them
-    ld c,b
-    ld hl,0x37B9
-    ld (vdp_addr),hl
-    dec hl
-    ld de,0x0800
-    ret
-
-; Fit for blink_native: HL = the tile's record (colour byte first), E = its
-; attribute.  Stores the attribute and colour as the cache key and the two
-; masks (MSX foreground / background colour nearer the ink).
-bl_fit:
-    push bc
-    ld a,(hl)                   ; colour byte
-    inc hl
-    ld (hl),e
-    inc hl
-    ld (hl),a
-    inc hl
-    push hl
-    push af
-    ld a,e
-    and 7
-    ld (cv_best_ink),a
-    ld a,e
-    rrca
-    rrca
-    rrca
-    and 7
-    ld (cv_best_pap),a
-    ld a,e
-    rlca
-    rlca
-    and 1
-    add a,cv_dist>>8
-    ld (cv_dbase),a
-    pop af
-    push af
-    rrca
-    rrca
-    rrca
-    rrca
-    and 15
-    call nearer_ink
-    ld c,a
-    pop af
-    and 15
-    call nearer_ink
-    pop hl
-    ld (hl),c
-    inc hl
-    ld (hl),a
-    pop bc
-    ret
-
-; Map page A at C000 for a moment without telling cur_page (Konami's page);
-; unborrow_page puts it back.  Interrupts may stay on (out_page).
-borrow_page equ out_page
-
-; Before drawing tile E of third D: convert it if Konami changed it.
-; Called with page 7 at C000; returns with page 7.  Preserves BC, DE, HL.
-ensure_tile:
-    ld a,1
-    ld (star_stale),a
-    push hl
-    ; bitmap byte = third * 32 + id >> 3, bit = id & 7
-    ld a,e
-    rrca
-    rrca
-    rrca
-    and 31
-    ld l,a
-    ld a,d
-    rrca
-    rrca
-    rrca
-    add a,l
-    ld l,a
-    push bc
-    ld a,e
-    and 7
-    ld c,a
-    ld b,bitmask>>8
-    ld a,(bc)
-    ld c,a
-    ld h,tile_cdirty>>8
-    and (hl)
-    jr nz,.full
-    set 7,l                     ; tile_pdirty
-    ld a,c
-    and (hl)
-    jr z,.clean
-    ld a,(dz_on)                ; Konami's dissolve under way: the full path,
-    or a                        ; where conv_dz takes it (0.107)
-    jr nz,.pfull
-    ld a,c
-    cpl
-    and (hl)
-    ld (hl),a
-    pop bc
-    pop hl
-    push bc
-    push de
-    push hl
-    call load_tile_inputs
-.ponly:
-    pop hl                      ; DE again: load_tile_inputs used it (before
-    pop de                      ; 0.99a the attribute below was read from an
-    push de                     ; address made of cv_col's, a byte of bank 2
-    push hl                     ; holding 02: red ink on black)
-    ; current attribute from the tile set: keep its ink and paper unless
-    ; they are the same colour (then there was nothing to keep)
-    ld a,d
-    add a,a
-    add a,a
-    add a,a
-    add a,d
-    add a,TILE_PAGES+8
-    ld h,a
-    ld l,e
-    ld a,(hl)
-    and 0x7f
-    ld (cv_out+8),a
-    ld b,a
-    rrca
-    rrca
-    rrca
-    xor b
-    and 7
-    jr z,.refit
-    call recolour_e
-    jr .store
-.refit:
-    call convert_cached
-    jr .store
-.pfull:
-    res 7,l
-.full:
-    ld a,c
-    cpl
-    and (hl)
-    ld (hl),a
-    set 7,l
-    ld a,c
-    cpl
-    and (hl)
-    ld (hl),a
-    pop bc
-    pop hl
-    push bc
-    push de
-    push hl
-    call load_tile_inputs
-    call conv_dz                ; convert_cached, or the dissolve's own (0.107)
-.store:
-    pop hl
-    pop de
-    push de
-    push hl
-    call bar_style              ; the power-up bar: its own Spectrum colours
-    ifndef NO_INVERT
-    call tile_post              ; mostly ink: stored the other way round; the nuke capsule cyan
-    endif
-    ld a,d
-    add a,a
-    add a,a
-    add a,a
-    add a,d
-    add a,TILE_PAGES
-    ld h,a
-    ld l,e
-    ld de,cv_out
-    ld b,9
-.put:
-    ld a,(de)
-    ld (hl),a
-    inc de
-    inc h
-    djnz .put
-    pop hl
-    pop de
-    pop bc
-    ret
-.clean:
-    pop bc
-    pop hl
-    ret
-
-; convert_tile through a cache of 16 recent conversions in page B (FE00-FFFF,
-; 32 bytes each: pattern, colour, result, valid), direct-mapped by a hash of
-; the 16 input bytes.  Tiles that change back and forth (the power-up bar,
-; animated scenery) then cost a lookup.  Called and returns with page 7.
-CC_BASE equ 0xFE00
-cc_entry:   dw 0
-convert_cached:
-    ld hl,cv_pat
-    ld b,16
-    xor a
-.h:
-    rlca
-    add a,(hl)
-    inc hl
-    djnz .h
-    and 15
-    ld l,a
-    ld h,0
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    ld de,CC_BASE
-    add hl,de
-    ld (cc_entry),hl
-    ld a,PAGE_B
-    call set_page
-    ld de,cv_pat
-    ld b,16
-.c:
-    ld a,(de)
-    cp (hl)
-    jr nz,.miss
-    inc hl
-    inc de
-    djnz .c
-    ld de,9
-    add hl,de
-    ld a,(hl)                   ; valid
-    or a
-    jr z,.miss
-    sbc hl,de
-    ld de,cv_out
-    ld bc,9
-    ldir
-    ld a,PAGE_7
-    jp set_page
-.miss:
-    call convert_tile           ; (in page B, mapped)
-    ld de,(cc_entry)
-    ld hl,cv_pat
-    ld bc,25
-    ldir
-    ex de,hl
-    ld (hl),1
-    ld a,PAGE_7
-    jp set_page
-    assert cv_col == cv_pat + 8 && cv_out == cv_col + 8
-
-; Copy tile E of third D's colour and pattern rows from the shadows into
-; cv_col / cv_pat; leaves page 7 at C000.
-load_tile_inputs:
-    ld l,e
-    ld h,0
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    ld a,d
-    add a,a
-    add a,a
-    add a,a
-    add a,h
-    ld h,a                      ; third * 0x800 + id * 8
-    push hl
-    ld bc,COL_SHADOW
-    add hl,bc
-    ld a,PAGE_C
-    call set_page
-    ld de,cv_col
-    ld bc,8
-    ldir
-    pop hl
-    ld bc,PAT_SHADOW
-    add hl,bc
-    ld a,PAGE_D
-    call set_page
-    ld de,cv_pat
-    ld bc,8
-    ldir
-    ld a,PAGE_7
-    jp set_page
 
 ; Both screens redraw every cell of third D that shows tile E.
 invalidate_tile:
@@ -1308,3 +567,142 @@ invalidate_tile:
     ret z
     ld a,e
     jr .find
+
+
+; Map page A at C000 for a moment without telling cur_page (Konami's page);
+; unborrow_page puts it back.  Interrupts may stay on (out_page).
+borrow_page equ out_page
+
+; Native tiles never carry the old "convert me" flag (attribute bit 7), so
+; the renderer's checks for it never call this; kept for them.
+ensure_tile:
+    ret
+
+; ---------------------------------------------------------------------------
+; Konami's star twinkle (parpadea_dos_caracteres, 0:475B, patched to come
+; here).  Konami rewrites row 0 of the star characters F6 and F7 in each
+; third: E062's rotating bit, blanked on some ticks (blink_masks, by E003).
+; Here the rows go straight into the tile set.  A star tile is blank when a
+; stage loads (attribute 0, as the colour fit made it with no pixel); the
+; first time it shows a pixel it takes its stage's attribute (star_attr, from
+; nl_load) and its cells are redrawn, as 1.0's conversion did; after that only
+; its row changes, which draw_stars and redraw_star_rows bring to the screen
+; (star_rows, star_bytes).  native_pack.py checks that a star converts to its
+; own row in that attribute for every pixel position.
+
+blink_masks: db 0xFF,0x00,0xFF,0xFF,0x00,0xFF,0xFF,0xFF   ; MSX 4786
+bl_v6:      db 0                ; this tick's row for F6 / F7
+bl_v7:      db 0
+bl_prev:    ds 6                ; each star tile's row 0 as last set (0 after a load)
+star_attr:  ds 6                ; [third][F6/F7]: the attribute once lit (nl_load)
+
+    macro BL_TILE kx, tpg, id, var, lnx
+        ld a,(var)
+        ld hl,bl_prev+kx
+        cp (hl)
+        jr z,.done
+        ld (hl),a
+        ld e,a                      ; the row
+        ld a,(((tpg+8)<<8)+id)      ; the attribute
+        ld d,a
+        rrca
+        rrca
+        rrca
+        xor d
+        and 7
+        jr nz,.lit                  ; lit already: just the row
+        ld a,e
+        or a
+        jr z,.done                  ; still blank
+        ld a,(star_attr+kx)         ; first lit since the load: the whole tile
+        ld (((tpg+8)<<8)+id),a
+        ld a,e
+        ld (((tpg)<<8)+id),a
+        set kx,b
+        jr .done
+.lit:
+        ld a,e
+        ld (((tpg)<<8)+id),a
+        ld (star_bytes+kx),a        ; for redraw_star_rows: the row and its line
+        ld a,lnx
+        ld (star_rows+kx),a
+        set kx,c
+.done:
+    endm
+    macro BL_NOTE kx, voff
+        bit kx,b
+        jr z,.done
+        push bc
+        ld de,voff
+        call note_whole
+        pop bc
+.done:
+    endm
+
+blink_native:
+    ifdef DRAW_EVERY
+    ifndef TEST                 ; (test builds keep the rows in step with the
+    ld a,(logic_ctr)            ; MSX every tick)
+    dec a                       ; only for a tick that will be drawn: the
+    ret nz                      ; star rows of an undrawn one are never shown
+    endif
+    endif
+    ld a,(0xE003+KRAM)
+    and 6
+    ld e,a
+    ld d,0
+    ld hl,blink_masks
+    add hl,de
+    ld c,(hl)
+    inc hl
+    ld b,(hl)
+    ld a,(0xE062+KRAM)
+    ld e,a
+    and c
+    ld (bl_v6),a
+    ld a,e
+    and b
+    ld (bl_v7),a
+    push bc
+    ld a,PAGE_7                 ; the tile set
+    call borrow_page
+    ld bc,0                     ; C: rows written; B: tiles lit for the first time
+    BL_TILE 0, TILE_PAGES+0, 0xF6, bl_v6, 0
+    BL_TILE 1, TILE_PAGES+0, 0xF7, bl_v7, 0
+    BL_TILE 2, TILE_PAGES+9, 0xF6, bl_v6, 8
+    BL_TILE 3, TILE_PAGES+9, 0xF7, bl_v7, 8
+    BL_TILE 4, TILE_PAGES+18, 0xF6, bl_v6, 16
+    BL_TILE 5, TILE_PAGES+18, 0xF7, bl_v7, 16
+    push bc
+    call unborrow_page
+    pop bc
+    ld a,c
+    or a
+    jr z,.nostars
+    ld a,1
+    ld (star_any),a
+.nostars:
+    BL_NOTE 0, 0x07B0
+    BL_NOTE 1, 0x07B8
+    BL_NOTE 2, 0x0FB0
+    BL_NOTE 3, 0x0FB8
+    BL_NOTE 4, 0x17B0
+    BL_NOTE 5, 0x17B8
+    pop bc                      ; as the original leaves them
+    ld c,b
+    ld hl,0x37B9
+    ld (vdp_addr),hl
+    dec hl
+    ld de,0x0800
+    ret
+
+; A stage's load: the star tiles are blank again.
+bl_reset:
+    xor a
+    ld hl,bl_prev
+    ld b,6
+.z:
+    ld (hl),a
+    inc hl
+    djnz .z
+    ret

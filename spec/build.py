@@ -50,6 +50,14 @@ def main():
     if 'True' not in out.split('\n')[0]:
         sys.exit('identity check failed:\n' + out)
     run([sys.executable, 'tables.py'], HERE)
+    # The native graphics (native_pack.py: about 15 seconds), when anything
+    # they are made from is newer than what it last wrote
+    made = [os.path.join(HERE, f) for f in ('native_data.asm', 'native_tables.asm')]
+    srcs = [os.path.join(HERE, f) for f in ('native_pack.py', 'native_sets.py', 'native_moai.txt', 'tilemodel.py',
+            'fit_model.py', 'stage_rules.py', 'convert.py', 'extract.py', 'gfxcap.py')]
+    srcs += [os.path.join(HERE, '..', 'msxsim', 'msxsim.py'), os.path.join(HERE, '..', 'nem.rom')]
+    if not all(map(os.path.isfile, made)) or min(map(os.path.getmtime, made)) < max(map(os.path.getmtime, srcs)):
+        print(run([sys.executable, 'native_pack.py'], HERE).strip().split('\n')[0])
     run([sys.executable, 'gen_fullcmp.py'], HERE)
     defs = []
     if os.environ.get('NEM_PACE') == 'palmix':

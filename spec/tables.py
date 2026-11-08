@@ -9,22 +9,15 @@ SH = 8          # D = squared RGB distance >> 8: products and sums stay within 1
 
 def tables():
     out = []
-    # D[br][m][z], 16-bit, laid out as cv_dist + br*256 + m*16 + z*2
+    # (the native build converts no tiles at run time: the colour fit's
+    # tables are gone; nl_buf, the unpacker's input buffer, takes their place)
     out.append('    align 256')
-    out.append('cv_dist:          ; squared distance MSX colour m -> ZX colour z (bright br), >> %d' % SH)
-    for br in (0, 1):
-        for m in range(16):
-            ds = [dist2(TMS[m], PALETTES[br][z]) >> SH for z in range(8)]
-            out.append('    dw ' + ','.join(str(d) for d in ds))
+    out.append('nl_buf:           ; native.asm: the unpacker reads its input through here (256 bytes, page-aligned)')
+    out.append('    ds 256')
     out.append('lsb_index:        ; index of the lowest set bit')
     v = [0] + [(x & -x).bit_length() - 1 for x in range(1, 256)]
     for i in range(0, 256, 16):
         out.append('    db ' + ','.join(str(x) for x in v[i:i + 16]))
-    # NEAR[br][m] : cv_near + br*16 + m
-    out.append('cv_near:          ; nearest ZX colour (0-7) to MSX colour m at bright br')
-    for br in (0, 1):
-        D = [[dist2(TMS[m], PALETTES[br][z]) >> SH for z in range(8)] for m in range(16)]
-        out.append('    db ' + ','.join(str(min(range(8), key=lambda z: (D[m][z], z))) for m in range(16)))
     # Sprite colour: TMS colour -> ZX ink | bright<<6 (nearest over both brights)
     out.append('spr_ink:          ; MSX sprite colour -> ZX ink + bright')
     v = []

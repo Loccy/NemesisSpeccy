@@ -7,6 +7,8 @@ tick by tick.
   symbols), so both builds play exactly the original's game.
 * Both Spectrum screens (bank 5 and bank 7: pixels and attributes) of the
   candidate are compared with the reference's at the end of every tick.
+  A tick whose differing cells all show the same colours (an ink with no
+  pixels to show it, say) is counted apart and does not stop the run.
 
 Build both as test builds drawing every tick:
     NEM_PIN_R=1 NEM_EXTRA=0 python3 build.py      (writes nemesis_test.sna)
@@ -18,6 +20,8 @@ usage: REF=ref.sna [CAND=cand.sna] screen_lockstep.py TICKS
   TARGETS=1 the ship put on every hidden target (the bonus stages)
   DEATHS=1  the ship dies once in each stage, DEATH_AT ticks into it
             (default 900); the life is given back
+  GAMEOVER=1  as DEATHS, but the lives are not given back and the ship dies
+            again each life: game over, the title, and a new game
   ALLOW=f.py  a file defining allow(tick, msx_ram, ref, cand) -> True to
             skip the screen comparison at that tick (intended differences)
   KEEP_GOING=1  count screen differences and go on instead of stopping
@@ -36,7 +40,8 @@ from layoutsim import Mapper, explain
 from emu import Spectrum, _syms
 
 KRAM = 0xAF00 - 0x8000
-HYPER = os.environ.get('HYPER'); TARGETS = os.environ.get('TARGETS'); DEATHS = os.environ.get('DEATHS')
+HYPER = os.environ.get('HYPER'); TARGETS = os.environ.get('TARGETS'); DEATHS = os.environ.get('DEATHS') or os.environ.get('GAMEOVER')
+GAMEOVER = os.environ.get('GAMEOVER')
 DEATH_AT = int(os.environ.get('DEATH_AT', '900'))
 KEEP = os.environ.get('KEEP_GOING'); SHOTS = os.environ.get('SHOTS')
 allow = None
@@ -68,6 +73,27 @@ class Build:
         if m.pc != self.stop:
             raise SystemExit('tick %d: %s did not reach the tick end (PC %04X)' % (i, self.name, m.pc))
     def ram(self): return bytes(self.m.mem.banks[2][KRAM:KRAM + 0x1100])
+    # The native build's loads and dissolve do not run Konami's loader code,
+    # whose scratch RAM (E101-E102, the mirroring buffers at E300 and E700,
+    # the dissolve's chunk buffer EA00-EBFF) the game never reads before writing
+    # it again (the census of 8 November 2026).  A byte there may differ from
+    # the MSX after a tick with a native load or dissolve chunk (nl_count
+    # moved), for as long as the MSX's value stays what it was then.
+    SCRATCH = set(range(0x101, 0x103)) | set(range(0x300, 0x400)) | set(range(0x700, 0x800)) | set(range(0xA00, 0xC00))
+    def scratch(self, a, bad):
+        if 'nl_count' not in self.syms: return bad
+        if not hasattr(self, 'excuse'): self.excuse = {}; self.nlc = None
+        n = self.m.mem.banks[2][self.syms['nl_count'] - 0x8000] if self.syms['nl_count'] >= 0x8000 else self.m.mem.banks[5][self.syms['nl_count'] - 0x4000]
+        loaded = n != self.nlc; self.nlc = n
+        out = []
+        for k in bad:
+            if k in self.SCRATCH and (loaded or self.excuse.get(k) == a[k]):
+                if loaded: self.excuse[k] = a[k]
+                continue
+            out.append(k)
+        b = self.ram()
+        for k in [k for k in self.excuse if a[k] == b[k]]: del self.excuse[k]
+        return out
     def screens(self): return bytes(self.m.mem.banks[5][:6912]), bytes(self.m.mem.banks[7][:6912])
 
 def cells(a, b):
@@ -81,6 +107,18 @@ def cells(a, b):
                 o = ((r & 0x18) << 8) | ((r & 7) << 5) | (l << 8) | c
                 if a[o] != b[o]:
                     out.append((r, c)); break
+    return out
+
+def shown(a, r, c):
+    """The colours a cell shows: per pixel (ink or paper, with bright; flash
+    left out), so an attribute whose difference cannot be seen (the ink of a
+    cell with no pixels set) does not count."""
+    at = a[6144 + r * 32 + c]; br = 8 if at & 0x40 else 0
+    ink = (at & 7) + br if at & 7 else 0; paper = ((at >> 3) & 7) + br if at & 0x38 else 0   # bright black is black
+    out = []
+    for l in range(8):
+        b = a[((r & 0x18) << 8) | ((r & 7) << 5) | (l << 8) | c]
+        out += [ink if b & (0x80 >> x) else paper for x in range(8)]
     return out
 
 def save(i, s, ra, ca, bad):
@@ -103,7 +141,7 @@ def main(N):
         orig.mem[a] = v
         for b in builds: b.setk(a, v)
     hyper_done = False; lives_was = None; died = set(); in_stage = 0; last_stage = None
-    ndiff = 0; t0 = time.time()
+    ndiff = 0; nhidden = 0; t0 = time.time()
     for i in range(N):
         LS.TICK[0] = i
         st = orig.mem[0xE000]; sg = orig.mem[0xE061]
@@ -125,12 +163,13 @@ def main(N):
         if DEATHS and st == 5:
             lv = orig.mem[0xE060]
             if lives_was is not None and lv < lives_was:
-                died.add(sg); setall(0xE060, lives_was); lv = lives_was; hyper_done = False
-                print('tick %d: died in stage %d' % (i, sg), flush=True)
+                died.add(sg); hyper_done = False
+                if not GAMEOVER: setall(0xE060, lives_was); lv = lives_was
+                print('tick %d: died in stage %d (lives %d)' % (i, sg, lv), flush=True)
             lives_was = lv
             if sg != last_stage: in_stage = 0
             in_stage += 1
-            on = sg not in died and in_stage > DEATH_AT
+            on = (GAMEOVER or sg not in died) and in_stage > DEATH_AT
             orig.mem.rom[1 * 8192 + 0x75F0 - 0x6000] = 0x00 if on else 0xC9
             for b in builds: b.mortal(on)
         if sg != last_stage:
@@ -144,6 +183,7 @@ def main(N):
         a = orig.snapshot()
         for b in builds:
             bad = [k for k in explain(a, b.ram(), b.mp) if k not in LS.STACK and k not in LS.SOUND]
+            bad = b.scratch(a, bad)
             if bad:
                 print('tick %d: %s: Konami RAM differs from the MSX in %d bytes (state %d): %s' % (
                     i, b.name, len(bad), a[0], ' '.join('%04X' % (0xE000 + k) for k in bad[:20])))
@@ -152,7 +192,10 @@ def main(N):
             continue
         for s, (ra, ca) in enumerate(zip(ref.screens(), cand.screens())):
             if ra != ca:
-                bad = cells(ra, ca); ndiff += 1
+                bad = cells(ra, ca)
+                if not [rc for rc in bad if shown(ra, *rc) != shown(ca, *rc)]:
+                    nhidden += 1; continue      # differences no one can see
+                ndiff += 1
                 ns = ref.syms['name_shadow'] - 0x8000; b2 = ref.m.mem.banks[2]
                 desc = ', '.join('row %d col %d char %02X attr %02X/%02X' % (r, c, b2[ns + r * 32 + c],
                                  ra[6144 + r * 32 + c], ca[6144 + r * 32 + c]) for r, c in bad[:6])
@@ -162,7 +205,8 @@ def main(N):
                 if not KEEP: return 1
         if i % 1000 == 0:
             print('  tick %d ok  state %d  stage %d  (%.0fs)' % (i, a[0], a[0x61], time.time() - t0), flush=True)
-    print('all %d ticks: both builds match the MSX%s' % (N, '; screens identical' if not ndiff else '; screen differences at %d ticks' % ndiff))
+    print('all %d ticks: both builds match the MSX%s%s' % (N, '; screens identical' if not ndiff else '; screen differences at %d ticks' % ndiff,
+          ' (and differences that cannot be seen at %d)' % nhidden if nhidden else ''))
     return 0 if not ndiff else 1
 
 if __name__ == '__main__':

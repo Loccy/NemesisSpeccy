@@ -13,6 +13,9 @@ spec/konami_spec_stubs.asm
 spec/tables.asm
 spec/fullcmp_gen.asm
 spec/version.inc
+spec/native_data.asm
+spec/native_tables.asm
+spec/native/
 spec/nemesis*.sna
 spec/nemesis*.tap
 spec/nemesis*.sym

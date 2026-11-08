@@ -8,8 +8,9 @@ calls it from the main loop (not the interrupt), and the MSX side only takes
 an interrupt when Konami is idle (its jr $ at 40DF), so every interrupt is
 one sound pass plus one tick.  Only the stack area is not compared.
 
-VRAM too: the name table against name_shadow, the colour and pattern tables
-against their shadows in pages C and D, the sprite patterns against page 7.
+VRAM too: the name table against name_shadow (and, for builds that keep
+them, the colour and pattern tables against their copies in pages C and D,
+the sprite patterns against page 7; the native build keeps no copies).
 
 usage: lockstep_spec.py TICKS
 """
@@ -166,6 +167,30 @@ def sync_tick(m):
         ops[mem[pc]]()
         regs[25] += 1
 
+# The native build (no MSX graphics, claude/native-128k-plan.md): it keeps no
+# copies of the MSX's pattern and colour tables, and its loads and dissolve
+# do not run Konami's loader code, whose scratch RAM (E101-E102, the
+# mirroring buffers at E300 and E700, the dissolve's chunk buffer EA00-EBFF) the
+# game never reads before writing it again (the census of 8 November 2026).
+# A byte there may differ from the MSX after a tick with a native load or
+# dissolve chunk (nl_count moved), for as long as the MSX's value stays what
+# it was then.
+NATIVE = 'nl_count' in syms
+SCRATCH = set(range(0x101, 0x103)) | set(range(0x300, 0x400)) | set(range(0x700, 0x800)) | set(range(0xA00, 0xC00))
+_excuse = {}; _nlc = [None]
+def native_scratch(a, b, bad, spec):
+    a_ = syms['nl_count']
+    n = spec.mem.banks[2][a_ - 0x8000] if a_ >= 0x8000 else spec.mem.banks[5][a_ - 0x4000]
+    loaded = n != _nlc[0]; _nlc[0] = n
+    out = []
+    for k in bad:
+        if k in SCRATCH and (loaded or _excuse.get(k) == a[k]):
+            if loaded: _excuse[k] = a[k]
+            continue
+        out.append(k)
+    for k in [k for k in _excuse if a[k] == b[k]]: del _excuse[k]
+    return out
+
 def main(N):
     orig = Orig(); patch_front_end(orig); orig.boot()
     spec = Spectrum(os.path.join(HERE, 'nemesis_test.sna'))
@@ -263,6 +288,8 @@ def main(N):
         a = orig.snapshot()
         b = bytes(spec.mem.banks[2][0xAF00 - 0x8000:0xC000 - 0x8000])
         bad = [k for k in explain(a, b, mp) if k not in STACK and k not in SOUND]
+        if NATIVE:
+            bad = native_scratch(a, b, bad, spec)
         if bad:
             print('tick %d: %d unexplained bytes (state %d)' % (i, len(bad), a[0]))
             print('  ' + ' '.join('%04X:%02X/%02X' % (0xE000 + k, a[k], b[k]) for k in bad[:40]))
@@ -272,6 +299,8 @@ def main(N):
                    ('colours', 0x0000, bytes(B[4][0x2800:0x4000])),
                    ('sprite patterns', 0x1800, bytes(B[7][0x3800:0x4000])),
                    ('patterns', 0x2000, bytes(B[6][0x2800:0x4000])))
+        if NATIVE:          # no copies of the MSX's tables: the names only (the
+            regions = regions[:1]       # graphics are screen_lockstep.py's to check)
         if os.environ.get('SHOT_AT') and i == int(os.environ['SHOT_AT']):
             from emu import scr_png
             scr_png(spec.screen(), os.environ.get('SHOT', 'lockstep_shot.png'))

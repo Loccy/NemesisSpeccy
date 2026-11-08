@@ -1,4 +1,4 @@
-"""Model of rules.asm, the stage colour rules: for a tile of stage 2, 3, 6, 7
+"""Model of 1.0's rules.asm, the stage colour rules: for a tile of stage 2, 3, 6, 7
 or 8 (third t, number i, MSX pattern and colour rows), what the Spectrum shows.
 
 rule(stage, t, i, pat, col, dist) returns

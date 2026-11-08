@@ -5,7 +5,6 @@
 ; that F7 stars are sky, so nothing else would), with rows 1-7 equal.  Page
 ; 7 mapped.
 star_check:
-    call stage_seen             ; a new stage: convert every tile again
     ld a,(star_stale)
     or a
     ret z                       ; no tile has changed since the last check
