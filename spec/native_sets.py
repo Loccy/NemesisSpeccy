@@ -40,8 +40,18 @@ class Tracked(bytearray):
     def __setitem__(self, a, v):
         bytearray.__setitem__(self, a, v); self.w.add(a)
 
+ROM_PATCH = None    # [(ROM index, old, new)]: the Next's data changes (native_next.py)
+
+def patch_rom(m):
+    if ROM_PATCH:
+        m.mem.rom = bytearray(m.mem.rom)
+        for i, old, new in ROM_PATCH:
+            assert m.mem.rom[i] in (old, new), 'ROM %05X is %02X, expected %02X' % (i, m.mem.rom[i], old)
+            m.mem.rom[i] = new
+
 def machine():
     m = gfxcap.boot_to_idle()
+    patch_rom(m)
     m.vdp.vram = Tracked(m.vdp.vram)
     return m
 
@@ -170,6 +180,74 @@ def dz_patch(v, tl, inv):
         if pr != qr or (any(pr) and pa != qa):
             out[k] = bytes(pr) + bytes([pa])
     return out
+
+# ---- the Spectrum Next (claude/native-128k-plan.md, step 3) --------------------
+# The Next draws characters outside its pool from its own store of TMS-style
+# rows (pages C and D, E800: a colour and a pattern byte a row) and Konami's
+# sprite patterns from bank 7's F800.  Its events are what Konami's loaders
+# wrote, byte for byte (always whole characters: checked), not converted.
+
+def raw(v):
+    """The bytes an event wrote below the name table: {address: value}."""
+    w = {a for a in v.w if a < 0x3800}; v.w = set()
+    return {a: v[a] for a in w}
+
+def next_patch(d):
+    """An event's writes as the Next's pieces: (colours, patterns, sprites),
+    each {index: bytes} (character third * 256 + char: 8 bytes; sprite
+    pattern: 32 bytes), whole characters and patterns only."""
+    col, pat, spr = {}, {}, {}
+    for a in d:
+        if a < 0x1800: col.setdefault(a >> 3, set()).add(a)
+        elif a < 0x2000: spr.setdefault((a - 0x1800) >> 5, set()).add(a)
+        else: pat.setdefault((a - 0x2000) >> 3, set()).add(a)
+    for t, n in ((col, 8), (pat, 8), (spr, 32)):
+        for k, ad in t.items():
+            assert len(ad) == n, 'a partly written character or sprite pattern: %s' % sorted(ad)
+            t[k] = bytes(d[a] for a in sorted(ad))
+    return col, pat, spr
+
+def stage_vram(n):
+    """Konami's stage n load (after the stage before it in play, as
+    events()): video memory 0000-37FF and the addresses it wrote."""
+    m = machine()
+    p = {9: 2, 10: 3, 11: 4, 12: 7}.get(n, n - 1)
+    if p:
+        m.mem[0xE061] = p; gfxcap.call(m, 0x422A)
+    m.vdp.vram.w = set()
+    m.mem[0xE061] = n; gfxcap.call(m, 0x422A)
+    return bytes(m.vdp.vram[:0x3800]), {a for a in m.vdp.vram.w if a < 0x3800}
+
+def next_events():
+    """The Next's patches (next_patch), by event: title, bigcore 1-6,
+    prestage, gameover, marcador (the same for every stage: checked), ending."""
+    ev = {}
+    o = LS.Orig(); LS.patch_front_end(o); patch_rom(o); o.vdp.vram = Tracked(o.vdp.vram); o.boot()
+    regs = o.sim.registers; ops = o.sim.opcodes
+    while regs[24] != 0x5749:
+        ops[o.mem[regs[24]]](); regs[25] += 1
+    o.vdp.vram.w = set()
+    for i in range(40): LS.TICK[0] = i; LS.sync_tick(o)
+    d = raw(o.vdp.vram)
+    for r, (p_, c_) in enumerate(zip((0, 0, 0, 0, 0, 0, 0x18, 0x18), (0xF0,) * 8)):     # title_dot
+        d[0x2070 + r] = p_; d[0x0070 + r] = c_
+    ev['title'] = next_patch(d)
+    for n in range(1, 7):
+        m = machine(); m.mem[0xE061] = n; gfxcap.call(m, 0x422A); m.vdp.vram.w = set()
+        gfxcap.call(m, 0x4A6D)
+        ev['bigcore%d' % n] = next_patch(raw(m.vdp.vram))
+    for name, go in (('prestage', lambda m: (run(m, 0x53D4, 0x543F), gfxcap.call(m, 0x5874))),
+                     ('gameover', lambda m: gfxcap.call(m, 0x5874)),
+                     ('marcador', lambda m: gfxcap.call(m, 0x5851))):
+        seen = set()
+        for n in range(0, 9):
+            m = machine(); m.mem[0xE061] = n; go(m)
+            d = raw(m.vdp.vram); seen.add(tuple(sorted(d.items())))
+        assert len(seen) == 1, name
+        ev[name] = next_patch(d)
+    m = machine(); m.mem[0xE061] = 8; run(m, 0x4B04, 0x4B2C)
+    ev['ending'] = next_patch(raw(m.vdp.vram))
+    return ev
 
 def zx0(b):
     with tempfile.TemporaryDirectory() as d:

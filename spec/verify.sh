@@ -5,10 +5,11 @@
 #   check_sprites: sprites and their colours (MISSILE=1: the missile along the ground)
 #   test_kempston: the Kempston interface (both buttons) and hold-to-select
 #   lockstep_spec: Konami RAM against the MSX original (test build)
-#   (the native build, branch no-msx: the tiles are converted when the game
-#   is built, so check_tiles and test_convert have nothing to check; the
-#   pictures are checked against 1.0 by screen_lockstep.py; the Next build
-#   is not carried on this branch yet)
+#   nxbuild: the Spectrum Next build still assembles (seconds)
+#   (the native build: the tiles are converted when the game is built, so
+#   there is no run-time converter to check; the pictures are checked
+#   against 1.0 by screen_lockstep.py, the Next's by
+#   local/tools/nexttest/nx_poll.py in ZEsarUX)
 cd "$(dirname "$0")"
 set -e
 python3 check_names.py 240 0 | tail -1
@@ -19,4 +20,4 @@ python3 test_keys.py | tail -1
 python3 test_kempston.py | tail -1
 NEM_PIN_R=1 python3 build.py > /dev/null
 python3 lockstep_spec.py ${LOCK_TICKS:-3000} | tail -1
-echo "nxbuild: skipped (the Next is not carried on the native branch yet)"
+sh nxbuild.sh nemesis_next.nex > /dev/null && echo "nxbuild: nemesis_next.nex built"

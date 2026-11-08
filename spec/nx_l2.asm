@@ -139,22 +139,25 @@ lo_setpal:
 
 ; The stage graphics (spec/nxgfx, packed by nx_pack.py; they began as the
 ; MSX2 patch "Nemesis - Gradius ENHANCED"'s): Next bank 15 + stage holds that
-; stage's video memory 0000-37FF as its stage load leaves it, its palette at
-; 3800 and a mask at 3900 (a bit per byte: written by that load).  After Konami's own load (0:422A, called from
-; 0:4100 and 0:414B) the masked bytes of the colour, sprite pattern and
-; pattern copies are replaced (the rest keep what earlier screens left, as
-; on the MSX2) and the palette set; Konami's later writes (stars, status
-; line) go on as before.  Konami's status-line loader (0:5851), run for every
-; screen that is not a stage, puts the TMS9918 colours back.
+; stage's video memory 0000-37FF, its palette at 3800 and a mask at 3900 (a
+; bit per byte: the patch's own bytes).  nx_pack.py completes the file with
+; Konami's own stage load for every byte the mask leaves out
+; (native_next.py), so at a stage load lo_apply copies the colour, sprite
+; pattern and pattern tables whole into the copies and sets the palette; the
+; native build runs no MSX loader.  Before each life only the bottom third's
+; patch bytes go in (the mask), over what Konami's load there left.
+; Konami's later writes (stars) go on as before.  The title, the ending and
+; its status line put the TMS9918 colours back (lo_marcador).
 ENH_BANK    equ 16              ; stage 1's (16K bank)
 lo_stage:
-    call m0_422A
+    call m0_422A                ; the native load (native.asm nl_stage)
     push hl
     push de
     push bc
     ld a,(0xE061-0x3100)
     ld c,0                      ; every table
     call lo_apply
+    call nx_bonusfix            ; bonus stages 10-12: character 44's colours
     pop bc
     pop de
     pop hl
@@ -167,8 +170,7 @@ lo_stage:
 ; stage load leaves it) now, instead of at the stage load, so the status line
 ; does not show in the TMS9918 graphics first.  Only the bottom third: the
 ; other two still hold the font for the turn message.
-lo_prestage:
-    call m0_5874
+lo_prestage:                    ; (Konami's graphics came with the native load at 0:53D4)
     xor a
     ld (lo_title),a
     push hl
@@ -283,23 +285,22 @@ lo_apply:
     ld a,(lo_part)
     or a
     jr nz,.bottom
-    ld hl,0x4000
-    ld de,0x6800
-    ld ix,0xF900
-    ld bc,0x1800/8
-    call lo_mcopy
+    ld hl,0x4000                ; a stage: the tables whole (the file is
+    ld de,0x6800                ; complete: nx_pack.py)
+    ld bc,0x1800
+    ldir
     db 0xED,0x91,0x53,15        ; bank 7 E000-FFFF: sprite patterns from 7800
     ld de,0x7800
-    ld bc,0x0800/8
-    call lo_mcopy
+    ld bc,0x0800
+    ldir
     ld a,(lo_spage)             ; VRAM 2000-3FFF
     inc a
     db 0xED,0x92,0x52
     db 0xED,0x91,0x53,13        ; bank 6 (page D) E000-FFFF: patterns from 6800
     ld hl,0x4000
     ld de,0x6800
-    ld bc,0x1800/8
-    call lo_mcopy
+    ld bc,0x1800
+    ldir
     jr .copied
 .bottom:
     ld hl,0x5000                ; VRAM 1000-17FF
@@ -459,28 +460,26 @@ lo_ovflag:
     ld (lo_ppend),a
     ret
 
+; From the native loads of the title (A = 1: the logo's colours too), the
+; ending and its status line (A = 0): none of our drawings, the TMS9918's
+; colours, as Konami's 0:5851 (carga_el_marcador) did here before.
 lo_marcador:
+    push hl
+    push de
+    push bc
+    push af
     xor a
     ld (lo_enh),a
     ld (lo_title),a
-    push hl
-    push bc
     call lo_ovclr
     ld hl,lo_tms
     call lo_setpal
-    ld hl,6                     ; called for the title screen (from 0:5B4D)?
-    add hl,sp
-    ld a,(hl)
-    inc hl
-    ld h,(hl)
-    ld l,a
-    ld bc,m0_5B50
+    pop af
     or a
-    sbc hl,bc
-    call z,lo_logopal
+    call nz,lo_logopal
     pop bc
+    pop de
     pop hl
-    ld de,m0_5906               ; the instruction the call replaced
     ret
 
 ; The title screen: the logo (spec/nxgfx/logo.bin, the patch's) replaces

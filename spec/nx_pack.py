@@ -26,7 +26,9 @@ stage's 64 sprite patterns in fire colours (Next 4-bit, 128 bytes each; edge
 pixels 3, one in 4, deeper 5).  Bank 24 also holds, from 2000, the logo;
 bank 25, from 2000, our drawings, bank 26, from 2000, their tables
 (art_page()), and bank 27, from 2000, the code of nx_tur.asm.  Bank 32: the character pool's maps, 2K a stage; banks 33 on:
-the pool (char_pool())."""
+the pool (char_pool()).  Banks 42-45: the Next's other graphics loads
+(native_next.py).  The stage files go in completed with Konami's own stage
+loads (native_next.stage_files)."""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..'))
@@ -478,9 +480,21 @@ def pack(rom):
     print('our drawings:\n  ' + '\n  '.join(report))
     pool, n = char_pool(maps, pool)
     print('character pool: %d blocks, banks 32-%d' % (n, 31 + len(pool) // 0x4000))
+    # the stage files as lo_apply copies them: completed with Konami's own
+    # stage loads (native_next.py: the native build has no MSX loaders),
+    # after the fire patterns and our drawings were made from the patch's
+    import native_next
+    baked, _ = native_next.stage_files()
+    data = b''.join(baked[s] for s in range(1, 9))
     out = bytearray(data + fires) + pool
     assert 16 + len(out) // 0x4000 <= BONUS_BANK
     out += bytes((BONUS_BANK - 16) * 0x4000 - len(out))
+    # the Next's other graphics loads (native_next.py), raw, 8K pages
+    # native_next.NX_PAGE on
+    nx = open(os.path.join(HERE, 'native_next.dat'), 'rb').read()
+    on = (native_next.NX_PAGE // 2 - 16) * 0x4000
+    assert not native_next.NX_PAGE % 2 and not any(out[on:on + len(nx)]) and on + len(nx) <= len(out)
+    out[on:on + len(nx)] = nx
     import nx_bigcore as bc
     ob = (BC_PAGE // 2 - 16) * 0x4000
     assert not BC_PAGE % 2 and 16 + (len(data) + len(fires) + len(pool)) // 0x4000 <= BC_PAGE // 2 and not any(out[ob:ob + 0x2000])
@@ -489,7 +503,7 @@ def pack(rom):
         out[ob + i * 128:ob + i * 128 + 128] = bytes.fromhex(''.join(rows))
     for k, pal in enumerate((bc.PAL14, bc.PAL15)):
         out[ob + 0x1900 + k * 28:ob + 0x1900 + k * 28 + 28] = bytes(b for e in pal[2:] for b in e)
-    bonus = open(os.path.join(GFX, 'bonus.bin'), 'rb').read()
+    bonus = baked['bonus']
     assert len(bonus) == 0x4000
     out += bonus
     mb = bytearray(open(os.path.join(GFX, 'maps_bonus.bin'), 'rb').read())

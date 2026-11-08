@@ -8,17 +8,16 @@ Architecturally, the MSX wasn't THAT different to the Spectrum. Hardware sprites
 
 So, this project is an attempt to tap into that alternate universe where that happened.
 
-What we have here is a port of Konami's MSX cartridge Nemesis (RC-742, 1986) for running on a standard 128K Spectrum using Konami's own game code (tested on a real 128K and +3, loading from tape, and in emulation on the 128K, +2A and +3). It is mostly the same code that sits on top of a platform layer which stands in for the MSX hardware.
+What we have here is a port of Konami's MSX cartridge Nemesis (RC-742, 1986) for running on a standard 128K Spectrum using Konami's own game code (tested on a real 128K and +3, loading from tape, and in emulation on the 128K, +2A and +3). It is mostly the same code that sits on top of a platform layer which stands in for the MSX hardware, apart from the graphics: those are converted for the Spectrum when the game is built, and loaded in place of Konami's own graphics loads.
 
-The Z80 code of the cartridge is relocated to the Spectrum's memory by a generator (`reloc/gen.py`), and a platform layer (`spec/`) stands in for the hardware the code talks to: the memory mapper, the BIOS routines it calls, the video chip (TMS9918), the sound chip (AY-3-8910, the same family as the 128K's) and the keyboard and joystick.
+The Z80 code of the cartridge is relocated to the Spectrum's memory by a generator (`reloc/gen.py`), and a platform layer (`spec/`) stands in for the hardware the code talks to: the memory mapper, the BIOS routines it calls, the video chip (TMS9918: the screen layout and the sprites), the sound chip (AY-3-8910, the same family as the 128K's) and the keyboard and joystick.
 
 The game logic is Konami's, unchanged except where it meets the hardware. A test build matches the MSX original byte for byte in Konami's RAM, tick by tick (see [the technical description](docs/TECHNICAL.md), section 4).
 
 Departures from the MSX original are all deliberate:
 
 * The front end goes straight to the title screen: no Konami logo, no attract cycle (demo play and the illustration).  The title carries the controls and a credit line. This is to save on space - it was a tight fit!
-* It runs a little slower than the PAL MSX, and draws the screen less often: every game tick when there is time, one in two when the game is busy (technical description, section 6.8).  Over the first two stages in light play it runs at 96% of the MSX's speed, at about 16 screens a second; over the whole first loop with every weapon, at 86%.  Input lag is about 6 frames, against the MSX's 3.
-* Colours are chosen for the Spectrum's attribute cells: tiles are fitted to two colours per cell, sprites take one ink per cell, and a few objects get colours of their own (technical description, sections 6.6 and 6.7). Where the automatic fit made a mess of the scenery (the bricks of stage 2 and the bonus stages, the Moai of stage 3, the brains of stages 6 and 8, the band and formations of stage 7 and the pipework of stage 8), the colours were picked by hand instead, stage by stage, against the MSX.
+* Colours are chosen for the Spectrum's attribute cells: tiles are fitted to two colours per cell when the game is built, sprites take one ink per cell, and a few objects get colours of their own (technical description, sections 6.6 and 6.7). Where the automatic fit made a mess of the scenery (the bricks of stage 2 and the bonus stages, the Moai of stage 3, the brains of stages 6 and 8, the band and formations of stage 7 and the pipework of stage 8), the colours were picked by hand instead, stage by stage, against the MSX.
 * The ship keeps the MSX's shape, but on the MSX it is two sprites one over the other: white, with a red canopy, and a light blue belly when it climbs. A Spectrum cell has one colour, so the canopy is drawn as a black line inside the white outline, and the belly as a stippled pattern.
 
 Everything Konami made is still Konami's: see [LEGAL-NOTICE.md](LEGAL-NOTICE.md) for who owns what.
@@ -101,7 +100,7 @@ The source does not include the cartridge. You need:
   ```
 - Python 3 with SkoolKit and Pillow (`pip install skoolkit pillow`).
 - sjasmplus (https://github.com/z00m128/sjasmplus) on the PATH.
-- Einar Saukas's ZX0 compressor (https://github.com/einar-saukas/ZX0) for the tape, on the PATH as `zx0` or named by the `ZX0` environment variable.
+- Einar Saukas's ZX0 compressor (https://github.com/einar-saukas/ZX0) for the packed graphics and the tape, on the PATH as `zx0` or named by the `ZX0` environment variable.
 
 It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3 and sjasmplus 1.21.0. Then, in `spec/`:
 
@@ -116,13 +115,13 @@ Built this way, the files in `release/` are identical to the published ones.
 
 ### The Spectrum Next version
 
-The Next build needs the ROM, the disassembly, Python with Pillow, and sjasmplus. SkoolKit and the ZX0 compressor are only used for the tape (and SkoolKit for the checks), so it can do without them. In `spec/`:
+The Next build needs the same as the rest: the ROM, the disassembly, Python with SkoolKit and Pillow, sjasmplus and the ZX0 compressor (Konami's graphics loads are replayed in a simulator that uses SkoolKit when the game is built). In `spec/`:
 
 ```
 sh nxbuild.sh nemesis.nex     # the Spectrum Next build
 ```
 
-Its graphics are in `spec/nxgfx/`: the character pool (`pool.bin`, every stage's background characters and the enemies Konami draws with characters, and `maps.bin`, which says which block each stage's characters use), a file per stage for its sprites and palette, the title logo, and the data bytes it changes in Konami's tables. The enemies drawn as sprites are in `spec/nx_art.py`; `NEM_ARC_SPR=0` leaves them out (they are in by default). `release.sh` makes the `.nex` as well as the tape and snapshot; if ZEsarUX is on the PATH (or named by the `ZESARUX` environment variable), it also plays the `.nex` for a minute to check that it starts. `verify.sh` ends by checking that the Next build still assembles. The editions of 0.98 to 0.109 are build options: `NEM_DRAW_EVERY=2 python3 build.py` for fast, `NEM_DRAW_EVERY=0 python3 build.py` for smooth. The first run of `verify.sh` also captures Konami's graphics from the ROM for the colour-converter test (`spec/vram_states.pkl`, kept out of the repository). Section 3 of the technical description has the details and the build options.
+Its graphics are in `spec/nxgfx/`: the character pool (`pool.bin`, every stage's background characters and the enemies Konami draws with characters, and `maps.bin`, which says which block each stage's characters use), a file per stage for its sprites and palette, the title logo, and the data bytes it changes in Konami's tables. The enemies drawn as sprites are in `spec/nx_art.py`; `NEM_ARC_SPR=0` leaves them out (they are in by default). `release.sh` makes the `.nex` as well as the tape and snapshot; if ZEsarUX is on the PATH (or named by the `ZESARUX` environment variable), it also plays the `.nex` for a minute to check that it starts. `verify.sh` ends by checking that the Next build still assembles. The editions of 0.98 to 0.109 are build options: `NEM_DRAW_EVERY=2 python3 build.py` for fast, `NEM_DRAW_EVERY=0 python3 build.py` for smooth. Section 3 of the technical description has the details and the build options.
 
 ## Documentation
 

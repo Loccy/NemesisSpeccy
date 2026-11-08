@@ -416,7 +416,9 @@ tu_blank4:
     ret
 
 ; Konami's shots (E260, six of 16 bytes: type, 1 a shot, 3 the laser; byte 6
-; its character; a shot's X and Y at bytes 3 and 5 and the character it
+; its character; a shot's Y and X at bytes 3 and 5 (0:571B makes its map
+; address from them: 3:A299; until 8 November taken the other way round, so
+; no ordinary shot was found and each kept its black box) and the character it
 ; covers at byte 8; the laser's cells, byte 12 of them from its map address
 ; at bytes 14-15, and the characters it covers from byte 17 on).  Konami
 ; writes them into its map and the screen over what it keeps: their own
@@ -499,13 +501,13 @@ tu_find:
     cp 1
     jr nz,.nx
     push hl                     ; a shot: its cell, Y / 8 * 32 + X / 8
-    ld a,(ix+5)
+    ld a,(ix+3)                 ; (Y at byte 3, X at byte 5: Konami's 0:571B)
     and 0xF8
     ld l,a
     ld h,0
     add hl,hl
     add hl,hl
-    ld a,(ix+3)
+    ld a,(ix+5)
     rrca
     rrca
     rrca
@@ -601,13 +603,13 @@ tu_shots:
     djnz .lc
     jr .nx
 .shot:
-    ld a,(ix+5)                 ; its cell: Y / 8 * 32 + X / 8
-    and 0xF8
+    ld a,(ix+3)                 ; its cell: Y / 8 * 32 + X / 8 (Y at byte 3,
+    and 0xF8                    ; X at byte 5)
     ld l,a
     ld h,0
     add hl,hl
     add hl,hl
-    ld a,(ix+3)
+    ld a,(ix+5)
     rrca
     rrca
     rrca
@@ -1290,9 +1292,11 @@ tu_s8:
     ret nz
     ld bc,0x243B                ; MMU2 as it is, put back after
     ld a,0x52
+    di                          ; (the interrupt selects registers too: tu_bsend)
     out (c),a
     inc b
     in a,(c)
+    ei
     push af
     db 0xED,0x91,0x52,S8_PAGE
     call .b
@@ -1541,15 +1545,15 @@ tu_s8make:
 ; channel through LO_FMAP, as Konami's dissolve fades the room (lo_fadestep).
 tu_s8pal:
     ld (tu_s8f),a
+    ld a,i
+    push af
+    di                          ; (before the read: tu_bsend)
     ld bc,0x243B                ; the palette control as it is, put back after
     ld a,0x43
     out (c),a
     inc b
     in a,(c)
     ld e,a
-    ld a,i
-    push af
-    di
     db 0xED,0x91,0x43,0x20      ; sprites' first palette
     db 0xED,0x91,0x40,0xE2
     ld hl,S8_PAL
@@ -1700,10 +1704,12 @@ tu_bsend:
     push hl
     ld bc,0x243B
     ld a,0x52
-    out (c),a
-    inc b
-    in a,(c)
-    ld (tu_bcm),a
+    di                          ; the interrupt selects registers too (lo_snd,
+    out (c),a                   ; nx_frame): one between the two made this read
+    inc b                       ; another register, and MMU2 was put back as
+    in a,(c)                    ; that, a wrong page at 4000-5FFF over Konami's
+    ei                          ; bank 0 code (1.0N's crash in the second loop's
+    ld (tu_bcm),a               ; stage 5 boss, 8 November 2026)
     db 0xED,0x91,0x52,BC_PAGE
     pop hl
 .r:
@@ -1821,6 +1827,9 @@ tu_bcq:
     ret
 .p0:                            ; (MMU2 and the palette control kept;
     pop hl                      ; interrupts off, as they were on the stack)
+    ld a,i
+    push af
+    di                          ; (before the reads: tu_bsend)
     ld bc,0x243B
     ld a,0x52
     out (c),a
@@ -1833,9 +1842,6 @@ tu_bcq:
     inc b
     in a,(c)
     ld (tu_bc43),a
-    ld a,i
-    push af
-    di
     jp (hl)
 
 ; The ending's Vic Viper zoom (nx_pack.py VV_PAGES, mapped at 4000 here:
@@ -1973,15 +1979,15 @@ tu_znew:
     push bc
     xor a
     ld (tu_s8f),a
+    ld a,i
+    push af
+    di                          ; (before the read: tu_bsend)
     ld bc,0x243B
     ld a,0x43
     out (c),a
     inc b
     in a,(c)
     ld e,a
-    ld a,i
-    push af
-    di
     db 0xED,0x91,0x43,0x20
     db 0xED,0x91,0x40,0xF2
     ld hl,VV_PAL

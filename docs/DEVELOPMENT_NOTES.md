@@ -1291,6 +1291,354 @@ of the same tree.
   its code and data checked throughout, and on a real Next (KS2) and an
   N-Go.
 
+## 1.1: no MSX graphics
+
+Up to 1.0 the 128K build ran Konami's graphics code much as the MSX does.
+Konami's compressed graphics were in the banks, its loaders unpacked them
+into copies of the MSX's pattern and colour tables in pages C and D, and
+each character was converted to a Spectrum tile when it was first shown
+(the colour fit, its cache and the stage colour rules, all at run time).
+In 1.1 that layer is gone from the 128K build.  Every graphics load is a
+load of tiles and sprite patterns converted when the game is built, and
+the Next build was moved onto the same code.
+
+The reasons were these.  Fixed memory was full (60 bytes free), and it
+was what every recent change had been short of; the video stand-ins, the
+converter and its bookkeeping, the star twinkle on MSX pattern rows and
+Konami's loaders were all in it.  The conversion came in bursts: 0.107's
+census found seconds of play in which it took more than a fifth of the
+processor.  Stage starts and restarts paused while the graphics were
+unpacked and converted, and the dissolve still took about twice the MSX's
+time.  And the layer was the most complicated part of the port: the
+colour fit, the cache, the lazy conversion, the rules at run time, the
+copies of the tables and the reconversion at a stage change.  0.107 had
+set converting at build time aside because Konami reads characters back
+from video memory, to make flipped copies at a stage load and in the
+dissolve.  Both happen inside events that can be replayed when the game
+is built, provided there are no others, and the first job was to find
+out.  The work was done on a branch, so the Next went on building from
+the main line until it was moved across.
+
+### The census
+
+`census_gfx.py` (in the linked clone, `local/tools/native/`) ran the
+original cartridge in msxsim with the Spectrum build's front end, the
+ship sweeping up and down and firing, with every weapon.  One run (40,000
+ticks) took the route with every hidden target, the ending and the start
+of the second loop; the other (47,169 ticks) the plain route with a death
+in each stage, the stage 7 boss without the secret, game over and the
+title.
+
+* Konami's writes to the pattern, colour and sprite pattern tables are
+  exactly the events found by reading the code, and no others.  In play:
+  the stage loads (a new game, each stage, and after the screen before
+  each life), the Big Core's load in stages 1-6 (its colours different in
+  each stage), the star twinkle, the dissolve and the ending's loads.
+  Outside play: the title, the screen before each life, game over, and
+  clearing the video memory at boot.
+* No character that a stage's load leaves as it was is ever shown in that
+  stage.  Character 00 of each third is never loaded by anyone and is
+  always blank, and bonus stage 9's sprite pattern 50 is stage 2's, which
+  is always so because stage 9 is entered only from stage 2.  Each stage
+  can therefore be stored as a complete set and unpacked straight into
+  place.
+* The other screens do show what was there before.  The screen before
+  each life shows the stage just played (the title's characters at a new
+  game), and game over and the title after it show stage 8's.  Those
+  loads are small, and are stored as patches over what is there, with a
+  mask, as the MSX writes them.
+* Of the RAM Konami's loaders use as scratch, the game reads only E100
+  before writing it again, and it is 1 after every stage and Big Core
+  load.  The rest of each loader is game logic (the Big Core's load also
+  clears the objects), so only the routines inside the loaders that write
+  video memory are replaced; a native load sets E100 to 1.
+
+### The sets, made when the game is built
+
+Before anything changed, a check of the pictures was written:
+`spec/screen_lockstep.py`.  It runs two test builds that draw every tick,
+a reference and a candidate, side by side with the MSX original, the same
+input to all three.  After every tick it checks each build's Konami RAM
+against the MSX, as the lockstep does, and compares both of the
+candidate's screens with the reference's, byte for byte.  It was proved on
+short runs first: 1.0 against itself matched, and a build with the
+power-up bar's paper changed was caught at the bar's first drawing, with
+the 24 cells named.  Then a 1.0 with Konami's bank 3 code moved 6 bytes
+matched 1.0 over the whole route twice, with every hidden target (40,000
+ticks) and with a death in each of stages 1-8 (50,000 ticks), so it
+raises no false alarms.  It runs at about 110 ticks a second.
+
+`spec/native_sets.py` replays every load event from the ROM in msxsim and
+converts each character with the rules 1.0 applied at run time, which
+`spec/tilemodel.py` does as a function: the colour fit, the power-up
+bar's design, the title logo, the stage colour rules, inversion and the
+nuke capsule.  A checker (`native_check.py`, in the linked clone) ran 1.0
+through both routes, keeping a model of the tile set the native build
+would have, and required every tile 1.0 converted, and every sprite
+pattern on show, to equal the model's.  In the bonus-stage route all
+4,370 tiles that 1.0 converted matched; in the route with deaths, game
+over and back to the title, 5,299 of 5,305.
+
+The six that differ are a bug in 1.0.  Stage 3's Moai rule applied only
+to characters first drawn before distance 195h, and some characters
+appear both among the Moai and past 195h, so after a restart from a
+checkpoint past their Moai appearance they stayed in the fit's white.
+The native build decides per character: they always take the Moai's
+colours, as in an uninterrupted pass.  The list had to be built from
+every pass through the stage, not only the first, and has 561 characters
+(`spec/native_moai.txt`).  This difference from 1.0 is intended.
+
+Two things turned up on the way.  The Spectrum title's own full stop
+(`title_dot`) became part of the title's patch.  And on the MSX, the
+dissolve after the stage 8 brain can still be running in the tick the
+ending's graphics load, and wipes part of what was just loaded (the
+status font, until the ending loads it again 800 ticks later).  1.0
+reproduces this, and so does a dissolve done chunk by chunk as Konami
+does it, so the native one was written that way.
+
+### The cut-over
+
+The change was made in one step: the sets fit only once the MSX layer is
+out, and the stars and the dissolve depended on that layer.
+
+Each event site in Konami's code now calls an entry point in
+`spec/native.asm` (`nl_stage`, `nl_bigcore`, `nl_prestage` and so on),
+which unpacks the event's data into bank 7: a stage's complete set
+straight into the tile set (DB00-F5FF) and the sprite patterns (from
+F800), a patch into page D's work area and from there into place a
+character at a time.  Every cell is then redrawn, as after 1.0's loads.
+The packed pieces are in other banks, which map at C000 as bank 7 does,
+so the two cannot be mapped at once.  ZX0 reads its input strictly in
+order, though, so the unpacker reads it through a 256-byte buffer in
+fixed memory (`nl_buf`), refilled from the source bank as it empties, and
+writes straight into bank 7.  Konami's loaders in bank 0 are then
+unreachable and are left out of the build (`reloc/gen.py`'s `LEAVE_OUT`):
+a new kind of change for the relocator, which had only ever replaced
+instructions.  The video stand-ins keep only their name-table and sprite
+work.
+
+The stars are the same two characters (F6, F7) in every stage, blank
+when loaded with a single pixel's row when lit.  `blink_native` now puts
+the tick's rows into row 0 of those tiles in each third, and the
+attribute a star tile takes when it first shows a pixel is worked out
+when the game is built and stored with each event's data.
+
+The dissolve now works on the converted tiles.  The colour pass gives
+every tile in the chunk black paper, and each pattern pass ANDs the
+tile's rows with Konami's mask for the pass.  The first version was
+visibly unlike 1.0 and the MSX in stage 7: the blue shapes on the left
+came out as green discs.  1.0 had decided per tile which colour showed
+the foreground and kept the MSX's foreground pixels.  That is now
+modelled (`tilemodel.dz_post`), and the tiles where the simple rule gives
+something else are stored for stages 7 and 8 as a patch, applied after
+the colour pass's last chunk (about 1.8 KB packed for the two).  With the
+colour pass exact, the pattern passes give exactly what 1.0 showed, since
+1.0's pixels were the MSX's pattern masked row by row.  The chunk buffer
+turned out to be EA00-EBFF, not EA00-EAFF: a chunk is up to 512 bytes.
+The census shows nothing reads it after the dissolve, and the lockstep
+excuses it.
+
+The packing (`spec/native_pack.py`) first placed the pieces first fit,
+which stopped fitting once the dissolve's patches were added.  It now
+places them largest first, each where it fills the room best, and
+searches back when that leaves a later piece no room.  Page C and page D
+after their code are free room too, asserted against the end of each.
+`build.py` runs the packer (about 15 seconds) when any of its inputs is
+newer than what it last wrote.  What it writes is Konami's graphics,
+converted, so it is not in the repository.
+
+The checks, against 1.0, with Konami's RAM matching the MSX throughout:
+
+* With every hidden target (40,000 ticks: stages
+  1-2-9-3-10-4-11-5-6-7-12-8, the ending and into the second loop), the
+  screens were identical to 1.0's on every tick, the dissolve after the
+  stage 8 brain included,
+  apart from its first three ticks: 1.0 converted the changed tiles a few
+  a tick, and its screen caught up with the colour pass where the native
+  build shows it at once.  The screen lockstep allows those ticks.
+* With a death in each of stages 1-8 (50,000 ticks: the screen before
+  each life, the stage 7 boss without the secret and its dissolve, the
+  ending, the second loop), the screens were identical apart from 88
+  ticks in stage 3 after the restart, all of them the Moai fix.
+* Game over five times, with the title and a new game after each (20,000
+  ticks, a new option of the screen lockstep), identical.
+* `verify.sh` and the simulated tape load pass.  The lockstep compares
+  only the name table of video memory for the native build, since there
+  are no copies of the MSX's tables, and excuses the loaders' scratch RAM
+  after a native load.
+
+Removed with the layer: `vbulk.asm`, `rules.asm`, `convert_e.asm`,
+`barstyle.asm`, and the checks of the run-time converter, `check_tiles.py`
+and `test_convert.py`.
+
+### Sizes and speed
+
+The packed graphics are 28 pieces, 27,215 bytes, with about 1.4 KB of
+room left in the banks in pieces of at most 384 bytes.  In fixed memory
+`platform_end` is A500, leaving 2 KB free below AD00.  The tape grew:
+70,445 bytes against 1.0's 63,340, about 40 seconds more at the ROM's
+speed, because the packed graphics do not compress again on the tape,
+where 1.0's MSX graphics and code did.
+
+Over stages 1 and 2 in light play (`specrun.py`, 120 seconds) the native
+build ran 24.57 ticks and 14.7 screens a second, against 1.0's 24.16 and
+13.7.  Over stages 1-6 (`perfprofile.py`, 1,500 seconds, every weapon),
+which now also reports the gaps between screens and the fewest screens in
+any second:
+
+| | 1.0 | 1.1 |
+|---|---|---|
+| Ticks a second, by stage | 22.0-25.5 | 23.1-26.6 |
+| Screens a second, by stage | 12.3-17.1 | 13.3-18.9 |
+| Fewest screens in any second, by stage | 0-4 | 6-8 |
+| Gaps of 9 frames or more | 247 | 38 |
+| Longest gap | 90 frames | 28 frames |
+
+1.0 had a second or more with no new screen in each of stages 2-6, while
+it converted tiles.  The gain is less in the average than in
+consistency: played, there are no obvious lags at the turrets and the
+like, where 1.0 converted tiles as they scrolled in.
+
+### The Next on the same code
+
+The Next never used the 128K's two-colour tiles.  Its Layer 2 renderer
+draws the scenery from the character pool, and every character the pool
+does not cover (the stars, the Big Core until the next load, the title
+apart from its logo, the screen before each life, game over and the
+ending) pixel by pixel from a store of character rows laid out as the
+MSX's tables: pages C and D at E800, and bank 7's F800 for the sprite
+patterns.  That store was kept, and is now filled from data made when the
+game is built, at the same load hooks as the 128K's.  Konami's loaders,
+the decompressors, the video stand-ins for patterns and colours, and
+`lo_stage`'s overlay of the MSX2 patch's data at run time are gone.
+Making all of those characters Layer 2 blocks was set aside: the pool
+already allows any colours per character, so it would only move the
+remaining text screens to blocks, which can be done a screen at a time if
+one gets new art.
+
+* `nx_pack.py` completes each stage file with Konami's own stage load, so
+  a stage load copies the three tables whole.  Stages 10-12 share stage
+  9's file; Konami's loads differ from it only in character 44's colours,
+  24 bytes put in after the copy.
+* The other events' bytes (the title, the Big Core, the screen before each
+  life, game over, the status line, the ending) are recorded by
+  `spec/native_next.py`, which replays Konami's loaders in msxsim with the
+  MSX2 patch's data in the ROM, and are stored raw in 8K pages 84-91,
+  unused before: 28 KB in 13 pieces.
+* One hook inside the left-out code is kept for the Next only (0:544F, the
+  stage's colours and status line before each life: `gen.py`'s
+  `NEXT_KEEP`).
+* The stars are written into row 0 of F6 and F7 from the same phase as
+  the 128K's, and the dissolve ANDs the store as Konami's does the video
+  chip's tables.
+
+It was checked in ZEsarUX, built from source for the purpose, against
+1.0N, with new tools that dump the store, the sprite patterns, the name
+table and both Layer 2 screens at each change of stage or state, and
+compare two runs.  The characters on show were identical at every stage
+start, every Big Core arrival and the ending's load.
+
+Three faults were found after that:
+
+* **Stars and the laser as solid blocks**, on a real Next.  `dz_on`, the
+  flag for a dissolve under way, had moved into `native.asm` at 77BC.  The
+  Next's renderer reads it while 4000-7FFF hold the store, so it read a
+  colour byte there, took the dissolve as under way, and drew characters
+  F6 and up (the stars and the laser) in Layer 2 colour entries that are
+  only set during a dissolve.  `dz_on` is now above 8000, asserted.  The
+  ZEsarUX runs had shown the fault in their data (every dump in play
+  about 2,000 pixels different, the stars' cells) and it had been put down
+  to timing without being looked at.  The comparison now also reports
+  colour entries one run uses and the other does not, which flags this
+  kind of fault at the first dump.
+* **The ordinary shot's black box** over scenery, in 1.0N too.  Konami
+  keeps a shot's row and column in bytes 3 and 5 of its slot, and
+  `tu_shots` and `tu_find` (`nx_tur.asm`) took them the other way round.
+  So they looked for the shot in the wrong cell, found another character
+  there, and left the shot's black 8 by 8 as Konami draws it, which is
+  invisible over empty space but not over scenery.  With the bytes
+  swapped, the cell is Konami's own map address for every row and column
+  (checked for all 256 by 192 positions against a model of Konami's
+  routine).
+* **`dz_on` after a dissolve.**  1.0 kept it up from the dissolve's first
+  chunk to the next graphics load; the native build cleared it only at a
+  stage load, so through the ending after the stage 8 brain, characters
+  F6 and up took the dissolve's unfaded palette entries.  Every native
+  load now clears it, and Layer 2 at the ending's load is identical to
+  1.0N's.
+
+The 128K build is unchanged in behaviour by this work, since the Next's
+code is all under `ifdef NEXT`; the screen lockstep was run again over
+both routes after the shared changes.
+
+### Before the release
+
+`fulltest.py` (in the linked clone, `local/tools/nexttest/`) was rewritten
+to play the whole Next game in ZEsarUX with an invulnerable copy, the ship
+put on every hidden target unless told otherwise, checking the code and
+read-only pages at every stage, and dumping for `nx_ftcmp.py`, which
+compares two runs at each stage start, boss and point of the ending.  On
+the bonus route (to 30 seconds into the second loop) the native build and
+1.0N had no problems, and the characters on show were identical at all 50
+points compared, the bonus stages included.  The native build also went
+through two whole loops of the plain route without a problem.  1.0N did
+not.
+
+**The crash.**  In that run, at the end of stage 5 in the second loop,
+1.0N's stage number became 7Eh and a byte of `nx_low.asm`'s code (01B1,
+the operand of a `call`) was overwritten, and the screen froze.  It looked
+like a stray write into 0000-3FFF, which is ROM on a 128K and the Next's
+code bank on the Next.  `hunt.py` (fulltest with a breakpoint on writes to
+01B1) ran both builds through two loops again at 400% with no crash in
+either, so it depended on timing.  The cause was found by reading the
+code.  The Next code reads a Next register in two steps: it selects the
+register (an `out` to 243Bh) and reads it (an `in` from 253Bh).  The
+interrupt selects registers too, to read the memory pages and the raster
+line, so an interrupt between the two steps makes the read return
+whichever register the interrupt selected last.  `tu_bsend`, which sends
+the Big Core's blocks, reads MMU2 that way and puts the value back as
+MMU2 when it has sent a block.  After a bad read, 4000-5FFF shows another
+8K page in place of Konami's bank 0 code, and the next call into it runs
+garbage.  One place (`lo_apply` in `nx_l2.asm`) already held the
+interrupt off round the pair, with a note saying why; five in `nx_tur.asm`
+did not.  It was shown with two test builds that widened the gap in
+`tu_bsend` to about 38,000 T-states: without `di`, the first Big Core
+crashed twice out of two, 9-10 seconds into the fight (one stop caught
+MMU2 as 35h instead of 0Ah, and 01B1 being written); with `di` and `ei`
+round the pair, the first two Big Cores passed.  The interrupt is now held
+off between selecting and reading at all five places, and a stress build
+with all five gaps widened went through stages 1-8, the ending and into
+the second loop with no problems.  1.0N has the same race.
+
+**The one-frame flash.**  Now and then, in any stage, the whole scenery
+jumped sideways for a frame on the Next (on hardware and in emulators),
+never on the 128K.  Layer 2 is a circular buffer, and its X scroll is the
+origin column times 8 less the fine offset.  The frame interrupt sets it
+for the play area, and the line interrupt at line 176 sets 0 for the
+status rows; the two are told apart by alternation.  A lost frame
+interrupt leaves the play area at scroll 0 for the next frame.  On the
+Next an interrupt that comes while interrupts are off is lost, and in
+play the longest stretch with them off was Konami's sound request
+(`pide_sonido`, 0:4A02-0:4A11, on every shot and explosion), the one `di`
+the port had kept, since it guards the sound queue.  Two test builds told
+the interrupts apart by the raster line instead of by turns.  The first
+window missed one emulator's line interrupt; the second ran, but the
+flash stayed, because it only put the alternation back in step after a
+loss, and the loss itself was the fault.  Moving the split to the copper
+had been tried for 1.0 and withdrawn (above), and the copper is not used.
+The fix leaves the interrupts as they were: `gen.py`'s `NEXT_PATCH` puts
+`call snd_hold` and `call snd_free` in place of that `di` and `ei`, which
+set and clear a flag (`snd_busy`), and while it is set the interrupt
+leaves Konami's sound driver, which reads the queue, for that frame and
+still sets the scroll.  The 128K's snapshot and tape are byte for byte
+as before.  The fixed build was played in JNEXT to near the end of stage
+4 without a flash, where the build before had shown two in stage 1.  1.0N
+has the same flash.
+
+**The walkers' gaps.**  The gaps inside the walkers' outline were
+see-through, and showed the scenery behind.  They are now opaque black
+(sprite colour 11, black in the walkers' two palettes).
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -1304,22 +1652,45 @@ part of the game that changed (0.107's dissolves).  The released files are
 compared byte for byte with the builds that were checked, and the source
 package is rebuilt from scratch to make sure it reproduces them.
 
-## Where it stands (1.0; the 128K's game as of 0.110)
+From 1.1 there is no run-time converter, so its checks (`check_tiles`,
+`test_convert`) are gone and three checkers remain.  The pictures are
+checked instead by the screen lockstep (`screen_lockstep.py`), which
+compares every tick's screens with the previous release's, byte for
+byte, over whole routes: every hidden target, a death in each stage, and
+game over.  The lockstep compares only the name table of video memory,
+the native build having no copies of the MSX's tables.
 
-* The test build matches the MSX original in Konami's RAM and video memory
-  with all weapons through the whole first loop and well into the second,
-  and through the whole route with every target touched; it has also been
-  run with deaths in the bonus stages and with hold-to-select.
-* The checkers have passed over the whole first loop and most of the second
-  (0.101), and around both dissolves (0.107).
-* The tape loads and runs on a real 128K and a real +3 (through a
-  SmartCard, a DivMMC Future and a Maxduino), and in emulators as a 128K,
-  +2A and +3.  The second fire button and hold-to-select work on real
-  hardware.
-* Konami's stack has 22 bytes of headroom at its deepest.
-* About 1,540 bytes of memory are free, most of it in the switched banks
-  (technical description, section 5).
-* Speed against the simulated 50 Hz MSX (technical description, section
-  6.8): 96% over the first two stages in light play, at about 16 screens a
-  second and an input lag of about 6 frames (the MSX's: 3.15); 86% over
-  the whole first loop with every weapon.
+The Next build has no simulator.  `verify.sh` only assembles it, and
+`release.sh` plays the `.nex` for a minute in ZEsarUX (`nx_smoke.py`).
+The tools in the linked clone's `local/tools/nexttest/` play it through
+in ZEsarUX: `fulltest.py` the whole game, on the bonus route or the plain
+one, checking the code and read-only pages at every stage; `nx_ftcmp.py`
+compares two runs at each stage start, boss and point of the ending;
+`hunt.py` and `replay.py` add a watch for a stray write and snapshots to
+replay from.  They compare memory, not the picture, so a wrong scroll
+split, palette or hardware sprite passes them, and the Next build is also
+played (1.1's flash was found that way).
+
+## Where it stands (1.1)
+
+* The 128K build has no MSX graphics.  Every graphics load is a load of
+  tiles and sprite patterns converted when the game is built, and
+  Konami's loaders are left out of the build.
+* Its Konami RAM matches the MSX original's on every tick, and its screens
+  match 1.0's byte for byte, over the route with every hidden target
+  (all twelve stages, the ending and into the second loop), over a death in
+  each of stages 1-8 (apart from the intended stage 3 Moai fix) and over
+  five game overs.
+* 1.1's tape (70,445 bytes) passes the simulated load.
+* Fixed memory has 2 KB free below AD00 (`platform_end` A500), and the
+  switched banks about 1.4 KB, in pieces of at most 384 bytes.
+* Speed: over the first two stages in light play, 24.57 ticks and 14.7
+  screens a second (1.0: 24.16 and 13.7).  Over stages 1-6 with every
+  weapon, never fewer than 6 screens in any second, where 1.0 had seconds
+  with none.
+* The Next build is on the same code, with its store of character rows
+  filled from data made when the game is built.  In ZEsarUX its builds
+  have played the bonus route and two whole loops of the plain route with
+  their code and read-only pages intact, the characters on show identical
+  to 1.0N's at every point compared.  1.0N's crash and one-frame flash
+  are fixed in it.

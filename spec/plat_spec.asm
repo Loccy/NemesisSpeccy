@@ -93,7 +93,11 @@ HOLD_TICKS equ 12               ; fire held this many ticks: power-up as well (f
 ; (shorter by the loaders it leaves out).
     org section_fixed_end
     include "native.asm"
+    ifndef NEXT
     include "native_tables.asm"
+    else
+    include "native_tables_next.asm"    ; (native_next.py)
+    endif
 native_end:
     assert native_end <= edge_pat
     org 0x7C58
@@ -161,6 +165,13 @@ bios_0056:                      ; FILVRM: BC bytes of A from HL
     push de                     ; no pattern or colour tables, and Konami fills
     push hl                     ; those only in the loads it no longer makes
     ld (.v+1),a                 ; (and the boot's clearing of the whole VRAM)
+    ifdef NEXT
+    push af                     ; the Next: the boot's clearing (from 0000)
+    ld a,h                      ; clears its store of character rows and its
+    or l                        ; sprite patterns too
+    call z,nx_clear
+    pop af
+    endif
     ex de,hl
     ld h,b
     ld l,c
@@ -207,6 +218,35 @@ bios_0056:                      ; FILVRM: BC bytes of A from HL
     pop hl
     pop af
     ret
+
+    ifdef NEXT
+nx_clear:                       ; A: pages C and D E800-FFFF, bank 7 F800-FFFF
+    push hl
+    push bc
+    ld c,a
+    ld a,PAGE_C
+    ld hl,0xE800
+    call .fill
+    ld a,PAGE_D
+    ld hl,0xE800
+    call .fill
+    ld a,PAGE_7
+    ld hl,0xF800
+    call .fill
+    call unborrow_page
+    pop bc
+    pop hl
+    ret
+.fill:
+    call out_page
+.f:
+    ld (hl),c
+    inc l
+    jr nz,.f
+    inc h
+    jr nz,.f
+    ret
+    endif
 
 bios_0059:                      ; LDIRMV: reached only from code the native
     ret                         ; build leaves unused (the loaders, the dissolve)
@@ -1604,9 +1644,13 @@ run_sound:
     push af
     ld a,PAGE_D
     call out_page
-    call m7_8063
     ifdef NEXT
+    ld a,(snd_busy)             ; Next: Konami's sound request under way (0:4A02-
+    or a                        ; 0:4A11, run without di): the driver, which reads
+    call z,m7_8063              ; its queue, waits a frame
     call nx_frame               ; Next: the shown screen's scroll, the clip window
+    else
+    call m7_8063
     endif
     pop af
     and 7
@@ -1683,6 +1727,19 @@ flip_pending: db 0
 nx_off:     db 0                ; Next: scroll offset (pixels right, 0-7), set per tick
 nx_pend:    db 0                ; Next: offset of the screen waiting to be shown
 nx_tog:     db 0                ; Next: 1 after a frame interrupt, 0 after a line one
+snd_busy:   db 0                ; Next: pide_sonido is putting a request in its queue
+snd_hold:                       ; (gen.py NEXT_PATCH, in place of its di and ei:
+    push af                     ; one of the two interrupts lost there left the
+    ld a,1                      ; play area unscrolled for a frame)
+    ld (snd_busy),a
+    pop af
+    ret
+snd_free:
+    push af
+    xor a
+    ld (snd_busy),a
+    pop af
+    ret
     endif
 flip_due:   db 0
 last_flip:  db 0
@@ -1786,6 +1843,9 @@ spr_vis:    ds 32               ; draw_sprites (0.109): the list's entries on sc
 
 ; ---- buffers (page aligned) -------------------------------------------------
     align 256
+    ifdef NEXT
+    ds (0x200 - $) & 0x3FF      ; the Next: name_shadow on a 1K boundary (nx_tur.asm)
+    endif
 STAR_CAP equ 38
 star_l:     ds 6*STAR_CAP       ; star cell lists (star_rebuild)
 star_n:     ds 6                ; cells in each list
@@ -1806,7 +1866,19 @@ bitmask:    db 1,2,4,8,16,32,64,128
     ds 8
 star_cells: ds 96               ; cells showing a star tile (F6/F7), one bit per cell
     assert (star_cells & 0xff) + 96 <= 256
+dz_on:      db 0                ; Konami's dissolve under way (its first chunk to the next stage
+    assert dz_on >= 0x8000      ; load: native.asm); above 8000, which the Next's renderer reads
+                                ; while 4000-7FFF hold the copies (nx_l2.asm lo_cmap, lo_cell)
     assert (dirty0 & 0xff) == 0 && dirty1 == dirty0 + 0x80 && (bitmask & 0xff) == 0
+    ifdef NEXT
+; The Next: characters Konami has written since the stage load (its native
+; loads, native.asm nx_chars), one bit per character (third * 256 + char):
+; the pool leaves them to the rows (nx_l2.asm lo_cmap).  lo_apply clears them.
+    align 256
+tile_cdirty: ds 128             ; colours (96 bytes used)
+tile_pdirty: ds 96              ; patterns (tile_cdirty + 0x80)
+    assert tile_pdirty == tile_cdirty + 0x80 && (tile_cdirty & 0xff) == 0
+    endif
 ; (in the gap before the next page-aligned buffer)
 ; The title's tune (0.102).  On the MSX the title is silent and, after about
 ; 11 seconds, the attract cycle plays Konami's tune A6 over its illustration.
@@ -2193,8 +2265,9 @@ page_d_end:
     ifdef NEXT
 
 ; Next: Konami's own instructions that call into nx_low.asm (0:46A1, 2:9251,
-; 0:4100, 0:414B, 0:5851) are reloc/gen.py's NEXT_PATCH entries, under
-; ifdef NEXT in konami_spec.asm.  (Page A at C000 when the snapshot is
+; 0:4100, 0:414B, 0:5851, 0:544F, 2:99A1, 2:99C3, 3:A19B) and the sound
+; request's di and ei (0:4A02, 0:4A11: snd_hold, snd_free) are
+; reloc/gen.py's NEXT_PATCH entries, under ifdef NEXT in konami_spec.asm.  (Page A at C000 when the snapshot is
 ; saved, as the .NEX's entry bank, as before.)
     slot 3
     page PAGE_A
@@ -2202,7 +2275,9 @@ page_d_end:
 
 ; The native build's graphics, packed (native_pack.py): in the room the MSX
 ; graphics, their copies and the colour fit left in pages A, B, C, D and E.
+    ifndef NEXT
     include "native_data.asm"
+    endif
 
     ifdef TEST
     savesna "nemesis_test.sna", plat_boot

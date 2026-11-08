@@ -639,6 +639,59 @@ star_attr:  ds 6                ; [third][F6/F7]: the attribute once lit (nl_loa
 .done:
     endm
 
+    ifdef NEXT
+; The Next: the star rows go into its copy of the pattern table (page D,
+; E800: F6 and F7 of each third, row 0), which lo_render compares with what it
+; last drew (nx_l2.asm).  The star stays mid-cell (10h): the hardware scroll
+; moves it, where on the MSX E062's rotating bit did, a pixel a tick.
+blink_native:
+    ld a,(0xE003+KRAM)
+    and 6
+    ld e,a
+    ld d,0
+    ld hl,blink_masks
+    add hl,de
+    ld c,(hl)
+    inc hl
+    ld b,(hl)
+    push bc
+    ld a,0x10
+    and c
+    ld e,a
+    ld a,0x10
+    and b
+    ld d,a
+    ld a,PAGE_D
+    call borrow_page
+    ld a,e
+    ld (0xE800+0x07B0),a
+    ld (0xE800+0x0FB0),a
+    ld (0xE800+0x17B0),a
+    ld a,d
+    ld (0xE800+0x07B8),a
+    ld (0xE800+0x0FB8),a
+    ld (0xE800+0x17B8),a
+    call unborrow_page
+    ld hl,tile_pdirty+0x1E      ; F6 and F7 written since the load (they have
+    ld a,0xC0                   ; no block in the pool anyway)
+    or (hl)
+    ld (hl),a
+    ld l,(tile_pdirty+0x3E)&0xff
+    ld a,0xC0
+    or (hl)
+    ld (hl),a
+    ld l,(tile_pdirty+0x5E)&0xff
+    ld a,0xC0
+    or (hl)
+    ld (hl),a
+    pop bc                      ; as the original leaves them
+    ld c,b
+    ld hl,0x37B9
+    ld (vdp_addr),hl
+    dec hl
+    ld de,0x0800
+    ret
+    else
 blink_native:
     ifdef DRAW_EVERY
     ifndef TEST                 ; (test builds keep the rows in step with the
@@ -695,6 +748,7 @@ blink_native:
     dec hl
     ld de,0x0800
     ret
+    endif
 
 ; A stage's load: the star tiles are blank again.
 bl_reset:

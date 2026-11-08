@@ -40,7 +40,7 @@ REGIONS = [('B', 0xC000, 0xF1D1),       # MSX banks 4 and 5's graphics and lists
            ('C', 0xE140, 0xE800),       # after page C's code (asserted below)
            ('D', 0xE680, 0xE800),       # after page D's code (asserted below)
            ('E', 0xF101, 0xF20F), ('E', 0xF9F2, 0xFB04), ('E', 0xFF7B, 0x10000)]   # free in page E
-WORK = ('D', 0xE800, 0x10000)           # patches are unpacked here (the copy of the MSX pattern table)
+WORK = ('D', 0xE800, 0xFC00)            # patches are unpacked here (the copy of the MSX pattern table), up to the pieces at FC00
 
 def zx0(b):
     with tempfile.TemporaryDirectory() as d:

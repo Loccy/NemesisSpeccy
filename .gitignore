@@ -16,6 +16,9 @@ spec/version.inc
 spec/native_data.asm
 spec/native_tables.asm
 spec/native/
+spec/native_next.dat
+spec/native_tables_next.asm
+spec/nxbuild_native.log
 spec/nemesis*.sna
 spec/nemesis*.tap
 spec/nemesis*.sym

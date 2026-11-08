@@ -13,11 +13,14 @@ The Z80 code of the cartridge is relocated to the Spectrum's memory by a
 generator (`reloc/gen.py`), and a platform layer (`spec/`) stands in for
 the hardware the code talks to: the memory mapper, the BIOS routines it calls,
 the video chip (TMS9918), the sound chip (AY-3-8910, the same family as the
-128K's) and the keyboard and joystick.
+128K's) and the keyboard and joystick.  Konami's graphics are converted to
+Spectrum tiles when the game is built, and each of Konami's graphics loads is
+replaced by a load of the converted set (6.6, 6.11).
 
 The game logic is Konami's, unchanged except where it meets the hardware.
 A test build matches the MSX original byte for byte in Konami's RAM, tick by
-tick (section 4).
+tick, and its screens match those of 1.0, which converted the graphics as it
+ran, apart from one intended difference (section 4).
 
 ## 2. Controls
 
@@ -37,17 +40,30 @@ own repeat shot while fire is held is unchanged.
 
 ## 3. Building
 
-The build has three stages, all driven by `build.py`:
+The build has four stages, all driven by `build.py`:
 
 1. **Relocation.**  `reloc/gen.py` reads the cartridge ROM and an annotated
    disassembly of it, and writes Konami's code back out as assembly source
    with every address symbolic, laid out for the Spectrum's memory
    (`konami_spec.asm`, plus `konami_spec_stubs.asm` for calls between
    memory banks).  Section 6.1 explains why and how.
-2. **Generated tables.**  `tables.py` writes the colour-matching tables and
-   the keyboard decoder (`tables.asm`); `gen_fullcmp.py` writes an unrolled
-   comparison routine (`fullcmp_gen.asm`, 6.4).
-3. **Assembly.**  sjasmplus assembles `plat_spec.asm`, the platform layer,
+2. **Generated tables.**  `tables.py` writes the sprite inks, the border
+   colours, the keyboard decoder and the unpacker's input buffer
+   (`tables.asm`); `gen_fullcmp.py` writes an unrolled comparison routine
+   (`fullcmp_gen.asm`, 6.4).
+3. **The graphics.**  `native_pack.py` makes the converted graphics of every
+   load event (6.6, 6.11): `native_sets.py` replays each of Konami's
+   graphics loads from the ROM in the MSX simulator (4.6) and converts every
+   character it writes with `tilemodel.py`; `native_pack.py` packs each
+   piece with ZX0 and places the pieces in the free room of the switched
+   banks (5), with a search (largest first, best fit, backtracking).  It
+   writes `native_data.asm`, `native_tables.asm` and the packed pieces in
+   `native/`.  `build.py` runs it (about 15 seconds) only when one of its
+   inputs (the scripts it uses, `native_moai.txt`, `msxsim.py`, the ROM) is
+   newer than what it last wrote.  These files are Konami's graphics,
+   converted, so like the relocated code they are generated and kept out of
+   the repository (`.gitignore`).
+4. **Assembly.**  sjasmplus assembles `plat_spec.asm`, the platform layer,
    which includes all of the above and the rest of the port's own code, into
    a 128K snapshot (`nemesis.sna`).  `build.py` then sets the snapshot's
    stack pointer to AEA0: sjasmplus leaves it at 6000, directly above
@@ -57,9 +73,11 @@ The build has three stages, all driven by `build.py`:
 
 `make_tap.py` then turns the snapshot into a tape (6.13).
 
-Requirements: Python 3, sjasmplus (1.21 used), SkoolKit (10.1 used; the
-simulator-based checks and the tape check), Pillow (screenshots), gcc (to
-build the ZX0 compressor).  The scripts find the tree from their own
+Requirements: Python 3, sjasmplus (1.21 used), SkoolKit (10.1 used: the
+MSX simulator, which the graphics conversion uses, runs on its Z80
+simulator, as do the simulator-based checks and the tape check), Pillow
+(imported by the colour fit's model, and for screenshots), gcc (to build
+the ZX0 compressor).  The scripts find the tree from their own
 location (`spec/`, `reloc/` and `msxsim/` side by side under one
 root); `NEM_ROOT` overrides it.  Inputs not in the package, relative to
 that root:
@@ -77,10 +95,10 @@ that root:
 * the ZX0 compressor (https://github.com/einar-saukas/ZX0), built with
   `gcc -O2 -o zx0 zx0.c optimize.c compress.c memory.c` in its `src`
   directory, on the PATH as `zx0` or named by the environment variable
-  `ZX0` (only `make_tap.py` needs it).
+  `ZX0` (`native_pack.py` and `make_tap.py` use it).
 
 ```
-python3 build.py              # nemesis.sna (+ .sym, .lst), the fast edition
+python3 build.py              # nemesis.sna (+ .sym, .lst), the release build
 python3 make_tap.py           # nemesis.tap from nemesis.sna
 sh release.sh 1.0             # the release, tape, snapshot and .nex, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
@@ -95,7 +113,6 @@ Build options (environment variables):
 | `NEM_FPT=n` | A tick takes at least n frames (default 1, as on the MSX; 2 before 0.99). |
 | `NEM_FLIP=n` | With one tick in N drawn: screens at least n frames apart (default 3). |
 | `NEM_EXTRA=n` | One undrawn tick after every n drawn (with `NEM_DRAW_EVERY` 0 or unset; default 4; 0 draws every tick). |
-| `NEM_INVERT=0` | Dense tiles stored as converted, not inverted (6.6). |
 | `NEM_PACE=palmix` | Experimental 2,2,2,2,1 frame pacing. |
 | `NEM_PACE=25` (`nxbuild.sh`) | The Next build at the earlier pacing, about 26.7 ticks a second instead of 30 (9.2). |
 | `NEM_TAP_RAW=1` | (make_tap.py) an uncompressed tape. |
@@ -147,18 +164,32 @@ What is compared after every tick:
   moved to AF00).  This is the whole game state: object positions, scores, the map
   buffer, timers, the sound driver's state.  Only the stack area is left
   out.
-* **The video memory the game wrote.**  The Spectrum has no TMS9918, so the
-  port keeps copies ("shadows") of the parts of the MSX's video memory the
-  game uses: the name table (which character is in each cell), the
-  pattern and colour tables (what each character looks like) and the sprite
-  patterns.  Each shadow is compared with the MSX's real video memory.
+* **The name table.**  The Spectrum has no TMS9918, so the port keeps a
+  copy ("shadow") of the name table (which character is in each cell),
+  `name_shadow`, which is compared with the MSX's real video memory.  The
+  port keeps no copies of the pattern, colour and sprite pattern tables:
+  its graphics come converted, with its own loads (6.11).  So the lockstep
+  compares the names only (it recognises such a build by its symbol
+  `nl_count`), and the graphics are checked against 1.0 by the screen
+  lockstep (4.7).
 
-One kind of difference is expected and allowed: a byte pair holding an
-*address*.  The port's code lives at different addresses, so a pointer the
-game stores in RAM (to a routine, a table, a script) legitimately differs.
+Two kinds of difference are expected and allowed.  The first is a byte
+pair holding an *address*.  The port's code lives at different addresses,
+so a pointer the game stores in RAM (to a routine, a table, a script)
+legitimately differs.
 The lockstep knows where everything moved (from the build's symbol
 table) and accepts a difference when the two values are the same address
-in each machine's layout.  Anything else is a mismatch.
+in each machine's layout.
+
+The other is scratch RAM of Konami's loaders.  The port's loads and its
+dissolve (6.6, 6.11) do not run Konami's loader code, whose scratch RAM
+(E101-E102, the mirroring buffers at E300-E3FF and E700-E7FF, the
+dissolve's chunk buffer EA00-EBFF) the game never reads before writing it
+again (shown by the census of the original's graphics writes, 6.11).  A
+byte there may differ from the MSX after a tick in which the port made a
+load or a dissolve chunk (`nl_count` changed), and the difference is
+allowed for as long as the MSX's value stays what it was then.  Anything
+else is a mismatch.
 
 ### 4.3 Making the two machines comparable
 
@@ -240,7 +271,8 @@ Neither machine is an off-the-shelf emulator; both run on SkoolKit's Z80
 simulator.
 
 **MSX: `msxsim`** (`msxsim/msxsim.py`), a minimal MSX1 written for this
-project, modelling only what Nemesis touches:
+project, modelling only what Nemesis touches.  The build uses it too, to
+run Konami's graphics loaders (6.6).
 
 * the Konami cartridge mapper (8 KB banks at 6000, 8000 and A000; bank 0
   fixed at 4000), with no SCC;
@@ -277,18 +309,47 @@ What neither covers, and so needs a full emulator or real hardware:
 ### 4.7 What the lockstep cannot see, and the checks for it
 
 The lockstep proves the game state is right.  It cannot prove the picture
-is: the drawing (turning the game's character map and sprites into Spectrum
-pixels and attributes) is the port's own code and has no MSX counterpart to
-compare with.  Those parts are checked against models instead, on the
-release build in the Spectrum simulator:
+is: the conversion of Konami's graphics and the drawing (turning the game's
+character map and sprites into Spectrum pixels and attributes) are the
+port's own and have no MSX counterpart to compare with.  They are checked
+in two ways: the whole picture against 1.0's, and the parts against models.
+
+**The screen lockstep** (`screen_lockstep.py`) runs two Spectrum test
+builds, a reference (`REF`, a snapshot with its `.sym` beside it) and a
+candidate (`CAND`, by default this tree's `nemesis_test.sna`), side by side
+with the MSX original, all three given the same input, tick by tick.  Each
+build's Konami RAM is compared with the MSX's as in 4.2, so both play
+exactly the original's game, and both Spectrum screens of the candidate
+(banks 5 and 7, pixels and attributes) are compared with the reference's
+at the end of every tick.  Both are built as test builds that draw every
+tick (`NEM_PIN_R=1 NEM_EXTRA=0`).  A tick whose differing cells all show
+the same colours (an ink with no pixels set, bright black) is counted apart
+and does not stop the run.  Options: `HYPER=1`, `TARGETS=1` (as in 4.4),
+`DEATHS=1` (the ship dies once in each stage, `DEATH_AT` ticks into it,
+default 900, and the life is given back), `GAMEOVER=1` (the lives are not
+given back, so the run goes through game over, the title and a new game),
+`ALLOW=file.py` (a function `allow(tick, msx_ram, ref, cand)` that skips
+the comparison at ticks where a difference is intended), `KEEP_GOING=1`
+(count the differences and go on) and `SHOTS=dir` (both screens and a map of
+the differing cells saved as PNGs).
+
+With 1.0's test build as the reference, the native build's screens are
+identical to 1.0's on every tick of: the route through every hidden target
+(`HYPER=1 TARGETS=1`, 40,000 ticks: stages 1-2-9-3-10-4-11-5-6-7-12-8, the
+ending, into the second loop), with the first three ticks of the dissolve
+allowed (6.6; `local/tools/native/allow_dissolve.py` in the linked clone);
+a death in each stage (`HYPER=1 DEATHS=1`, 50,000 ticks), apart from 88
+ticks in stage 3 after the restart, all of them the intended difference of
+6.6 (the Moai); and game over five times (`GAMEOVER=1 DEATH_AT=300`, 20,000
+ticks).  Konami's RAM matched the MSX's throughout.
+
+**The models**, on the release build in the Spectrum simulator:
 
 | Tool | Checks |
 |---|---|
 | `check_names.py 240` | Map tracking (6.4): after every tick the port's copy of the screen's character map equals Konami's map buffer, apart from regions still queued for comparison. |
-| `check_screen.py 120 0 2` | After the cells are drawn, every cell of the hidden screen equals its character in the converted tile set. |
+| `check_screen.py 120 0 2` | After the cells are drawn, every cell of the hidden screen equals its character in the tile set. |
 | `check_sprites.py 60 0 3` | After the sprites, the hidden screen equals the tiles plus Konami's sprites ORed in, with the sprite cells coloured by the rules of 6.7.  With `MISSILE=1` the ship has the missile and fires along the ground, for the missile's rule.  With `EDGE=1`, sprites crossing both edges (and just inside them) are added to Konami's list for each checked drawing, at every pixel position in turn, and taken out again. |
-| `check_tiles.py 60 0 15` | Every converted tile is a faithful two-colour version of its MSX pattern and colours (the power-up bar and the nuke capsule, which are designed by hand, excepted; the title logo is checked against `logo_tile`'s rule, and the stage colour rules of 6.6 against their model, `stage_rules.py`). |
-| `test_convert.py` | The tile converter against an independent Python model, on 1,381 real tiles. |
 | `test_keys.py` | Keyboard decoding against the key map. |
 | `test_kempston.py` | Kempston detection (both buttons), its decoding, and hold-to-select. |
 | `test_tape_trap.py` | The tape loaded as a DivMMC-type interface loads it from its card (LD-BYTES trapped at 0562). |
@@ -297,30 +358,29 @@ With `NEM_ALL=1` the checkers (and `emu.py`) play the whole game instead of
 the start of stage 1: the ship is invulnerable and, once play starts, the
 game's own HYPER cheat and a second option are called, as the lockstep's
 `HYPER=1` does.  `NEM_ALL=1 check_screen.py 3000 0 4` and the like then
-cover every stage and boss on the release build: 3,000 seconds is the whole
-first loop of eight stages, the end of the loop and the second loop to
-stage 4.  All five checkers pass over that run (0.89); for 0.90, `check_tiles`
-and `check_screen` pass over 2,450 seconds (the first loop and the start of
-the second).  With `NEM_TARGETS=1` as well, the ship is put on every hidden
-target, so the bonus stages are played: for 0.91 `check_tiles`,
-`check_screen`, `check_names` and `check_sprites` pass over 2,300 seconds of
-that (the whole route, bonus stages included, to the second loop's stage
-1), and `check_tiles` and `check_screen` over 2,300 seconds without it.
-`NEM_MORTAL_BONUS=1` lets the ship die once in each bonus stage; the four
-checkers pass over 1,500 seconds of that (a death in each).
+cover every stage and boss on the release build.  With `NEM_TARGETS=1` as
+well, the ship is put on every hidden target, so the bonus stages are
+played, and `NEM_MORTAL_BONUS=1` lets the ship die once in each bonus
+stage.  The renderer (`render.asm`) has not changed since 1.0, whose
+checkers passed over such runs of the whole first loop and more (the
+development notes have the figures); for 0.93 (sprites clipped at the
+edges) `check_sprites` passed over 1,500 seconds of such a run, every tick
+(2,382 sprites crossing an edge), and with `EDGE=1` over 240 seconds with
+all weapons (3,363 edge sprites), 60 with the missile and 30 of ordinary
+play.
 
-For 0.93 (sprites clipped at the edges) `check_sprites` passes over 1,500
-seconds of that every tick (2,382 sprites crossing an edge), and with
-`EDGE=1` over 240 seconds with all weapons (3,363 edge sprites), 60 with
-the missile and 30 of ordinary play.
+The build checks some of its own assumptions: `native_pack.py` stops if
+sprite patterns 0-39 are not the same after every stage's load, or if a
+star character does not convert to its own pixel row in one attribute for
+every position of the pixel (6.5).
 
 Two blind spots, both learnt from the red stars of 0.97-0.99 (development
 notes, 0.99a).  Code that exists only in release builds (the twinkle skipped
-on undrawn ticks, 6.5) is never run by the lockstep, which uses the test
-build.  And `check_tiles` checks each pixel against the tile's own ink and
-paper, not whether that ink and paper were the right choice, while
-`check_screen` compares the screen with the port's own tile set: a wrong
-colour choice passes both.  `check_route.py` counts the star tiles'
+on undrawn ticks with a fixed one-in-N scheme, 6.5) is never run by either
+lockstep, which use test builds.  And `check_screen` compares the screen
+with the port's own tile set, so a wrong tile in the set passes it; the
+screen lockstep catches that only by comparison with 1.0, so a tile 1.0
+also had wrong passes both.  `check_route.py` counts the star tiles'
 attributes by stage for that reason.  Also, when checking by screenshot:
 the screen on display can be a tick or two behind Konami's sprite list, so
 identify what is shown from the screen's own pixels.
@@ -332,24 +392,25 @@ screens.
 
 ### 4.8 Running the checks
 
-`./verify.sh` runs the checks of 4.7 and a 3,000-tick lockstep (about 40
-seconds on the machine it was developed on); run it after any change.  The converter test reads Konami's
-graphics as loaded into VRAM, which `gfxcap.py` captures from the ROM into
-`vram_states.pkl`; `verify.sh` makes the capture if it is missing, and it
-stays out of the repository.
+`./verify.sh` runs the model checks of 4.7 (`check_names`, `check_screen`,
+`check_sprites` with and without `MISSILE=1`, `test_keys`,
+`test_kempston`), builds the test build and runs a 3,000-tick lockstep
+(`LOCK_TICKS` for another length), and finally builds the Spectrum Next's
+`.nex` (`nxbuild.sh`, section 9), to show that it still assembles; run it
+after any change.  The screen lockstep is not part of it: it needs a
+reference build and long runs, so run it (the routes of 4.7) after any
+change that could alter what is drawn.
 
-How far a checker run gets: in the all-stages mode with every target
-touched (`NEM_ALL=1 NEM_TARGETS=1`), 600 seconds of play reaches stages 1-3
-and the bonus stages 9-10; the fast edition reaches stage 8 at about 1,480
-seconds and the second loop at 1,700, and 3,000 seconds takes it to the
-second loop's stage 7 (the smooth edition is about 14% behind).
-`check_route.py SECONDS OUT.json` times the route stage by stage, counts
-the star tiles' attributes by stage (which `check_tiles` does not judge: it
-checks the pixels against the tile's own ink and paper), and measures the
-stack's deepest use (a marker below Konami's stack, BF80-BFEF) and the IM2
-table's state.  Run the `HYPER=1` lockstep after changes
-that could affect later stages (the generator's tables, memory layout,
-paging).
+How far a checker run gets (1.0's figures): in the all-stages mode with
+every target touched (`NEM_ALL=1 NEM_TARGETS=1`), 600 seconds of play
+reached stages 1-3 and the bonus stages 9-10; the fast edition reached
+stage 8 at about 1,480 seconds and the second loop at 1,700, and 3,000
+seconds took it to the second loop's stage 7 (the smooth edition about 14%
+behind).  `check_route.py SECONDS OUT.json` times the route stage by stage,
+counts the star tiles' attributes by stage, and measures the stack's
+deepest use (a marker below Konami's stack, BF80-BFEF) and the IM2 table's
+state.  Run the `HYPER=1` lockstep after changes that could affect later
+stages (the generator's tables, memory layout, paging).
 
 Other tools:
 
@@ -363,6 +424,8 @@ Other tools:
   buffer, and report any writer the port's map tracking does not cover
   (6.4).
 * `bankreads.py`: which bytes of each MSX data bank the game reads.
+* `native_sets.py OUT.pkl`: every load event's converted set, saved, with
+  the size of each event's data packed.
 * `pacing.py`, `breakdown.py`, `fncost.py`, `sample_prof.py`, `callers.py`:
   timing and profiling in the Spectrum simulator.
 * `emu.py SECONDS [png_every] [prefix]`: run the build with scripted keys
@@ -387,96 +450,99 @@ rules that shaped the layout:
 * Konami's code is about 40 KB.  Bank 0 (the cartridge's always-present
   bank) goes in fixed memory; the rest goes in switched banks, grouped so
   that code which calls itself a lot shares a bank.
-* The port's drawing needs memory of its own: a converted copy of every
-  character the game uses, copies of the MSX video memory, and the second
-  screen.
+* The port's drawing needs memory of its own: the tile set (every
+  character, converted), the sprite patterns and the second screen.  The
+  converted graphics of every load, packed, need room in the switched banks
+  too.
 
 Fixed memory:
 
 ```
 4000-5AFF  screen 0 (bank 5)
-5B00-7B30  MSX bank 0 code, relocated
-7B40-7BFB  sprites crossing the left and right edges (spr_edge, edge_pat)
-7C00-7C58  data moved out of bank 0
-7C58-7C5D  far_dz_pat (the dissolve's far call)
-7C60-7FFF  rarely run code (contended memory): BIOS stand-ins, keyboard,
+5B00-760A  MSX bank 0 code, relocated (less the loaders the port leaves
+           out, 6.11)
+760B-7ADD  the graphics loads, their unpacker and the dissolve
+           (native.asm), and the table of the packed pieces
+           (native_tables.asm)
+7B40-7BF7  sprites crossing the left and right edges (spr_edge, edge_pat)
+7C00-7C57  data moved out of page A (MSX 1:7EE6, 88 bytes)
+7C60-7EA0  rarely run code (contended memory): BIOS stand-ins, keyboard,
            boot, the title text writer, Kempston, hold-to-select
-8000-ACFF  platform: paging, mapper emulation, VDP stand-ins, map tracking,
-           interrupt, main loop, pacing, tile conversion, renderer, bulk
-           VRAM writes, tables, far-call stubs, the
+8000-A4FF  platform: paging, mapper emulation, the name table and sprite
+           stand-ins, map tracking, interrupt, main loop, pacing, the tile
+           set's bookkeeping and the star twinkle, renderer, the unpacker's
+           input buffer (nl_buf, 9100-91FF), tables, far-call stubs, the
            ship's patterns, buffers (name_shadow, dirty bitmaps, region
            lists, star lists, DRAWN)
 AD00-AE00  IM2 vector table; AEAE jp isr; stack below AEA0
-AEB4-AEF3  dc_buf (bulk VRAM writes)
 AF00-BFFF  Konami's RAM (MSX E000-F0FF, displaced by -0x3100)
 ```
 
 Banks switched in at C000 (the port's names for them in brackets):
 
 ```
-A  bank 0  MSX banks 1 and 2 (game code)
-B  bank 3  MSX bank 4 (graphics source) C000-DFFF and bank 5's used part
-           (8000-98B8) E000-F8B8; the colour fitter F900-FD03; conversion
-           cache FE00-FFFF
-C  bank 4  MSX bank 3 (game code) C000-E061; the title's full stop and
-           text E062-E0EE; the stage colour rules, the dissolve's colour
-           chunks and logo_tile E0EF-E75C; the adaptive pacing (pace_adapt,
-           0.110) E75D-E79D; copy of the MSX colour table E800-FFFF
+A  bank 0  MSX banks 1 and 2 (game code) C000-FEDD
+B  bank 3  packed graphics C000-F10A and F2E3-FF38; MSX bank 5's object
+           shapes (91D1-92E2) F1D1-F2E2
+C  bank 4  MSX bank 3 (game code) C000-E061; the title's text E062-E0C6;
+           the adaptive pacing (pace_adapt, 0.110) E0C7-E107; packed
+           graphics E140-FF2B
 D  bank 6  MSX banks 7 and 8 (sound driver and tunes, E000-E3DC); the
-           full map comparison E400-E7FF; copy of the MSX pattern table
-           E800-FFFF
+           full map comparison E400-E64D; the work area a patch is
+           unpacked into (6.11) E800-FBFF; packed graphics FC00-FFF3
 E  bank 1  MSX bank 11 C000-DFFF; bank 12 A000-A2A7 (the scripts of stages
-           1-8) E000-E2A7; bank 9's used part (9B3F-9FFF) E2A8-E768 and
-           bank 10's (A000-AF28 less A758-AAA5) E769-F691, contiguous;
-           code moved from bank 2 (8290-839E, the boss pieces) FB04-FC12;
-           and in the gaps, bank 12's parts for the bonus stages: the
-           scripts of stages 9 and 11 EEC1-F100 (where bank 10's
-           A758-AAA5 would be), of stages 12 and 10 F692-F9F1, and the
-           bonus stages' ending table and records (B2E4-B64B) FC13-FF7A
-7  bank 7  screen 1 C000-DAFF; the converted tile set DB00-F5FF; star_check,
-           spr_pmap, spr_colour, tile_post, stage_seen, attrs_keep F600-F7CE;
-           sprite patterns F800-FFFF
+           1-8) E000-E2A7; at one displacement, bank 9's title panels
+           (9B3F-9C56) E2A8-E3BF and bank 10's A000-A0DA E769-E843 and
+           AAA6-AF28 F20F-F691; code moved from bank 2 (8290-839E, the
+           boss pieces) FB04-FC12; bank 12's parts for the bonus stages:
+           the scripts of stages 9 and 11 EEC1-F100, of stages 12 and 10
+           F692-F9F1, and the bonus stages' ending table and records
+           (B2E4-B64B) FC13-FF7A; packed graphics in the gaps (E3C0-E644,
+           E844-EEBB, F101-F201, F9F2-FAF1, FF7B-FF90)
+7  bank 7  screen 1 C000-DAFF; the tile set DB00-F5FF; star_check,
+           spr_pmap, spr_colour, attrs_keep F600-F768; sprite patterns
+           F800-FFFF
 ```
 
-Banks 5, 9, 10 and 12 are only partly carried: only what the game reads
-now the attract cycle is gone (measured with `bankreads.py` over whole
-games, and for the bonus stages with every target touched), and every range
-left out identified.  Bank 5's 98B9-9BE3 is loaded only when the game finds
-Konami's TwinBee cartridge (RC-740) in another slot, which it cannot here
-(the slot read stand-in answers FF); 9BE4-9FFF is padding.  Bank 10's
-A758-AAA5 is the high-score table screen of the attract cycle.  Bank 12
-past B64B is padding.  Banks 6 and 13-15 are empty (all FF) and never read.
+The packed graphics are 28 pieces, 27,215 bytes in all (6.11), in the room
+that the MSX's graphics, the copies of its video memory and 1.0's colour
+fit left.  `native_pack.py` places them (3), so their addresses above are
+those of the current build and move when a piece changes;
+`native_data.asm` asserts that the pieces of each region end within it,
+and that the code before them in pages C and D ends by E140 and E680.
 
-Free space (0.110), about 1,540 bytes in all:
+Only what the game reads is carried from the data banks, and every range
+left out is identified.  Konami's graphics reach the game converted, in
+the packed pieces, so bank 4 is not carried at all, bank 5 only for its
+object shapes, bank 9 only for the name-table data of the title's two
+panels, and bank 10 without the ending's graphics (A0DB-A757) and the
+high-score table screen of the attract cycle (A758-AAA5).  Bank 12 is
+carried to A2A7, and its parts for the bonus stages are placed separately
+(6.1); past B64B it is padding.  Banks 6 and 13-15 are empty (all FF) and
+never read.
+
+Free space in the current build, about 4,900 bytes in all:
 
 | Where | Bytes | |
 |---|---|---|
-| Fixed 8000-ACFF | 63 | padding before page-aligned tables and buffers: 96D5-96FF (43, after `dz_flag`, before `tables.asm`), A173-A17F (13, before `ship_pat`'s 32-byte alignment), AAFD-AAFF (3, after the two 3-instruction ways into bank C), A2FE-A2FF (2), A8FE-A8FF (2, after `conv_dz`) |
-| Low fixed area | 38 | 7B31-7B3F (15), 7FF3-7FFF (13), 7BF8-7BFF (8, after `spr_edge`), 7C5E-7C5F (2) |
+| Fixed 8000-ACFF | 2,323 | A500-ACFF (2,048, after the buffers), 9051-90FF (175, before `nl_buf`'s alignment), A2D2-A2FF (46, before `DRAWN`), 9AE0-9AFF (32, after `spr_vis`), 9A4C-9A5F (20, before `ship_pat`'s 32-byte alignment), 9BFE-9BFF (2) |
+| Fixed AD00-AEFF | 93 | AEA0-AEAD (14), AEB1-AEFF (79) |
+| Low fixed area | 465 | 7EA1-7FFF (351), 7ADE-7B3F (98), 7BF8-7BFF (8, after `spr_edge`), 7C58-7C5F (8) |
 | Bank 0 (page A) | 290 | FEDE-FFFF (it holds sjasmplus's default UDGs at FF58, which nothing uses) |
-| Bank 1 (page E) | 677 | F101-F20E (270), F9F2-FB03 (274), FF7B-FFFF (133) |
-| Bank 3 (page B) | 130 | F8B9-F8FF (71), FDC5-FDFF (59) |
-| Bank 4 (page C) | 98 | E79E-E7FF |
-| Bank 6 (page D) | 232 | E718-E7FF |
-| Bank 7 (page 7) | 0 | `dz_flag7` fills it to F7FF |
+| Bank 1 (page E) | 439 | E645-E768 (292), FF91-FFFF (111), FAF2-FB03 (18), F202-F20E (13), EEBC-EEC0 (5) |
+| Bank 3 (page B) | 397 | FF39-FFFF (199), F10B-F1D0 (198) |
+| Bank 4 (page C) | 274 | FF2C-FFFF (212), E108-E13F (56), E7FA-E7FF (6) |
+| Bank 6 (page D) | 446 | E64E-E7FF (434), FFF4-FFFF (12) |
+| Bank 7 (page 7) | 184 | F769-F7FF (151), F65F-F67F (33, before `spr_pmap`'s 128-byte alignment) |
 
-Bank 3's padding (MSX 3:BE66-BFF4, 399 bytes, carried in bank C) could be
-dropped too, a generator change.  Fixed memory is where space is tight: what
-it has is in pieces between aligned tables, so new code there has to be
-placed by address around them (the 43 bytes before `tables.asm` are now
-the largest piece).  The 0.94 count (505 bytes in fixed memory) had gone stale: 0.95 to
-0.99 used 94 of the bytes before `tables.asm`, and 0.100 took 191 (the
-ship's selector and patterns, with 13 bytes lost to their alignment, and
-the title's full stop); 0.102 took 87 more (the title's tune), and 0.107
-94 (the dissolve: `conv_dz`, `far_dz_pat`, `dz_flag` and the hooks in
-`ensure_tile`, `tick_tiles` and the decompressor), with about 770 more in
-banks B, C, D and 7.  0.109 moved the title's full stop (46 bytes) to bank C
-and `far_dz_pat` to the low area, and spent the room on the scroll and sprite
-changes and `spr_vis` (the 32 bytes at A1E0).  0.110's adaptive pacing is
-in bank C (65 bytes) with a 6-byte stub in fixed memory; the fast edition's
-counter, no longer assembled, gave back 3 bytes more than that cost.  Anything that need not be fast
-goes into a switched bank with a call from fixed code, or takes over an
-existing instruction.
+The room the packed pieces can use (`native_pack.py`'s regions) is about
+1,450 bytes of that, in pieces of at most 384 bytes.  Bank 3's padding (MSX
+3:BE66-BFF4, 399 bytes, carried in bank C) could be dropped too, a
+generator change.  Fixed memory is no longer tight: the port's loads took
+Konami's loaders and the run-time conversion out of it, and left 2 KB free
+below the IM2 table.  Anything that need not be fast still goes into a
+switched bank with a call from fixed code, or takes over an existing
+instruction.
 
 ## 6. How it works
 
@@ -504,9 +570,11 @@ So the port has two halves.  The first is Konami's code, moved to fit the
 Spectrum's memory (6.1, 6.2).  The second is the platform layer, which
 answers everything the code asks of the MSX hardware (6.3 onwards).  Most of
 the platform is the picture: the port must do the TMS9918's job in
-software, converting the game's character map and sprites into Spectrum
-pixels and colours, and doing it fast enough.  That is where nearly all the
-design effort and running time goes (6.4-6.8).
+software, drawing the game's character map and sprites as Spectrum pixels
+and colours, and doing it fast enough.  That is where nearly all the
+design effort and running time goes (6.4-6.8).  The characters themselves
+are converted to Spectrum tiles when the game is built, and Konami's
+graphics loads are replaced by loads of the converted sets (6.6, 6.11).
 
 ### 6.1 Relocation (`reloc/gen.py`)
 
@@ -551,20 +619,20 @@ ever reached through their own pointers (the bonus stages' scripts, one per
 stage) are placed separately (`DATA_PIECES`, with `DATA_SKIP` for ranges
 left out and `DATA_ALIAS` for an operand that is a table's base declared
 before the table).  A pointer just past a piece's end (where a script
-pointer rests after its last row) maps to that end.  Two traps only the
-bonus stages reach: stage 12 reads the per-stage graphics table (5:92E3)
-one word past its twelve entries, into the next table, so that word must be
-relocated as stage 12's graphics list; and one entry of the bank-5 pointer
-table `graficos_por_fase` is 0:42FB, an empty stream in bank 0, which must
-be relocated as a bank 0 address (left as a number, it pointed into the
-Spectrum's screen).  Konami's RAM moves from E000 to AF00.
+pointer rests after its last row) maps to that end.  (1.0 also had to
+relocate two of Konami's graphics tables with care, `graficos_por_fase` and
+the per-stage table at 5:92E3; the port no longer carries either, 6.11.)
+Konami's RAM moves from E000 to AF00.
 
 The other tables in `gen.py` are changes to the code itself: `SPEC_PATCH`
-(the hardware boundary: video writes, the map upload, the decompressor, the
-star twinkle, the sprite uploads, the front end), `NM_SITES` (map writers
-that report what they wrote, 6.4), `ITEM_PATCH`, `ITEM_MOVES`, `CLONES`,
-`DATA_MOVES` (single items replaced or moved), and `LD_A_R` (the randomness
-sites pinned in the test build, 4.3).
+(the hardware boundary: video writes, the map upload, the graphics loads,
+the dissolve's chunks, the star twinkle, the sprite uploads, the front
+end), `LEAVE_OUT` (items not carried at all: Konami's graphics loaders,
+their decompressor and block routines, and their data, 6.11), `NM_SITES`
+(map writers that report what they wrote, 6.4), `ITEM_PATCH`,
+`ITEM_MOVES`, `CLONES`, `DATA_MOVES` (single items replaced or moved),
+`LD_A_R` (the randomness sites pinned in the test build, 4.3), and
+`NEXT_PATCH` and `NEXT_KEEP` (the Next build's hooks, section 9).
 
 ### 6.2 Paging and the MSX mapper
 
@@ -580,8 +648,8 @@ them to A000.
 Most of these switches need no action at all, because the code has already
 been placed where it will run and the far stubs bring in the right bank.
 What remains is data: when fixed code reads data through a window (tunes,
-map pieces, graphics sources, the title graphics), `map_update` switches in
-the Spectrum bank holding that data.  For bank 10 (the boss pieces' tables,
+map pieces, the objects' shapes, the title's panels), `map_update` switches
+in the Spectrum bank holding that data.  For bank 10 (the boss pieces' tables,
 in page E with the code that reads them) it does so only when the write
 comes from fixed code (the end-of-loop explosion, 0:4AFF); from paged code
 (the stage 5 boss, 1:7FA9) the page already in stays.  `set_page` writes
@@ -590,7 +658,7 @@ port 7FFD, keeping the bit that chooses the displayed screen.
 Every write to port 7FFD goes through `out_page`, which first notes the
 value in `port_now`.  The interrupt pages in the sound driver and then puts
 back exactly that value, so code that borrows a bank for a moment (to
-update a copy of the video memory, say) does not need to turn interrupts
+write a star's row into the tile set, say) does not need to turn interrupts
 off.  That matters more on the Spectrum than on the MSX: the MSX's video
 chip holds its interrupt request until the game acknowledges it, so
 Konami's code turns interrupts off freely (around every bank switch, for
@@ -672,42 +740,62 @@ Most of the cells that change on a scroll are stars.  Stars are characters
 F6 and F7, and Konami's star "twinkle" (`parpadea_dos_caracteres`) is
 really motion: between scroll steps the top row of those characters is
 rewritten so that each star's single pixel steps across its cell.  The port
-does this natively (`blink_native`).  Rather than redraw every star cell as a
-changed character, the port treats stars as a separate layer: `star_check`
-confirms that the star characters differ from the empty character only in
-their top row and colour, those changes are kept out of the dirty bitmaps,
-and `draw_stars` erases the stars each screen showed (its drawn lists) and
-draws the current ones from lists of star cells.  With one tick in two
-drawn, `blink_native` runs only for a tick that will be drawn (except in test
-builds, whose pattern copy the lockstep compares every tick).
+does this natively (`blink_native`, in place of Konami's routine at
+0:475B): it works out the tick's row for F6 and for F7 as Konami does
+(E062's rotating bit, blanked on some ticks by a mask chosen by E003) and
+writes it straight into row 0 of F6 and F7 in each third of the tile set
+(6.6), skipping a tile whose row has not changed (the last rows set are
+kept in `bl_prev`, cleared by each stage load).
+
+A star tile is blank when a stage loads (attribute 0).  The first time it
+shows a pixel it takes its stage's attribute (`star_attr`, six bytes, one
+for each of F6 and F7 in each third, which come with the stage's set) and
+its cells are redrawn as a changed tile, as 1.0's conversion did.  The
+attributes are worked out when the game is built, by the same conversion as
+every other tile, and `native_pack.py` checks that a star converts to its
+own row in that one attribute for every position of its pixel.  After that
+only the star's row changes.
+
+Rather than redraw every star cell as a changed character, the port treats
+stars as a separate layer: `star_check` confirms that the star characters
+differ from the empty character only in their top row and colour, the
+rows' changes are kept out of the dirty bitmaps (`star_rows`,
+`star_bytes`), and `draw_stars` erases the stars each screen showed (its
+drawn lists) and draws the current ones from lists of star cells.  With a
+fixed scheme of one tick in N drawn (`NEM_DRAW_EVERY`, 6.8),
+`blink_native` runs only for a tick that will be drawn, except in test
+builds, which run it every tick.
 
 ### 6.6 Tiles and colour
 
 The game changes character shapes and colours as it goes (each stage loads
-its own, and some animate), by writing to the video chip's pattern and
-colour tables.  The port keeps copies of both (in banks D and C).  It cannot
-draw from them directly: an MSX character has two colours per row, eight
-rows, while a Spectrum cell has one ink and one paper for all eight.  So
-every character is *converted* into a Spectrum tile (8 bytes of pixels and
-an attribute) before it can be drawn, and kept in a converted tile set in
-bank 7 (one set per screen third, as on the MSX).
+its own, and the stars move, 6.5), by writing to the video chip's pattern
+and colour tables.  An MSX character has two colours per row, eight rows,
+while a Spectrum cell has one ink and one paper for all eight.  So every
+character is *converted* into a Spectrum tile (8 bytes of pixels and an
+attribute) before it can be drawn.  The tiles are kept in a tile set in
+bank 7 (DB00-F5FF): one set per screen third, as on the MSX, each nine
+pages of 256 bytes (the eight pixel rows and the attributes), indexed by
+the character.
 
-Converting is slow (tens of thousands of T-states per character), so it is
-done lazily: a changed character is flagged and converted the first time a
-cell needs it (`ensure_tile`).  The conversion (`convert_tile`, bank B)
-tries the Spectrum ink, paper and brightness combinations and keeps the one
-with the least colour error, then maps each pixel to the nearer colour.  A
-character takes about 32,000 T-states on average and up to about 94,000
-(0.106; the development notes have the profile).  A 16-entry cache in bank
-B catches characters that switch back and forth.
-When only a character's pixels change, `recolour_tile` keeps its ink and
-paper (read from the converted set) and just maps the new pixels; a
-character whose ink and paper are the same (it was blank when converted)
-gets a full conversion instead.  In practice only the star characters take
-this path (6.5; the 0.99a fix in the development notes).
+The conversion is done when the game is built (3).  `native_sets.py` runs
+each of Konami's graphics loads (6.11) from the cartridge ROM in the MSX
+simulator and converts every character the load writes with
+`tilemodel.convert`, a function of the character's pattern and colours, the
+third, and Konami's state and stage.  It applies the rules 1.0 applied at
+run time (1.0 converted a character the first time a cell needed it, with
+a cache), so the screens are 1.0's (4.7).  Nothing is converted when the
+game runs, and the port keeps no copies of the MSX's pattern and colour
+tables.  In order:
 
-After conversion (`tile_post`, bank 7):
-
+* the colour fit (`fit_model.heur_q`, the model of 1.0's `convert_tile`):
+  of the Spectrum ink, paper and brightness combinations made from the
+  colours nearest those in the character, the one with the least colour
+  error, each pixel then going to the nearer of the two;
+* the power-up bar's design (below);
+* on the title, the logo's own drawing (below), which ends the conversion
+  of those characters;
+* the stage colour rules (below);
 * a tile with more than half its pixels set is stored inverted (pixels
   flipped, ink and paper swapped).  It looks the same, but its solid part is
   now paper, and a sprite passing over (which changes only the ink, 6.7)
@@ -715,34 +803,34 @@ After conversion (`tile_post`, bank 7):
   ground into the sprite's colour;
 * the nuke capsule's characters (77-7A) are given bright cyan.  On the MSX
   both capsules are a white frame round a coloured core, which one colour
-  per cell would make identical; the standard capsule (7B-7E) stays white;
-* on the title (Konami's state 0 or 1), the NEMESIS logo's characters
-  (8D-FF in thirds 0 and 1) are drawn by `logo_tile` (bank C) instead.  On the MSX
-  each pixel line of the logo is one colour (white and grey for the frame
-  and top band, then cyan, light blue and dark blue stripes), which the
-  colour fit turned into a patchwork.  A cell with any cyan or light blue
-  line is bright cyan and the rest bright white; light blue lines, and dark
-  blue ones in a cyan cell, become a 50% stipple.  The letters' dark blue
-  base shares its cells with the frame's bottom edge, so both are white.
-  These characters get new patterns when the stage loads, so the game
-  converts them normally again.
+  per cell would make identical; the standard capsule (7B-7E) stays white.
+
+On the title (Konami's state 0 or 1), the NEMESIS logo's characters (8D-FF
+in thirds 0 and 1) are drawn by `logo_tile` instead.  On the MSX each pixel
+line of the logo is one colour (white and grey for the frame and top band,
+then cyan, light blue and dark blue stripes), which the colour fit turned
+into a patchwork.  A cell with any cyan or light blue line is bright cyan
+and the rest bright white; light blue lines, and dark blue ones in a cyan
+cell, become a 50% stipple.  The letters' dark blue base shares its cells
+with the frame's bottom edge, so both are white.  A stage's load replaces
+these characters.  The title has one set, whatever stage a game ended in:
+1.0 converted a few of its characters differently after a game over in
+stages 2, 3, 7 and 8, none of them shown on the title.
 
 The power-up bar (third 2, characters 15-42 and 0C) is drawn to its own
-design instead of converted (`barstyle.asm`): white letters on blue, the lit
-box yellow on black.
+design (`bar_style`): white letters on blue, the lit box yellow on black.
 
 In five stages, characters the colour fit drew badly are given hand-set
-colours (`rules.asm`, bank C, reached from `tile_post` through
-`stage_rules`).  A rule recognises its characters by the MSX colours in
-them (for the stage 2 bricks and the stage 8 ladder, the character number
-too) and either paints the tile afresh from its MSX pixels or changes the
-colours the fit chose:
+colours (`stage_rules.py`, the model of 1.0's rules).  A rule recognises
+its characters by the MSX colours in them (for the stage 2 bricks and the
+stage 8 ladder, the character number too) and either paints the tile afresh
+from its MSX pixels or changes the colours the fit chose:
 
 | Stage | Characters | Drawn as |
 |---|---|---|
 | 2, and the bonus stages 9-12 (the same characters) | The bricks (45-4B, only black, blues, grey, white) | Grey and white pixels solid, blue ones a 50% stipple; the left half of a 2x1 brick and of a flat bar, and the first and last thirds of a 3x1 brick, cyan, the rest bright white (the 3x1 brick's last third: the stipple only) |
 | 10 (bonus) | Only the yellows, 8 or more pixels (the balls) | Yellow (not bright) on black, as the MSX's dark yellow |
-| 3 | In the Moai section (to distance 0x195), a character whose main colour is a blue (the faces) or light red (the rocks) | The fit's white or grey becomes cyan, or magenta |
+| 3 | In the Moai section (the characters in `native_moai.txt`, below), a character whose main colour is a blue (the faces) or light red (the rocks) | The fit's white or grey becomes cyan, or magenta |
 | 6 | Only the reds (the brain) | White or grey becomes magenta, and the cell is bright |
 | 7 | The formations (blues, cyan and greens) | Bright green dots (greens and cyan) on bright blue; a mostly black edge bright blue on black |
 | 7 | The band (dark blue with grey or white, nothing else but black, light blue, cyan) | White (cyan, grey, white, and black pixels just above or below a coloured one) on blue; mostly black cells white on black |
@@ -750,40 +838,51 @@ colours the fit chose:
 | 8 | The brain (black, dark red, light red, the yellows) | Where the fit chose red or yellow: white becomes magenta, yellow red, and the cell is bright |
 
 The power-up bar and the score (third 2, characters below 44) are never
-touched.  A rule's result depends on the stage, but a character keeps its
-conversion until its pattern or colours change, and a new stage often loads
-the same characters again unchanged; so when Konami's stage number changes
-(`stage_seen`, run with every full map comparison) every tile is flagged
-for a full conversion and every cell redrawn.  `stage_rules.py` is the
-rules' model, which `check_tiles` checks the converted tiles against.
+touched.  The bonus stages keep stage 2's bricks rule, and stage 10 its
+balls.
+
+The Moai rule is the one place where the port's screens differ from 1.0's,
+on purpose.  1.0 applied it to a character first drawn before distance
+195h, the end of the Moai section.  Some characters appear both there and
+later in the stage, so after a restart from a checkpoint past their Moai
+appearance 1.0 drew them in the fit's white.  The port decides per
+character: `native_moai.txt` lists the 561 characters 1.0 shows in the Moai
+section (from a census of every pass through the stage), and those get the
+rule, so they always have the Moai colours, as in an uninterrupted pass.
+The Big Core's characters, which come later, never get it.
 
 Konami's screen dissolve (MSX 3:A6C0, after the stage 8 brain and, when
 stage 7's secret is not found, the stage 7 boss) ends a stage by eating the
 screen: once through the colour table turning every background black, then
 eight times through the pattern table taking one more bit of each byte
-away, about 35 ticks.  Each tick changes about 190 characters, more than
-the list of changed tiles holds, which the port treats as a load: every
-changed character fully converted and the whole screen redrawn, at 1 to 2
-ticks a second (18 seconds for the brain, 43 for the stage 7 boss, against
-about 3.4 on the simulated MSX).  Since 0.107:
-* each chunk is done natively (`dz_chunk`, page C, and `dz_pat`, page D,
-  in place of come_un_trozo at 3:A765): the shadow is masked in place,
-  EA00 is left as Konami leaves it, and each changed tile's dirty bit is
-  set, its attribute flagged once at the end of the tick (`dz_flag7`);
-* from the dissolve's first tick (`dz_mark`, at 3:A6C0) to the next
-  graphics load or stage change (`dz_on`), a tile whose MSX rows all have
-  a black background is redrawn by `dz_tile` (page B) instead of the
-  colour fit: its foreground keeps the colour that showed it (the old ink,
-  or the paper of a tile stored inverted), as ink on black, each row's
-  pixels going to the ink if its colour is strictly nearer it, as in
-  `cv_pixels`.  The stage colour rules leave these tiles alone (a hand-set
-  stipple, for instance, goes solid as it fades), and `check_tiles`
-  accepts them on their own ink and paper.
+away, about 35 ticks.  Konami works in chunks (`come_un_trozo`, 3:A765) of
+64 characters, 60 from 44 (sparing the score and the bar) and 54 from C0
+(sparing F6-FF).  The port does each chunk on the tile set instead
+(`dz_chunk`, fixed memory, in place of 3:A765):
 
-The dissolve now takes about 6 seconds after the brain and 7.5 after the
-stage 7 boss on the fast edition (7 and 8.5 on the smooth), still about
-twice the MSX: every changed tile on screen is redrawn and the whole screen
-drawn on each drawn tick.
+* the colour pass (`dz_col`) gives every tile black paper, brightness kept.
+  A tile stored inverted goes back to ink on paper first, its old paper
+  becoming the ink; which tiles of stages 7 and 8 are stored inverted is
+  known when the game is built (`nl_inv7`, `nl_inv8`);
+* after the colour pass's last chunk (Konami does the whole pass in one
+  tick, third 0's C0-F5 last), a patch for the stage (7 or 8) puts in 1.0's
+  tile wherever that rule is not what 1.0 shows.  1.0 redrew a dissolving
+  tile (`dz_tile`) with the colour that had shown its foreground as the
+  ink on black, keeping the MSX's foreground pixels whose colour is
+  strictly nearer that ink than black; `tilemodel.dz_post` models it, and
+  `native_sets.dz_patch` keeps the tiles where it differs from the simple
+  rule;
+* each pattern pass ANDs the tile's rows with Konami's mask for the pass
+  (E1A2, turned three bits a row after the first pass, as E1A0 says).  With
+  the colour pass's tiles exact, this is what 1.0 shows, since 1.0's pixels
+  were the MSX's pattern, masked row by row.
+
+Each chunk has every cell redrawn at the end of the tick, as a load does
+(6.11).  Konami's chunk buffer (EA00-EBFF) is not written: nothing reads it
+after the dissolve (4.2).  The screens match 1.0's through the dissolve
+except its first three ticks, where 1.0 converted the changed tiles a few a
+tick and so caught up with the colour pass over several screens, while the
+port shows it at once.
 
 ### 6.7 Renderer and sprites
 
@@ -830,10 +929,11 @@ ship's white outline (the canopy's top edge white, the line beneath it);
 on the climbing frame, the light blue belly becomes a checkerboard stipple
 under the solid white top.  (0.100-0.104 used redrawn designs with seams and
 an outlined canopy; in motion, frames that differed much from one another
-looked like a different ship at each change of direction.)  Konami's patterns stay in the copy of the video memory as the MSX
-has them, so the lockstep is unaffected.  Patterns 0-23 are the ship's
-alone: the same in the video memory after every stage's loader (12 stages,
-`vram_states.pkl`), and over 900 seconds of play with the ship climbing
+looked like a different ship at each change of direction.)  Konami's
+patterns stay in the sprite pattern table (bank 7, F800) as the MSX has
+them.  Patterns 0-23 are the ship's alone: patterns 0-39 are the same after
+every stage's load (`native_pack.py` checks it, and stores them once), and
+over 900 seconds of play with the ship climbing
 and diving (stages 1-5 and the bonus stages 9-11) no other sprite used
 them.  `check_sprites.py` draws the ship by the same rule.
 
@@ -914,9 +1014,10 @@ An undrawn tick's changes are simply caught up by the next drawing, and the
 game itself is unchanged (the lockstep still matches).  `release.sh
 VERSION` builds the release into `release/`.
 
-Measured against the MSX original, simulated at 50 Hz with the same front
-end and the same scripted play (invulnerable, fire tapped; its BIOS calls,
-stubs in the simulator, charged an estimate of the real BIOS's time;
+Measured for 1.0 (whose 128K game is 0.110's) against the MSX original,
+simulated at 50 Hz with the same front end and the same scripted play
+(invulnerable, fire tapped; its BIOS calls, stubs in the simulator,
+charged an estimate of the real BIOS's time;
 `local/tools/measure/msx50.py` and `specrun.py` in the linked clone), over
 the first two stages (percentages: the MSX's time over the build's, so
 speed against the MSX):
@@ -956,13 +1057,35 @@ end of the last active line (TI, VDP Programmer's Guide, p. 5-5), so with
 after it.  (Versions up to 0.94a quoted
 24.3 ticks a second, from 90 seconds that were mostly the quiet opening of
 stage 1: 0.94a measures 19.8 over the stage.)  In busy play the CPU is
-never idle.  A tick costs about 189,000 T-states against a budget of
-141,816 for 25 a second: Konami's own code, sound included, takes about
-76,000 (40%), the drawing about 38% (more than half of it the sprites),
-and the map tracking, paging and video stand-ins most of the rest.  The MSX
-gets its sprites and scrolling from the video chip.  Drawing one tick in
-three reached 23.1 ticks a second under the old limits, but at 7.7 screens
-a second.
+never idle.  In an earlier measurement, before the native build, a tick
+cost about 189,000 T-states
+against a budget of 141,816 for 25 a second: Konami's own code, sound
+included, took about 76,000 (40%), the drawing about 38% (more than half of
+it the sprites), and the map tracking, paging and video stand-ins most of
+the rest.  The MSX gets its sprites and scrolling from the video chip.
+Drawing one tick in three reached 23.1 ticks a second under the old
+limits, but at 7.7 screens a second.
+
+The native build, which converts nothing as it runs, was measured against
+1.0.  `specrun.py` (120 seconds, stages 1-2, light play): 24.57 ticks and
+14.7 screens a second, against 1.0's 24.16 and 13.7.  The whole-loop
+profile (`perfprofile.py`, `NEM_ALL=1 LOOP=1 NOPRESS=1`, 1,500 seconds:
+stages 1-6), with two figures for the spikes (gaps between screens, and the
+fewest screens in any 50 frames):
+
+| | 1.0 | Native |
+|---|---|---|
+| Ticks a second, by stage | 22.0-25.5 | 23.1-26.6 |
+| Screens a second, by stage | 12.3-17.1 | 13.3-18.9 |
+| Fewest screens in any second, by stage | 0-4 | 6-8 |
+| Gaps of 9 frames or more | 247 | 38 |
+| Longest gap | 90 frames | 28 frames |
+
+1.0 had a second or more with no new screen in each of stages 2-6, while it
+converted tiles; the native build never shows fewer than 6 screens in a
+second.  In play the gain is less in the average than in consistency: no
+obvious lags at the turrets and the like, where 1.0 converted tiles as they
+scrolled in.
 
 ### 6.9 Input
 
@@ -1011,17 +1134,63 @@ write restarts the envelope; `plat_boot` clears the AY's registers so that
 they match the copy (`psg_regs`).  The tempo depends on the interrupt
 running every frame (6.2).
 
-### 6.11 Bulk video writes and decompression
+### 6.11 Graphics loads
 
-When the game loads a stage's graphics it decompresses them straight into
-video memory, writing each byte to the video chip's data port.  On the
-Spectrum every one of those writes became a call into the port's video
-stand-in, which made restarting after a death take 2.5 seconds.  So the
-decompressor (`descomprime`) is reimplemented natively and writes through a
-64-byte buffer (`dc_buf`), which brought the restart down to about a
-second.  The
-BIOS block routines (FILVRM, LDIRVM, LDIRMV) likewise work in runs, with one
-bank switch per run.
+Konami writes its graphics into the video chip's pattern, colour and sprite
+pattern tables at a handful of events.  A census of the original
+(`local/tools/native/census_gfx.py` in the linked clone: every graphics
+write, over a route through every hidden target and a route with deaths,
+game over and the title) found exactly these, and no other graphics writes
+apart from the stars, the dissolve and the boot's clearing of the video
+memory.  In 1.0 each load ran Konami's loaders and decompressor into copies
+of the video memory, and the characters were converted as they were drawn.
+In the port each is a load of what the build converted (6.6):
+
+| Event | Konami's site | Load |
+|---|---|---|
+| Each stage (a new game, each new stage, after each life) | 0:422A, the whole routine | `nl_stage`: the stage's complete set; then E100 is set to 1 and the mapper left as Konami's routine leaves it |
+| The Big Core (stages 1-6) | 0:4A8A, its call of `carga_fichas` | `nl_bigcore`: a patch for the stage |
+| The screen before each life | 0:53D4, its call of `carga_la_fuente` | `nl_prestage` |
+| Game over | 0:54DD | `nl_gameover` |
+| The title | 0:5300, its call of `carga_el_marcador` | `nl_title` |
+| The ending | 0:4B04 | `nl_ending` |
+| The ending's status line | 0:4C2E | `nl_marcador` |
+
+The rest of each loader that is game logic (the Big Core's clearing of the
+objects, for instance) stays Konami's.  The loading routines themselves,
+Konami's decompressor and block routines, the graphics tables and the
+loads they replace are left out of the build (`gen.py`'s `LEAVE_OUT`); the
+title's later loads (`presentacion`, 0:5A54) return at once, their
+characters being in the title's set.
+
+A stage's load is complete: its tiles unpacked straight into the tile set
+(DB00, the layout of 6.6), sprite patterns 0-39 (the same in every stage,
+stored once) to F800 and 40-63 to FD00, and the six star attributes (6.5).
+Stages 10-12 are stage 9's set and a small patch of the characters that
+differ, with stage 9's sprite patterns.  The other events load a patch:
+a 96-byte mask (one bit for each character of each third), the 9 bytes of
+each marked character, an 8-byte mask of sprite patterns and the 32 bytes
+of each marked one.  A patch is unpacked into a work area in page D
+(E800-FBFF) and copied into place a character at a time; the characters it
+leaves out stay as the screen had them, as on the MSX.  The census showed
+that no character a stage's load leaves alone is shown in that stage (two
+harmless exceptions apart), and that the screens that are not play (before
+each life, game over, the title) show what was there before; hence the two
+kinds.
+
+Each piece is packed with ZX0, the format the tape uses (6.13), and lies in
+a switched bank (5).  The tile set is in bank 7, and only one bank can be
+at C000 at a time, so the unpacker (`nl_unpack`) reads its input through a
+256-byte buffer in fixed memory (`nl_buf`, 9100), refilled from the source
+bank, and writes straight into the destination's bank.  After any load
+every cell is redrawn on both screens at the end of the tick (`nl_done`),
+as after a load in 1.0.  `nl_count` counts the loads and dissolve chunks
+for the checks (4.2).
+
+The video stand-ins keep only the name table's and the sprite attributes'
+work (text, the status line, clearing the screen): a write to the pattern,
+colour or sprite pattern tables is ignored, FILVRM fills only 3800-3BFF,
+and LDIRMV, reached only from code that is left out, does nothing.
 
 ### 6.12 The front end
 
@@ -1035,12 +1204,13 @@ down to the attract cycle (530F).  Dropping the attract cycle freed the
 space that the stage 6 boss's graphics needed.  Konami's title font has
 letters and digits only, so the text has no punctuation, except the
 version's full stop (the version is at the top right, row 0, from 0.101;
-0.100 had it after the copyright): `title_dot` gives the font's blank tile
-0E, in the top third, a full stop, white like the rest of the text (in bank C
-since 0.109, written through the LDIRVM stand-in, which copies via a buffer
-in fixed memory, because its source is paged).  Row 0
-is cleared when play starts, and the title writes it again after a game
-over.
+0.100 had it after the copyright): the font's blank character 0E, in the
+top third, is a full stop, white like the rest of the text.  It is part of
+the title's set, which `native_sets.py` makes with that character added
+(1.0 wrote it in at run time, `title_dot`).  Row 0 is cleared when play
+starts, and the title writes it again after a game over.  The title's
+graphics are one load (6.11) at 0:5300, its call of `carga_el_marcador`;
+the loads of Konami's title sequence after it are in the same set.
 
 The title's tune (0.102).  On the MSX the logo and the title are silent;
 the music that goes with them is the attract cycle's, Konami's tune A6,
@@ -1100,9 +1270,12 @@ trap returning by RET or through SA/LD-RET (with the frame interrupt made due
 around its EI, so the handler runs).  Both must reach `plat_boot` with the
 snapshot's memory.
 
-The tape is about 60 KB, about 6.5 minutes at normal speed.  The loading
-screen is the MSX attract illustration, converted by `tape/make_loading.py`
-(two colours per cell, checkerboard dithering in the ships).
+The tape is about 70 KB (1.0's was about 63 KB): about 40 seconds longer
+to load at the ROM's speed than 1.0's.  The packed graphics (6.11) do not
+compress again on the tape, where 1.0's MSX graphics and code did.  The
+loading screen is the MSX attract illustration, converted by
+`tape/make_loading.py` (two colours per cell, checkerboard dithering in the
+ships).
 
 ## 7. Known limitations
 
@@ -1111,14 +1284,6 @@ screen is the MSX attract illustration, converted by `tape/make_loading.py`
 * One colour per cell: sprites over sparse terrain (tree tops) recolour it,
   the ship's red canopy is a black line and its blue belly a stipple, and
   overlapping sprites share one colour.
-* At a stage change, for at most one tick (until the next full map
-  comparison notices the new stage), a cell redrawn then can show its tile
-  in the previous stage's colours.
-* Konami's screen dissolve (after the stage 8 brain, and the stage 7 boss
-  when its secret is not found) takes about twice as long as on the MSX
-  (6.6).
-* Restarting after a death pauses for about a second while Konami's code
-  decompresses graphics.
 * The attract cycle (the illustration and demo play) is not carried.
 
 ## 8. Files
@@ -1127,27 +1292,29 @@ In `spec/` unless shown otherwise.
 
 | File | Contents |
 |---|---|
-| `plat_spec.asm` | The platform: BIOS stand-ins, paging, mapper, video, map tracking, main loop, interrupt, boot, buffers; includes the rest. |
-| `convert.asm`, `convert_e.asm` | Tile conversion, the cache, the star twinkle, tile flags, the dissolve's tiles (`dz_tile`). |
+| `plat_spec.asm` | The platform: BIOS stand-ins, paging, mapper, the name table and sprite stand-ins, map tracking, main loop, interrupt, boot, buffers; includes the rest. |
+| `native.asm` | The graphics loads, the ZX0 unpacker and Konami's dissolve on the tiles (6.6, 6.11); the Next's loads into its store (section 9). |
+| `convert.asm` | The tile set's bookkeeping: tiles that changed redrawn where they show, the star twinkle and the star rows (6.5).  (No conversion, despite the name.) |
 | `render.asm` | The renderer: cells, stars, sprites, erasing. |
-| `vbulk.asm` | Bulk video writes and the native decompressor. |
-| `barstyle.asm` | The power-up bar's design. |
 | `ship.asm` | The ship's own patterns and `spr_patsel` (6.7). |
 | `VERSION` -> `version.inc` | The version, and the title's line for it (`build.py`). |
 | `star_check7.asm`, `spr_pmap.asm` | Code and tables in bank 7. |
-| `rules.asm`, `stage_rules.py` | The stage colour rules (bank C) and their model; the dissolve's colour-table chunks (`dz_chunk`, `dz_mark`). |
+| `native_sets.py`, `tilemodel.py`, `native_moai.txt` | The build-time conversion: Konami's loads replayed in `msxsim` and converted by 1.0's rules (6.6); stage 3's Moai characters. |
+| `fit_model.py`, `stage_rules.py`, `convert.py`, `extract.py`, `gfxcap.py` | The colour fit's model, the stage colour rules' model, the colour conversion and palettes (also used by `tables.py`), Konami's palette and graphics read from the ROM, Konami's loaders run in `msxsim`. |
+| `native_pack.py` -> `native_data.asm`, `native_tables.asm`, `native/` | The pieces packed and placed in the banks, and their tables (3, 5; generated, not in the repository). |
 | `fullcmp_gen.asm` | The generated full map comparison (`gen_fullcmp.py`). |
-| `tables.py` -> `tables.asm` | Colour tables, sprite inks, keyboard decoder. |
-| `convert.py`, `extract.py`, `emu_bench.py` | The colour fit's Python model (used by `tables.py` and the checks), Konami's graphics read from the ROM, and the simulator's screen grabs. |
+| `tables.py` -> `tables.asm` | Sprite inks, border colours, keyboard decoder, the unpacker's buffer. |
+| `emu_bench.py` | The simulator's screen grabs. |
 | `konami_spec.asm`, `konami_spec_stubs.asm` | Konami's code, generated by `reloc/gen.py`. |
 | `build.py`, `make_tap.py`, `verify.sh`, `release.sh` | Build, tape, regression checks, the release. |
-| `lockstep_spec.py`, `check_*.py`, `test_*.py` | The checks of section 4. |
+| `lockstep_spec.py`, `screen_lockstep.py`, `check_*.py`, `test_*.py` | The checks of section 4. |
 | `tape/` | Loader source (generated), loading screen and its converter, ZX0 unpacker and licence. |
 | `../reloc/` | The relocator (`gen.py`) and its disassembly parser. |
-| `../msxsim/` | The MSX simulator used by the checks. |
+| `../msxsim/` | The MSX simulator used by the build's conversion and the checks. |
 | `../README.md`, `../LEGAL-NOTICE.md`, `../LICENSE` | The front page (background, playing, building); who owns what; the MIT licence for the port's own work. |
 | `../docs/` | This description, the development notes, and screenshots. |
-| `nx_low.asm`, `nx_l2.asm` | The Spectrum Next's own code (section 9): Layer 2, hardware sprites, the smooth scroll, the MSX2 graphics. |
+| `nx_low.asm`, `nx_l2.asm`, `nx_tur.asm` | The Spectrum Next's own code (section 9): Layer 2, hardware sprites, the smooth scroll, the MSX2 graphics. |
+| `native_next.py` | The Next's graphics loads, made when the Next is built (section 9). |
 | `nxbuild.sh`, `sna2nex.py` | The Next build, and the snapshot made into a `.nex`. |
 | `nx_pack.py`, `nxgfx/`, `nx_art.py`, `enh_patch.py` | The Next's graphics and redrawn enemies packed for the `.nex`, and the data bytes of `nxgfx/patches.txt` put into it. |
 | `nx_smoke.py` | A minute of the `.nex` in ZEsarUX (`release.sh`). |
@@ -1155,30 +1322,45 @@ In `spec/` unless shown otherwise.
 ## 9. The Spectrum Next build
 
 The Next build is the same port with a different drawing end.  Konami's
-code, the platform layer and its map tracking are shared with the 128K
-build; what the Next has that the 128K lacks (a fast CPU, a bitmap layer,
-hardware sprites, a hardware scroll and a large memory) replaces the
-128K's renderer and its colour fit.
+code, the platform layer, its map tracking and the native graphics loads'
+hooks are shared with the 128K build; what the Next has that the 128K lacks
+(a fast CPU, a bitmap layer, hardware sprites, a hardware scroll and a large
+memory) replaces the 128K's renderer and its two-colour tiles.  The Next
+never draws the 128K's tiles: it draws from its own character artwork and
+from a store of the MSX's character rows (9.2, 9.3).
 
 ### 9.1 How the build is made
 
-`nxbuild.sh OUT.nex` runs `build.py` with `NEM_NEXT=1`, `NEM_FPT=2` and
+`nxbuild.sh OUT.nex` first runs `native_next.py`, which replays Konami's
+graphics loads in msxsim and writes the bytes they write as the Next's
+pieces (`native_next.dat`) with their table (`native_tables_next.asm`, 9.5).
+It then runs `build.py` with `NEM_NEXT=1`, `NEM_FPT=2` and
 `NEM_ADAPT=14,8` (9.2).
-The shared files (`plat_spec.asm`, `render.asm`, `convert.asm`) differ for
-the Next only inside `ifdef NEXT` blocks, and the nine places where the
-Next build takes over one of Konami's instructions are `reloc/gen.py`'s
-`NEXT_PATCH` (9.4), so the 128K builds are byte for byte what they were
-without the Next.  The result is `nemesis_next.sna` (never `nemesis.sna`,
+The shared files (`plat_spec.asm`, `render.asm`, `convert.asm`,
+`native.asm`) differ for the Next only inside `ifdef NEXT` blocks, and the
+ten places where the Next build takes over one of Konami's instructions are
+`reloc/gen.py`'s `NEXT_PATCH` (9.4), so the 128K builds are byte for byte
+what they were without the Next.  One of those places, 0:544F, is in code
+the native build leaves out (`LEAVE_OUT`); `NEXT_KEEP` keeps the Next's call
+there.  The 128K's packed graphics (`native_data.asm`) are not part of the
+Next build.  The result is `nemesis_next.sna` (never `nemesis.sna`,
 so `release.sh` cannot package it by mistake).  sjasmplus then assembles
 `nx_low.asm`, which includes `nx_l2.asm`, against that build's symbols
-(`nx_syms.inc`), as a separate 16K block.  `nx_pack.py` packs the graphics
-(9.5) from `spec/nxgfx/` and the redrawn sprite enemies (9.6),
-`sna2nex.py` packs the snapshot, the block and the graphics into a `.nex`
-(format V1.2), and `enh_patch.py` puts the data bytes of
-`spec/nxgfx/patches.txt` into it.  The build needs only the ROM.  A build
-switch, read by `nx_pack.py`, leaves out the redrawn enemies drawn as
-sprites: `NEM_ARC_SPR=0`.  (Those Konami draws with characters are part of
-the character pool, 9.5.)
+(`nx_syms.inc`), as a separate 16K block, and `nx_tur.asm` against
+`nx_low.asm`'s symbols (`nx_lsyms.inc`) as the code of page 55 (9.2).
+`nx_pack.py` packs the graphics (9.5): those in `spec/nxgfx/`, the stage
+files completed with Konami's own stage loads, the pieces `native_next.py`
+made, and the redrawn sprite enemies (9.6).  `sna2nex.py` packs the
+snapshot, the block and the graphics into a `.nex` (format V1.2), and
+`enh_patch.py` puts the data bytes of `spec/nxgfx/patches.txt` into it.  It
+skips the 306 of them that lie in code the native build leaves out (the font
+and its colours, in Konami's status-line loader): those reach the Next
+through `native_next.py`'s replays, which run on a ROM with the patch's data
+bytes in.  The build does not need the MSX2 patch.  Like the 128K build, it
+replays Konami's loads in msxsim, so it needs SkoolKit as well as the ROM.
+A build switch, read by `nx_pack.py`, leaves out the redrawn enemies drawn
+as sprites: `NEM_ARC_SPR=0`.  (Those Konami draws with characters are part
+of the character pool, 9.5.)
 
 ### 9.2 Memory and paging
 
@@ -1190,12 +1372,26 @@ the character pool, 9.5.)
   table at 0100.
 * Layer 2's two screens are banks 9-11 and 13-15, flipped by NEXTREG 12h
   where the 128K flips its screens.
+* **The store of character rows**, which the Next draws from wherever its
+  character pool does not (9.3): pages C and D (banks 4 and 6) hold at
+  E800-FFFF the colours and the patterns of the three thirds, laid out as
+  the MSX's colour and pattern tables, and bank 7 holds at F800-FFFF
+  Konami's 64 sprite patterns.  The graphics loads fill it (9.5).  On the
+  128K, pages C and D's E800-FFFF hold packed graphics and their work
+  area, which the Next build leaves out.  The renderer maps page D's and page C's E000-FFFF at
+  4000-7FFF (MMU2 and MMU3) while it draws, so a variable it reads
+  meanwhile must sit above 8000: `dz_on` is placed there, and asserted
+  (`plat_spec.asm`).  `tile_cdirty` and `tile_pdirty` (fixed memory, Next
+  only) hold a bit for each character of each third: changed since the
+  stage load (9.3).
 * Banks 16-31 hold the stage files of stages 1-8, the fire copies and the
   redrawn sprite enemies (9.5, 9.6), bank 32 the character pool's maps for
   stages 1-8 and banks 33-40 its blocks (pages 66-80, 9.3); bank 46 holds
   the bonus stages' stage file and bank 47 their maps (9.5).  Bank 41's
   first 8K (page 82) holds the Big Core's drawings in the arcade's style
-  (9.3); page 81 and pages 83-91 (banks 41-45) are unused.
+  (9.3).  Banks 42-45 (pages 84-91) hold the pieces of Konami's other
+  graphics loads (9.5): 28,320 bytes in pages 84-87.  Pages 81 and 83 are
+  unused.
 * Bank 27's second 8K (page 55) holds `nx_tur.asm`, the code that draws
   stage 5's turrets and skeletons, every stage's shots, stage 6's brains,
   the ghosts of pieces leaving at the left, stage 8's electricity, the
@@ -1216,13 +1412,14 @@ the character pool, 9.5.)
   line-coloured sprites, the volcano rocks' pattern and the sprite
   attributes (3440-3A5F), the stage's table of our drawings (3B00-3B3F),
   the character enemies' palettes and frames (3C70-3CA5), our drawings'
-  palette bytes (3CA6-3CE5), the character enemies' colour bytes
+  palette bytes (3CA6-3CFF), the character enemies' colour bytes
   (3D00-3FBF), and the stage's palette, the pool's working bytes and the
-  fade's (3FC0-3FFA).  The code no longer fits below 2000 whole: the pieces'
+  fade's (3FC0-3FFA).  The code does not fit below 2000 whole: the pieces'
   pattern maker, their sprite writer with its tables, the call into
   `nx_tur.asm`, and a few short routines it and the sprite colours use, are
   assembled into four free parts of this map, 3360-3434, 3448-34E6,
-  3A60-3AE3 (the dissolve's fade) and 3B40-3C38.  The code below 2000 ends at 1FFD.
+  3A60-3AE3 (the dissolve's fade) and 3B40-3C38.  The code below 2000,
+  with its buffers, ends at 1FC4.
 * Sprite patterns: 0-63 are Konami's; 64-85 the character enemies lifted
   out; 86-95 stage 8's bolts or the Big Core's core; 96-101 the MSX2
   patch's line-coloured sprites; 102 the volcano rocks; 103 takes the rest
@@ -1262,31 +1459,40 @@ the character pool, 9.5.)
   stage's scenery palette at D1h-DFh (9.6).  The status line (rows 22-23)
   is drawn from stage 1's map, whatever the stage, in entries F0h-FFh,
   which hold stage 1's 16 colours from the start (9.5).  A cell is drawn
-  instead from the port's copies of the MSX pattern and colour tables,
-  each pixel its MSX colour number, for
-  a character Konami has written to since the stage loaded (its bit in
-  `tile_cdirty`/`tile_pdirty`, cleared by `lo_apply`; the Next leaves out
-  the shared code's marking of every tile at a stage change, and its row
-  hook marks rows Konami updates), one the map has no block for (the
-  stars, F6 and F7, which twinkle), and on screens that are not a stage.
+  instead from the store of character rows (9.2), each pixel its MSX
+  colour number, for a character a graphics load has changed since the
+  stage loaded (its bit in `tile_cdirty`/`tile_pdirty`, set by the Next's
+  native loads, 9.5, and by the stars' twinkle, and cleared by
+  `lo_apply`), one the map has no block for (the stars, F6 and F7), and
+  on screens that are not a stage.
   The ship's ordinary shot is characters F8-FB (one for each 2-pixel
   step), which Konami writes into the map and takes out again, so the pool
-  draws it like the scenery.  In play Konami rewrites characters' drawings
-  only for the stars (every tick, 0:4760), the Big Core (stages 1-6: when
-  it arrives, 1:7CBD calls 0:4A6D, which loads its graphics over characters
-  44-67 and A1-DB in every third; those cells show Konami's boss from the
-  copies until the next stage load) and the dissolve.  On the screen before each stage
-  only the bottom third, the status line, comes from the pool (`lo_pool`
-  2); the other two thirds hold Konami's font for the turn message.
+  draws it like the scenery.  In play the store changes only for the stars,
+  the Big Core and the dissolve.  The stars: every tick, Konami's 0:475B
+  (`blink_native`) writes the star's row into the pattern store (row 0 of
+  F6 and F7 in each third, the star mid-cell, 10h, since the hardware
+  scroll moves it) and marks them; `lo_render` compares those rows with the
+  ones it last drew (`lo_starpat`) and draws every star cell again when
+  they change.  The Big Core (stages 1-6): when it arrives, 1:7CBD calls
+  0:4A6D, whose load (`nl_bigcore`, at 0:4A8A) puts its graphics over
+  characters 44-67 and A1-DB (all but BE) in every third; those that change
+  show Konami's boss from the store until the next stage load.  On the
+  screen before each stage only the bottom third, the status line, comes
+  from the pool (`lo_pool` 2); the other two thirds hold Konami's font for
+  the turn message.
   Copying a block is 8 `ldi` a line, each line's address set afresh (in
   column 31 the copies carry into the next line's address).  `nx_smoke.py`
   checks that the pool is in use and that the Next's code bank still holds
   its code as built.
 * **Konami's screen dissolve** (after the stage 8 brain and, when its
-  secret is not found, the stage 7 boss; 6.6) eats the colour and pattern tables over about 35 ticks.  On
-  the Next it is a fade to black instead (`lo_fadestep`): from its first
-  tick (`dz_on`) to the next stage load the pool draws every character
-  whatever Konami has written, and the Layer 2 palette fades in 21 steps
+  secret is not found, the stage 7 boss; 6.6) eats the colour and pattern
+  tables over about 35 ticks.  On the Next, Konami's chunks (3:A765,
+  `dz_chunk`) are applied to the store as Konami applies them to the video
+  chip's tables, and the screen is a fade to black instead
+  (`lo_fadestep`): from the dissolve's first chunk, which sets `dz_on`, to
+  the next graphics load, which clears it (every native load does:
+  `nl_save`), the pool draws every character whatever the store holds,
+  and the Layer 2 palette fades in 21 steps
   for the stage's 16 colours, palettes 2-12 and the stage's scenery
   palette.  The step follows how far Konami's dissolve has gone
   (`lo_fprog`: E1A0, the pass; E1A2, the mask; E1A1, the quarter of the
@@ -1304,18 +1510,52 @@ the character pool, 9.5.)
   in its own entries (F0h-FFh), which are not faded, and the stars
   (characters F6 on), which `lo_cell` draws in entries E0h-EFh, holding
   the stage's 16 colours unfaded.  Konami's logic runs as before, so the
-  timing is unchanged; the next stage's load puts the palette back.
+  timing is unchanged; the next load puts the palette back (the next
+  stage's, or after the stage 8 brain the ending's).
 * **The smooth scroll.**  When Konami's map moves a character, the screen is
   shown 7 pixels to the right of it, and the gap closes by a pixel a tick
   through Layer 2's X scroll (NEXTREG 16h).  Layer 2 is used as a circular
   buffer: Konami's row moves (0:46A1) turn the port's copy of the map and
-  its dirty bitmaps instead of redrawing.  A line interrupt at line 176
-  resets the scroll for the status rows, and the left 8 pixels are clipped.
-  The frame and line interrupts are told apart by alternation, so nothing
-  that runs during play may disable interrupts for long: an interrupt that
-  comes then is lost on the Next, the alternation goes out of step, and the
-  status rows take the play area's scroll.  (The Big Core's patterns, sent
-  from the main program, once did; see below.)
+  its dirty bitmaps instead of redrawing.  The X scroll for the play area
+  is the origin column * 8 less the fine offset (0-255); a line interrupt
+  at line 176 resets it for the status rows (below), and the left 8 pixels
+  are clipped.
+* **The interrupts.**  The Next has two: the frame interrupt and a line
+  interrupt at line 176 (`nx_regs`: NEXTREG 22h, 23h).  Both come to `isr`,
+  which tells them apart only by alternation (`nx_tog`, flipped at each).
+  The frame interrupt runs the sound (`lo_snd`, which keeps MMU2, MMU3,
+  MMU6 and MMU7 and puts the ordinary map in for `run_sound`), and
+  `nx_frame` sets Layer 2's X scroll for the play area (the shown screen's)
+  and, when a new screen has been shown, sends its sprites (`lo_sprflip`).
+  The line interrupt sets the scroll to 0 for the status rows.  The copper
+  is not used.  On the Next an interrupt that comes while interrupts are
+  off is lost.  A lost interrupt leaves the play area at scroll 0 for a
+  frame (the whole scenery jumps sideways) or the status rows scrolled, and
+  puts the alternation out of step until `nx_frame`, which reads the raster
+  line (NEXTREG 1Eh, 1Fh), finds itself at lines 176-183 and puts it back.
+  (ZEsarUX reads line 176 at the line interrupt; Xpeccy+ reads another, so
+  on some machines that check may never act.)
+  So nothing that runs during play may disable interrupts for long.  (The
+  Big Core's patterns, sent from the main program, once did; see below.)
+  Konami's sound request (`pide_sonido`, 0:4A02-0:4A11, on every shot and
+  explosion) disables them while it puts a request in the sound queue; on
+  the Next, `NEXT_PATCH` puts `call snd_hold` and `call snd_free` in place
+  of its `di` and `ei` (they set and clear `snd_busy`), and while
+  `snd_busy` is set `run_sound` leaves Konami's driver (`m7_8063`, which
+  reads the queue) for that interrupt and still calls `nx_frame`.  Until 8
+  November this `di` was the longest stretch in play with interrupts off,
+  and the scenery jumped sideways for a frame now and then (1.0N too).
+  The Next's code reads a Next register in two steps: it selects the
+  register (an `out` to 243Bh) and reads it (an `in` from 253Bh).  The
+  interrupt selects registers too (`lo_snd`, `nx_frame`), so one that
+  comes between the two steps makes the read return another register.
+  From the main program, interrupts are held off round each such pair:
+  `lo_apply` (MMU7), and in `nx_tur.asm` `tu_bsend` and `tu_s8` (MMU2, put
+  back after use), `tu_bcq` (MMU2 and the palette control) and `tu_s8pal`
+  and `tu_znew` (the palette control).  Until 8 November the five in
+  `nx_tur.asm` read with interrupts on; a bad read of MMU2 in `tu_bsend`,
+  put back as MMU2, left another 8K page at 4000-5FFF over Konami's code,
+  and the game crashed (1.0N too).
 * **Sprites** are the Next's: Konami's 64 patterns as 4-bit patterns, each
   sprite's MSX colour as its palette offset, with attributes and changed
   patterns sent when the screen they belong to is shown.  Sprites are drawn
@@ -1337,10 +1577,10 @@ the character pool, 9.5.)
   stage 1 can be) has its bottom half on Konami's row 22, which the MSX
   does not show either: only its top two characters are taken, and made
   from the pool the same way, the bottom of the sprite left transparent.
-  A character Konami has written to since the stage loaded, or one with no
+  A character a load has changed since the stage loaded, or one with no
   block, and Konami's two-character objects (byte 11 from 2 to 5:
   characters A1-A2, BF-C0, 58-59 or 60-61, which the Big Core's load
-  supplies), are converted from the copies instead (`lo_conv`).
+  supplies), are converted from the store instead (`lo_conv`).
 * **The Big Core** (the boss of stages 1-6) is drawn with characters,
   11 by 8, and Konami moves it a whole character at a time: in from the
   right one step every 8 ticks, then up or down a step every 3 to 5 ticks
@@ -1448,7 +1688,12 @@ the character pool, 9.5.)
   slots at E260: a shot's covered character at byte 8, the laser's from
   byte 17 on; Konami's map no longer has stage 5's turrets and skeletons
   by then); a cell that stage 5's smooth drawing painted this screen is
-  overlaid as it is.  Enemies drawn with characters and lifted out as
+  overlaid as it is.  An ordinary shot's cell is found from its Y, in byte
+  3 of its slot, and its X, in byte 5, as Konami's 0:571B makes its map
+  address from them (3:A299; `tu_shots`, `tu_find`).  Until 8 November the
+  two were taken the other way round, so the shot was looked for in the
+  wrong cell and kept Konami's black box, which showed over scenery (1.0N
+  too).  Enemies drawn with characters and lifted out as
   sprites have the scenery under them, which Konami's lifting already
   gives.
 * **Stage 6's brains** (Konami's boss 2; its step 1:7F74, its drawing
@@ -1509,14 +1754,19 @@ the character pool, 9.5.)
 |---|---|---|---|
 | 0:46A1 | `ldir` (the scroll's row moves; the 128K's `nm_ldi31_full`) | `lo_shiftrow` | The circular buffer (9.3). |
 | 2:9251 | `ld a,(E100)` (se_corre_con_el_scroll_ocho) | `lo_gnd`, which notes the object and does the same | Objects moved with the scenery. |
-| 0:4100, 0:414B | `call 422A` (carga_los_graficos_de_la_fase) | `lo_stage`, which calls it and then puts in the MSX2 graphics | 9.5. |
-| 0:5851 | `ld de,5906` (carga_el_marcador) | `lo_marcador`, which restores the TMS9918 colours and does the same | Screens that are not a stage. |
-| 0:544F | `call 5874` (the screen before each stage, 0:53C8) | `lo_prestage`, which calls it and then puts in the coming stage's palette and bottom third | 9.5. |
+| 0:4100, 0:414B | `call 422A` (carga_los_graficos_de_la_fase, which the native build makes `nl_stage`) | `lo_stage`, which calls it, then copies the stage file into the store (`lo_apply`) and, in bonus stages 10-12, puts in character 44's colours (`nx_bonusfix`) | 9.5. |
+| 0:544F | `call 5874` (the screen before each stage, 0:53C8; left out of the native build, kept for the Next by `NEXT_KEEP`) | `lo_prestage`, which puts in the coming stage's palette and bottom third | 9.5. |
 | 2:99A1, 2:99C3, 3:A19B | `ld a,(E200)` (the ship's state, choosing its sprites and where its second goes) | `lo_shipst`: with the MSX2 graphics, always the plain ship, as the patch's code does | 9.5 (the shield). |
+| 0:4A02, 0:4A11 | `di`, `ei` (pide_sonido, round its request into the sound queue) | `call snd_hold`, `call snd_free`: `snd_busy` set and cleared, and the interrupt leaves Konami's sound driver meanwhile | An interrupt that comes while they are off is lost (9.3). |
 
-Each runs Konami's own instruction or routine, so the game's logic is
-unchanged.  `gen.py` checks Konami's bytes at each site and stops if one
-has moved or changed.
+Each runs Konami's own instruction or routine where the build keeps it, so
+the game's logic is unchanged: Konami's 0:5874 is left out of both builds
+(the native load at 0:53D4 puts in its graphics), and while a request goes
+into the sound queue the interrupt leaves alone the driver that reads it.
+`gen.py` checks Konami's bytes at each site and stops if one has moved or
+changed.  Konami's status-line loader (0:5851), where `lo_marcador` was
+hooked before, is left out of the native build; the native loads of the
+title, the ending and its status line call `lo_marcador` instead (9.5).
 
 ### 9.5 The graphics
 
@@ -1550,11 +1800,12 @@ those Konami rewrites in play.  `spec/nxgfx/` holds, ours to change:
   scenery redrawn in the arcade's colours (9.6);
 * `bonus.bin`, `maps_bonus.bin`, `scenery_bonus.bin`: the bonus stages'
   stage file, maps (2K a stage, 9-12) and scenery palettes (below);
-* `stageN.bin` (N = 1-8, 16K each): video memory 0000-37FF as the stage
-  load leaves it, now only for the sprite patterns and the stars
+* `stageN.bin` (N = 1-8, 16K each): video memory 0000-37FF as the patch's
+  stage load leaves it, now only for the sprite patterns and the stars
   (characters F6 and F7, which Konami rewrites in play), the palette as
   Next 9-bit colours, the sprite line-colour tables, and a
-  write mask, a bit per byte;
+  write mask, a bit per byte (the bytes outside it are filled in when the
+  game is built, below);
 * `logo.bin`: the title logo and its palette;
 * `patches.txt`: data bytes in Konami's own ranges (the font and its
   colours, object and shot colours, the bosses' colour tables, map
@@ -1563,7 +1814,8 @@ those Konami rewrites in play.  `spec/nxgfx/` holds, ours to change:
 `nx_pack.py` packs them into banks 16-41, 46 and 47 with each stage's
 sprites in fire colours (9.6) and the redrawn sprite enemies, marking the
 maps' blocks of our drawings (bit 7 of the number), and puts each stage's
-scenery palette in its tables (9.6).  A `.nex` built from the stage files
+scenery palette in its tables (9.6); it also puts `native_next.py`'s
+pieces in banks 42-45 (below).  A `.nex` built from the stage files
 was checked byte for byte against one built from the patch's IPS before
 the IPS was dropped from the build, and the pool and maps against the
 build that made them before they became the artwork.  The pool is changed
@@ -1571,6 +1823,41 @@ with `local/tools/pool/put_blocks.py STAGE MODULE.py`, where the module
 gives blocks for characters of the stage's thirds (and optionally its
 scenery palette): each block is stored once and the stage's map pointed at
 it, other stages untouched.
+
+**Konami's own loads.**  The native build leaves Konami's graphics loaders
+out, so the Next gets what they wrote when the game is built, and puts it
+into its store (9.2) at the same hooks as the 128K's native loads:
+
+* *Stage loads.*  `nx_pack.py` completes each stage file with Konami's own
+  stage load, replayed in msxsim after the stage before it in play
+  (`native_next.stage_files`, through `native_sets.stage_vram`): a byte the
+  mask leaves out takes what Konami's load writes there, or else what the
+  stage before it left (such bytes are never shown).  At a stage load
+  Konami's 0:422A is `nl_stage`, which on the Next loads nothing itself;
+  `lo_stage` then has `lo_apply` copy the stage file's colour, sprite
+  pattern and pattern tables whole into the store.  The bonus stages share
+  stage 9's file.  Konami's loads of stages 10-12 differ from stage 9's
+  only in character 44's colours in each third (24 bytes, outside the
+  mask), which `nx_bonusfix` puts in after `lo_apply`.
+* *The other loads* (the title, the Big Core in stages 1-6, the screen
+  before each life, game over, the status line in the ending's step 6, and
+  the ending).  `native_next.py` replays Konami's loaders in msxsim, on a
+  ROM with the data bytes of `patches.txt` in, and records the bytes they
+  write, which are always whole characters.  The pieces are stored raw in
+  8K pages 84-91 (banks 42-45): 13 pieces, 28,320 bytes, the Big Core's the
+  same in all six stages.  A piece of colours or patterns is a 96-byte mask
+  (a bit for each character of each third) and the 8 bytes of each marked
+  character; a piece of sprite patterns, an 8-byte mask and the 32 bytes of
+  each marked pattern.  The Next's entries in `native.asm` (`nl_title`,
+  `nl_bigcore`, `nl_prestage`, `nl_gameover`, `nl_marcador`, `nl_ending`)
+  map each of the event's pieces at 4000 and copy it into the store
+  (`nx_chars`, `nx_sprites`), marking in `tile_cdirty` or `tile_pdirty`
+  each character whose bytes change, so that the pool leaves it to the
+  store (9.3).  The title, the ending and its status line also call
+  `lo_marcador`, which puts the TMS9918's colours back (for the title, the
+  logo's colours too).
+* *Boot.*  The boot's clearing of video memory (FILVRM from 0000) clears
+  the store too (`nx_clear`).
 
 **The bonus stages** (9-12) were at first left out: the patch has
 graphics for them (Konami's loader puts them in, as for the other stages)
@@ -1610,24 +1897,24 @@ palette, is a Konami sprite colour's), and `lo_mship` builds the ship's
 pattern in that palette, its colour 1 as entry 2, which its line colours
 do not otherwise use.
 
-After each stage load, `lo_stage` copies the masked bytes into the port's
-tables, as the patch's own load would have written them, sets the palette
-and turns the pool on; bytes the load does not write keep what earlier
-screens left, as they do on the MSX2.  The screen before each stage (at a
-new game and after a life is lost) shows only the status line, which
-Konami loads there; `lo_prestage` gives it the coming stage's palette and
-draws its bottom third from the coming stage's pool (the status line
-itself as in stage 1, above), so the status line is not shown in the
-TMS9918's graphics until the stage loads.  It leaves the
-other two thirds alone: they still hold the font for the two-player turn
-message.
+After each stage load, `lo_apply` also sets the palette and the sprite
+line-colour tables, loads our drawings' tables and turns the pool on.  The
+screen before each stage (at a new game and after a life is lost) shows
+only the status line, which the native load at 0:53D4 (`nl_prestage`)
+puts in as Konami's loaders wrote it; `lo_prestage` (at 0:544F) then gives
+it the coming stage's palette, puts in the stage file's own bytes for the
+bottom third (those its mask marks), and draws that third from the coming
+stage's pool (the status line itself as in stage 1, above), so the status
+line is not shown in the TMS9918's graphics until the stage loads.  It
+leaves the other two thirds alone: they still hold the font for the
+two-player turn message.
 
 The patch's title logo is not made of characters: it is a 16-colour
 bitmap (256 by 48 pixels, stored as it is in the patched ROM at 30000h,
 its palette at 2E520h), which the patch shows by switching the top of its
-title screen to a bitmap mode.  On the Next, `lo_marcador` recognises the
-title screen by its caller (0:5B4D) and, when the logo is in the `.nex`,
-gives its palette Layer 2 entries 10h-1Fh; `lo_logocell` then draws the
+title screen to a bitmap mode.  On the Next, the title's native load
+(`nl_title`) calls `lo_marcador` with A = 1, and `lo_logopal` gives the
+logo's palette Layer 2 entries 10h-1Fh; `lo_logocell` then draws the
 logo over rows 3-8 in place of Konami's (rows 4-8), and the text is
 Konami's, unchanged.  A column of the logo shows while any of Konami's
 logo cells in that column is not blank, so the logo leaves column by
@@ -1678,7 +1965,9 @@ where Konami puts them, away from the skeletons' mouths.
   (Konami's patterns 30-33), the shot (34), the pod (35-39: Konami plays
   its frames forwards then back), the robot (40-43), the jet (44-46) and
   the walking cannon (52-63: three drawings, each also upside down, mirrored,
-  and both).  The enemies Konami draws with characters (frames of its table
+  and both; the gaps inside its outline are drawn in colour 11, opaque
+  black in palettes 2 and 3, so the scenery does not show through them).
+  The enemies Konami draws with characters (frames of its table
   at 5:91D1, four characters each): the fans, the hatch saucers, the
   turrets on the ground and on the ceiling (six aims each), and the two
   capsules.  Those that leave a capsule are red, as in the arcade: a sprite
@@ -1746,7 +2035,7 @@ where Konami puts them, away from the skeletons' mouths.
   the top third share the ordinary ones' characters and stay blue, as
   Konami draws them.  Stage 2's ordinary turrets keep their blue tint.  On
   the Next, `lo_apply` loads the palettes and the stage's tables
-  (`LO_OVR`, `LO_APAL`, in bank 8 at 3B00-3B3F and 3C40-3C6F);
+  (`LO_OVR`, `LO_APAL`, in bank 8 at 3B00-3B3F and 3CA6-3CFF);
   `lo_sprflip` sends our drawing in place of a mapped Konami pattern, and
   `lo_arc` (from `lo_ecol`) gives any sprite showing one its palette.
   Character enemies Konami moves with the scenery (the turrets, the
@@ -1755,9 +2044,9 @@ where Konami puts them, away from the skeletons' mouths.
   gives them their palette (`LO_OPAL`).  So an enemy looks the same in the
   map and lifted out, including frames Konami builds from other frames'
   characters (frames 29-2C, from the fans').  `lo_marcador` clears the
-  tables for screens that are not a stage.  Konami's colour changes (a
-  flash) do not show on our drawings, and the capsules' glint (Konami
-  animates their characters) is not drawn.
+  tables for the title, the ending and its status line.  Konami's colour
+  changes (a flash) do not show on our drawings, and the capsules' glint
+  (Konami animates their characters) is not drawn.
 * **Scenery in the arcade's colours.**  Stage 2's bricks, balls, neck and
   hanging clusters (characters 44-4F, A2, A3 and A5) are the arcade sheet's 8
   by 8 tiles, and stage 3's Moai heads and stone are Konami's characters
@@ -1828,20 +2117,38 @@ where Konami puts them, away from the skeletons' mouths.
 
 ### 9.7 Checks
 
-`verify.sh` ends by building the `.nex`, which takes seconds.  `release.sh`
-builds the `.nex` as well as the tape and snapshot, and, if ZEsarUX is
-available, plays it for a minute (`nx_smoke.py`: the game must start, its
-scroll must move, the stage graphics must be in, the background must be
-drawn from the character pool, and the Next's code bank must still hold
-its code as built).  It plays a copy made invulnerable (Konami's 1:75F0,
-the ship's death, made a RET, found by its bytes in the listing) at 28 MHz:
-before 1.0 it played the `.nex` as it was, and the ship usually died
-before the second scroll sample, so the check failed on every build.  The
-whole game is played by `local/tools/nexttest/fulltest.py` (the route with
-every bonus stage, two loops, and deaths to game over), which was run on
-1.0 before its release.  The
-lockstep checks of section 4 cover Konami's logic, which the two builds
-share.
+`verify.sh` ends by building the `.nex`.  `release.sh` builds the `.nex`
+as well as the tape and snapshot, and, if ZEsarUX is available, plays it
+for a minute (`nx_smoke.py`: the game must start, its scroll must move, the
+stage graphics must be in, the background must be drawn from the character
+pool, and the Next's code bank must still hold its code as built).  It
+plays a copy made invulnerable (Konami's 1:75F0, the ship's death, made a
+RET, found by its bytes in the listing) at 28 MHz: before 1.0 it played the
+`.nex` as it was, and the ship usually died before the second scroll
+sample, so the check failed on every build.
+
+The whole game is played in ZEsarUX, headless and driven through its
+remote protocol, by the tools in `local/tools/nexttest/`.  `fulltest.py`
+plays an invulnerable copy through the game (the route with every bonus
+stage, the ship put on each hidden target, or the plain route; one loop or
+two).  At every stage change it checks that bank 8's code, `nx_tur.asm`'s
+page and the read-only data pages (the native loads' pages 84-91 among
+them) still hold what the `.nex` has, and that the pool is on; it dumps the
+store, the marks, the name table and both Layer 2 screens at each stage
+start, through each boss and through the ending.  `nx_ftcmp.py` compares
+two runs' dumps at the points both reach: the characters on show, the
+sprite patterns, the marks, Layer 2's pixels, and the colour entries one
+run uses and the other does not (which points to a drawing fault rather
+than timing).  `hunt.py` is `fulltest.py` with breakpoints on a stray write
+(to 01B1 in the code bank, or a stage number above 12), and `replay.py`
+adds ZEsarUX snapshots to start attempts from.  `nx_poll.py` dumps at
+each change of Konami's state or stage, and `nx_pollcmp.py` compares two
+such runs.  These compare memory, not the picture: a wrong scroll split, palette or hardware sprite
+passes them, and ZEsarUX's timing is not the hardware's.  An earlier
+`fulltest.py` was run on 1.0 before its release; the native Next build was
+run through the bonus route and through two loops of the plain route and
+compared with 1.0N.  The lockstep checks of section 4 cover Konami's logic,
+which the two builds share.
 
 ### 9.8 Known limitations
 

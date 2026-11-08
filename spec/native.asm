@@ -26,8 +26,12 @@ nl_count:   db 0                ; loads and dissolve chunks so far (for the chec
 ; the mapper put back as Konami's routine leaves them.
 nl_stage:
     call nl_save
+    ifndef NEXT
     ld a,(0xE061+KRAM)
     call nl_full
+    else
+    call nl_done                ; Next: lo_stage's lo_apply copies the stage file
+    endif
     pop ix
     pop af
     pop bc
@@ -37,6 +41,7 @@ nl_stage:
     ld (0xE100+KRAM),a
     jp m0_4299                  ; devuelve_el_reparto_de_siempre
 
+    ifndef NEXT
 nl_bigcore:                     ; 0:4A8A (the Big Core's characters)
     call nl_save
     ld a,(0xE061+KRAM)
@@ -72,13 +77,272 @@ nl_desc:                        ; HL = a patch's descriptor (page, address)
     call nl_patch
     jp nl_restore
 
-nl_save:                        ; every register kept for Konami
-    ex (sp),hl
+    else
+; The Next (claude/native-128k-plan.md, step 3): the same events load the
+; bytes Konami's loaders wrote (native_next.py) into its store of character
+; rows (pages C and D, E800: colours and patterns as the MSX's tables) and
+; sprite patterns (bank 7, F800), from the Next's 8K pages, raw.  A character
+; that changes is marked in tile_cdirty or tile_pdirty, as Konami's writes
+; were (the pool then leaves it to the rows: nx_l2.asm lo_cmap).  The title,
+; the ending and its status line put the TMS9918's colours back
+; (lo_marcador, nx_low.asm's 011E), as Konami's 0:5851 did on the Next.
+nl_bigcore:                     ; 0:4A8A (the Big Core's characters)
+    call nl_save
+    ld a,(0xE061+KRAM)
+    dec a
+    ld l,a
+    add a,a
+    add a,a
+    add a,a
+    add a,l                     ; 9 bytes a stage
+    ld l,a
+    ld h,0
+    ld de,nxl_bigcore_tab
+    add hl,de
+    jr nx_desc
+nl_title:                       ; 0:5300
+    call nl_save
+    ld hl,nxl_title_d
+    call nx_load
+    ld a,1                      ; the title: its logo's colours too
+    jr nx_tms
+nl_prestage:                    ; 0:53D4 (lo_prestage follows, at 0:544F)
+    call nl_save
+    ld hl,nxl_prestage_d
+    jr nx_desc
+nl_gameover:                    ; 0:54DD
+    call nl_save
+    ld hl,nxl_gameover_d
+    jr nx_desc
+nl_marcador:                    ; 0:4C2E
+    call nl_save
+    ld hl,nxl_marcador_d
+    call nx_load
+    xor a
+    jr nx_tms
+nl_ending:                      ; 0:4B04
+    call nl_save
+    xor a
+    call 0x011E                 ; lo_marcador first, as 0:5851 came first
+    ld hl,nxl_ending_d
+nx_desc:
+    call nx_load
+    jp nl_restore
+nx_tms:
+    call 0x011E                 ; lo_marcador (A = 1: the title)
+    jp nl_restore
+
+; HL = an event's descriptors (colours, patterns, sprite patterns).
+nx_load:
+    ld bc,PAGE_C*256+0x00       ; colours: page C, tile_cdirty
+    call nx_chars
+    ld bc,PAGE_D*256+0x80       ; patterns: page D, tile_pdirty
+    call nx_chars
+    call nx_sprites
+    jp nl_done
+
+; HL = a descriptor (page, address at 4000; page FF: none), moved on.  The
+; marked characters' 8 bytes each go to E800 + character * 8 in page B (C or D); one
+; that changes is marked in the bitmap at tile_cdirty + C.
+nx_chars:
+    ld a,(hl)
+    inc hl
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    cp 0xff
+    ret z
+    push hl
+    db 0xED,0x92,0x52           ; nextreg 0x52,a: the piece at 4000
+    ld a,b
+    call out_page
+    ld a,c
+    ld (.map+1),a
     push de
+    pop ix                      ; the mask
+    ld hl,96
+    add hl,de                   ; the bytes
+    ld de,0xE800
+    xor a
+    ld (nx_i),a
+.byte:
+    ld a,(ix+0)
+    ld (nx_mb),a
+    ld b,8
+.bit:
+    ld a,(nx_mb)
+    rrca
+    ld (nx_mb),a
+    jr c,.one
+    ld a,e
+    add a,8
+    ld e,a
+    jr nc,.next
+    inc d
+    jr .next
+.one:
+    push bc
+    ld bc,0x0800                ; B = 8 bytes, C = changed
+.cp:
+    ld a,(de)
+    cp (hl)
+    jr z,.eq
+    ld a,(hl)
+    ld (de),a
+    ld c,1
+.eq:
+    inc hl
+    inc de
+    djnz .cp
+    ld a,c
+    pop bc
+    or a
+    jr z,.next
+    push hl                     ; mark it: bit 8 - B of byte nx_i
+    ld a,8
+    sub b
+    ld l,a
+    ld h,bitmask>>8
+    ld a,(nx_i)
+.map:
+    add a,0
+    ld c,(hl)
+    ld l,a
+    ld h,tile_cdirty>>8
+    ld a,c
+    or (hl)
+    ld (hl),a
+    pop hl
+.next:
+    djnz .bit
+    inc ix
+    ld a,(nx_i)
+    inc a
+    ld (nx_i),a
+    cp 96
+    jr nz,.byte
+    db 0xED,0x91,0x52,0x0A      ; bank 5 back at 4000
+    call unborrow_page
+    pop hl
+    ret
+
+; HL = a descriptor: the marked sprite patterns' 32 bytes each to F800 +
+; pattern * 32 in bank 7.
+nx_sprites:
+    ld a,(hl)
+    inc hl
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    cp 0xff
+    ret z
+    db 0xED,0x92,0x52
+    ld a,PAGE_7
+    call out_page
+    push de
+    pop ix
+    ld hl,8
+    add hl,de
+    ld de,0xF800
+    ld c,8
+.byte:
+    ld a,(ix+0)
+    ld b,8
+.bit:
+    rrca
+    jr nc,.skip
+    push bc
+    ld bc,32
+    ldir
+    pop bc
+    jr .next
+.skip:
+    ex de,hl
+    push bc
+    ld bc,32
+    add hl,bc
+    pop bc
+    ex de,hl
+.next:
+    djnz .bit
+    inc ix
+    dec c
+    jr nz,.byte
+    db 0xED,0x91,0x52,0x0A
+    jp unborrow_page
+
+; From lo_stage, after lo_apply: bonus stages 10-12 are stage 9's file, but
+; Konami's load gives character 44's colours otherwise (native_next.py).
+nx_bonusfix:
+    ld a,(0xE061+KRAM)
+    sub 10
+    cp 3
+    ret nc
+    ld hl,nxl_bonus_tab
+    or a
+    jr z,.at
+    ld b,a
+.skip:
+    ld a,(hl)                   ; count, then 10 bytes each
+    inc hl
+    or a
+    jr z,.sk
+    ld e,a
+.sk1:
+    ld a,l
+    add a,10
+    ld l,a
+    jr nc,.sk2
+    inc h
+.sk2:
+    dec e
+    jr nz,.sk1
+.sk:
+    djnz .skip
+.at:
+    ld b,(hl)
+    inc hl
+    inc b
+    dec b
+    ret z
+    ld a,PAGE_C
+    call out_page
+.ch:
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    push hl
+    ex de,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld de,0xE800
+    add hl,de
+    ex de,hl
+    pop hl
+    push bc
+    ld bc,8
+    ldir
+    pop bc
+    djnz .ch
+    jp unborrow_page
+
+nx_i:       db 0
+nx_mb:      db 0
+
+    endif
+
+nl_save:                        ; every register kept for Konami; a graphics
+    ex (sp),hl                  ; load ends a dissolve (as in 1.0: dz_on is up
+    push de                     ; from its first chunk to the next load)
     push bc
     push af
     push ix
     push hl
+    xor a
+    ld (dz_on),a
     ret
 nl_restore:                     ; (jumped to, with nl_save's pushes on the stack)
     pop ix
@@ -88,6 +352,16 @@ nl_restore:                     ; (jumped to, with nl_save's pushes on the stack
     pop hl
     ret
 
+nl_done:                        ; every cell redrawn at the end of the tick
+    ld a,0xff
+    ld (chg_n),a
+    ld a,1
+    ld (star_stale),a
+    ld hl,nl_count
+    inc (hl)
+    ret
+
+    ifndef NEXT
 ; ---- loading -------------------------------------------------------------------
 
 ; A = stage 1-12: its complete set.
@@ -166,14 +440,7 @@ nl_patch:
     call nl_unpack
     call nl_scatter
     call unborrow_page
-nl_done:                        ; every cell redrawn at the end of the tick
-    ld a,0xff
-    ld (chg_n),a
-    ld a,1
-    ld (star_stale),a
-    ld hl,nl_count
-    inc (hl)
-    ret
+    jp nl_done
 
 ; The patch in the work area: a 96-byte mask (bit k = character
 ; third * 256 + char), the 9 bytes of each marked character, an 8-byte mask
@@ -400,6 +667,8 @@ nl_fill:
     ld hl,nl_buf
     ret
 
+    endif
+
 ; ---- Konami's screen dissolve on the converted tiles ----------------------------
 
 ; come_un_trozo (MSX 3:A765, patched to come here): one chunk of the
@@ -416,6 +685,69 @@ nl_fill:
 ; the rows with Konami's mask for the pass (E1A2, turned three bits a row
 ; after the first pass, E1A0).  EA00, Konami's chunk buffer, is not kept:
 ; nothing reads it after the dissolve (the census).
+    ifdef NEXT
+; The Next: Konami's chunk done on its copies of the tables as Konami does it
+; on the MSX's (the colour pass ANDs every byte with E1A2, F0: the
+; backgrounds go; each pattern pass ANDs with E1A2, turned three bits a byte
+; after the first pass, every character starting again with E1A2).  While
+; dz_on is up the pool goes on drawing the scenery and Layer 2's colours fade
+; (nx_l2.asm lo_cmap, lo_fadestep); what Konami spares stays.
+dz_chunk:
+    ld c,64
+    cp 0x44
+    jr nz,.c1
+    ld c,60
+.c1:
+    cp 0xc0
+    jr nz,.c2
+    ld c,54
+.c2:
+    ld l,a
+    ld a,1
+    ld (dz_on),a
+    ld h,0
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,de                   ; the VRAM address
+    ld a,h
+    sub 0x20
+    ld b,PAGE_D                 ; patterns
+    jr nc,.pat
+    add a,0x20
+    ld b,PAGE_C                 ; colours
+.pat:
+    add a,0xE8
+    ld h,a                      ; the copy's
+    ld a,b
+    call out_page
+    ld a,(0xE1A0+KRAM)
+    ld d,a                      ; 0: the same mask every byte
+    ld a,(0xE1A2+KRAM)
+    ld e,a
+.ch:
+    ld a,e
+    ld b,8
+.by:
+    ld (.m+1),a
+    and (hl)
+    ld (hl),a
+    inc hl
+.m:
+    ld a,0
+    inc d
+    dec d
+    jr z,.same
+    rrca
+    rrca
+    rrca
+.same:
+    djnz .by
+    dec c
+    jr nz,.ch
+    call unborrow_page
+    jp nl_done
+    else
 dz_chunk:
     ld c,64
     cp 0x44
@@ -587,3 +919,4 @@ dz_pat:
     dec c
     jr nz,.tile
     ret
+    endif

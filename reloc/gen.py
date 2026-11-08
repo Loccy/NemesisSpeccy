@@ -266,13 +266,26 @@ NEXT_PATCH = {
     (2, 0x99A1): ['    call 0x0124'],    # the ship's sprites, its ld a,(E200): lo_shipst (with the MSX2 graphics, always the plain ship, as the patch; the shield is drawn on its own)
     (2, 0x99C3): ['    call 0x0124'],    # the same, for the blink
     (3, 0xA19B): ['    call 0x0124'],    # the same, where the ship's second sprite is put 8 pixels right with the shield
+    # pide_sonido's request into the queue: no di (an interrupt that comes while
+    # they are off is lost on the Next, and the scroll is not set that frame);
+    # snd_busy instead, and the interrupt leaves the sound driver for a frame
+    (0, 0x4A02): ['    call snd_hold'],
+    (0, 0x4A11): ['    call snd_free'],
 }
+# Next hooks inside code the native build leaves out (LEAVE_OUT): the Next
+# still needs the call there (the 128K build has nothing in its place).
+# 0:544F, the call of 0:5874 before each life: its graphics come with the
+# native load at 0:53D4, but lo_prestage still puts the stage's colours and
+# status line in.  (0:5851, lo_marcador's hook, is not kept: the native
+# loads of the title, the ending and its status line call lo_marcador.)
+NEXT_KEEP = {(0, 0x544F)}
 # What Konami has at each of them (checked when generating, so a moved or
 # changed site stops the build instead of being overwritten).
 NEXT_PATCH_WAS = {
     (0, 0x46A1): 'edb0', (2, 0x9251): '3a00e1', (0, 0x4100): 'cd2a42',
     (0, 0x414B): 'cd2a42', (0, 0x5851): '110659', (0, 0x544F): 'cd7458',
     (2, 0x99A1): '3a00e2', (2, 0x99C3): '3a00e2', (3, 0xA19B): '3a00e2',
+    (0, 0x4A02): 'f3', (0, 0x4A11): 'fb',
 }
 
 # Relative jumps that the patches above push out of range: emitted as jp.
@@ -432,7 +445,13 @@ class Gen:
         raw = self.raw[b]; org = ORG[b]; I = self.identity
         a, n = it[0], it[1]
         if not I and left_out(b, a):
-            self.report['left out'] += 1; return
+            self.report['left out'] += 1
+            if TARGET == 'spec' and (b, a) in NEXT_KEEP:
+                raw_ = raw[a - org:a - org + n].hex()
+                assert raw_ == NEXT_PATCH_WAS[(b, a)], 'Next hook %d:%04X is %s, not %s' % (b, a, raw_, NEXT_PATCH_WAS[(b, a)])
+                out += ['    ifdef NEXT'] + NEXT_PATCH[(b, a)] + ['    endif']
+                self.report['next patched'] += 1
+            return
         if not I and TARGET == 'spec' and (b, a) in NEXT_PATCH and not getattr(self, 'in_next', False):
             was = raw[a - org:a - org + n].hex()
             assert was == NEXT_PATCH_WAS[(b, a)], 'Next hook %d:%04X is %s, not %s' % (b, a, was, NEXT_PATCH_WAS[(b, a)])
@@ -738,4 +757,4 @@ if __name__ == '__main__':
     for k, v in sorted(g.report.items()): print(k, v)
     print('far stubs:', len(g.stubs))
     if TARGET == 'spec':
-        assert g.report['next patched'] == len([k for k in NEXT_PATCH if not left_out(*k)]), 'a Next hook site is not an item start'
+        assert g.report['next patched'] == len([k for k in NEXT_PATCH if not left_out(*k) or k in NEXT_KEEP]), 'a Next hook site is not an item start'
