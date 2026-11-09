@@ -1290,13 +1290,8 @@ tu_s8:
     ld a,(0xE061-K)
     cp 8
     ret nz
-    ld bc,0x243B                ; MMU2 as it is, put back after
-    ld a,0x52
-    di                          ; (the interrupt selects registers too: tu_bsend)
-    out (c),a
-    inc b
-    in a,(c)
-    ei
+    ld a,0x52                   ; MMU2 as it is, put back after
+    call tu_rreg
     push af
     db 0xED,0x91,0x52,S8_PAGE
     call .b
@@ -1547,12 +1542,8 @@ tu_s8pal:
     ld (tu_s8f),a
     ld a,i
     push af
-    di                          ; (before the read: tu_bsend)
-    ld bc,0x243B                ; the palette control as it is, put back after
-    ld a,0x43
-    out (c),a
-    inc b
-    in a,(c)
+    ld a,0x43                   ; the palette control as it is, put back after
+    call tu_rreg
     ld e,a
     db 0xED,0x91,0x43,0x20      ; sprites' first palette
     db 0xED,0x91,0x40,0xE2
@@ -1698,18 +1689,32 @@ tu_bc:
 .idx:       db 0,1,2,3,4,5, 0x80+20,0x80+21, 6,7,8,9, 0x80+22,0x80+23
             db 10,11,12,13,14,15,16,17,18,19
 
+; Next register A read (A = its value; BC = 253Bh), with interrupts left on.
+; Registers are read by selecting one (port 243Bh) and reading it (253Bh); the
+; interrupt selects registers too (lo_snd, nx_frame), so one coming between
+; the two made the read return another register, and MMU2 put back as that
+; left a wrong page at 4000-5FFF over Konami's bank 0 code (1.0N's crash in
+; the second loop's stage 5 boss, 8 November 2026).  The register is noted
+; in nx_sel first, and the interrupt selects it again before it returns
+; (plat_spec isr), as out_page's port_now for the paging.  (6N held
+; interrupts off round the pair instead; an interrupt that came then was
+; lost, and the status lines took the play area's scroll: the Big Core's
+; flick, 9 November.)
+tu_rreg:
+    ld (nx_sel),a
+    ld bc,0x243B
+    out (c),a
+    inc b
+    in a,(c)
+    ret
+
 ; The drawing at HL (page BC_PAGE at 4000) to pattern lo_bsend, again if the
 ; interrupt sends one meanwhile.  MMU2 as it was after.
 tu_bsend:
     push hl
-    ld bc,0x243B
     ld a,0x52
-    di                          ; the interrupt selects registers too (lo_snd,
-    out (c),a                   ; nx_frame): one between the two made this read
-    inc b                       ; another register, and MMU2 was put back as
-    in a,(c)                    ; that, a wrong page at 4000-5FFF over Konami's
-    ei                          ; bank 0 code (1.0N's crash in the second loop's
-    ld (tu_bcm),a               ; stage 5 boss, 8 November 2026)
+    call tu_rreg
+    ld (tu_bcm),a
     db 0xED,0x91,0x52,BC_PAGE
     pop hl
 .r:
@@ -1826,21 +1831,14 @@ tu_bcq:
     ei
     ret
 .p0:                            ; (MMU2 and the palette control kept;
-    pop hl                      ; interrupts off, as they were on the stack)
+    pop hl                      ; interrupts as they were on the stack)
     ld a,i
     push af
-    di                          ; (before the reads: tu_bsend)
-    ld bc,0x243B
     ld a,0x52
-    out (c),a
-    inc b
-    in a,(c)
+    call tu_rreg
     ld (tu_bcm),a
-    dec b
     ld a,0x43
-    out (c),a
-    inc b
-    in a,(c)
+    call tu_rreg
     ld (tu_bc43),a
     jp (hl)
 
@@ -1981,12 +1979,8 @@ tu_znew:
     ld (tu_s8f),a
     ld a,i
     push af
-    di                          ; (before the read: tu_bsend)
-    ld bc,0x243B
     ld a,0x43
-    out (c),a
-    inc b
-    in a,(c)
+    call tu_rreg
     ld e,a
     db 0xED,0x91,0x43,0x20
     db 0xED,0x91,0x40,0xF2

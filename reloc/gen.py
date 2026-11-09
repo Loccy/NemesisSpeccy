@@ -270,6 +270,10 @@ NEXT_PATCH = {
     # they are off is lost on the Next, and the scroll is not set that frame);
     # snd_busy instead, and the interrupt leaves the sound driver for a frame
     (0, 0x4A02): ['    call snd_hold'],
+    # an effect (sound below 16h) goes to one of our own three channel
+    # records (nx_pick), played on AY 2 (plat_spec nx_sfx), in place of
+    # channel C's, which the music holds
+    (0, 0x4A3C): ['    call nx_pick'],
     (0, 0x4A11): ['    call snd_free'],
 }
 # Next hooks inside code the native build leaves out (LEAVE_OUT): the Next
@@ -285,7 +289,7 @@ NEXT_PATCH_WAS = {
     (0, 0x46A1): 'edb0', (2, 0x9251): '3a00e1', (0, 0x4100): 'cd2a42',
     (0, 0x414B): 'cd2a42', (0, 0x5851): '110659', (0, 0x544F): 'cd7458',
     (2, 0x99A1): '3a00e2', (2, 0x99C3): '3a00e2', (3, 0xA19B): '3a00e2',
-    (0, 0x4A02): 'f3', (0, 0x4A11): 'fb',
+    (0, 0x4A02): 'f3', (0, 0x4A11): 'fb', (0, 0x4A3C): '2e34',
 }
 
 # Relative jumps that the patches above push out of range: emitted as jp.

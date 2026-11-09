@@ -269,12 +269,11 @@ lo_apply:
     db 0xED,0x92,0x52           ; its VRAM 2000-3FFF at 4000
     push ix
     ld a,0x57                   ; MMU7 now (put back after): the mask at F900
-    ld bc,0x243B
-    di                          ; (the interrupt selects registers too)
-    out (c),a
+    ld (nx_sel),a               ; (noted first: the interrupt selects registers
+    ld bc,0x243B                ; too, and selects this one again before it
+    out (c),a                   ; returns: plat_spec isr)
     inc b
     in a,(c)
-    ei
     ld (lo_mmu7),a
     ld a,(lo_spage)
     inc a

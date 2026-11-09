@@ -38,10 +38,11 @@ The same game also builds for the ZX Spectrum Next, as a `.nex` file. It runs th
 * It runs at 28 MHz and at 30 game ticks a second, the speed of the original on a 60 Hz MSX, drawing every tick when there is time.
 * The background is drawn on Layer 2, a byte per pixel, so the MSX's tiles keep their own colours instead of being fitted to attribute cells.
 * The sprites are the Next's hardware sprites, in their MSX colours.
+* The sound effects play on a second sound chip (the Next has three), so they are no longer lost when the music uses all three channels of the first.
 * The screen scrolls smoothly, a pixel at a time, where the MSX moves the scenery a character (8 pixels) at a time. Enemies that Konami draws with characters are lifted out and drawn as sprites, so they move smoothly too.
 * The graphics began as those of the MSX2 patch "Nemesis - Gradius ENHANCED" (V1.01, by Victor Martinez and Toni Galvez, based on SHALOM's). Over time most of these have been swapped out for graphics either from the arcade game or new original graphics. The graphics for the Next are kept in this repository (`spec/nxgfx/`) and changed from there, so the build does not need the patch.
 
-The title screen shows the version ending in N: V1.1N. It has been played on a ZX Spectrum Next (KS2) and an N-Go, as well as in emulators.
+The title screen shows the version ending in N: V1.1.1N. It has been played on a ZX Spectrum Next (KS2) and an N-Go, as well as in emulators.
 
 ![The Next: stage 1, with the laser](docs/images/next_01_stage1_laser.png)
 ![The Next: stage 1's Big Core](docs/images/next_02_stage1_big_core.png)
@@ -64,7 +65,7 @@ The title screen shows the version ending in N: V1.1N. It has been played on a Z
 
 ### One edition
 
-Since 0.110 there is one edition. It draws every game tick while the game keeps up with the MSX's pace, and skips drawing one tick in two (no more) when it falls behind, so quiet stretches move smoothly and busy ones keep their speed. The title screen shows the version in the top right corner, ending in A: V1.1A. (The Spectrum Next version ends in N.)
+Since 0.110 there is one edition. It draws every game tick while the game keeps up with the MSX's pace, and skips drawing one tick in two (no more) when it falls behind, so quiet stretches move smoothly and busy ones keep their speed. The title screen shows the version in the top right corner, ending in A: V1.1.1A. (The Spectrum Next version ends in N.)
 
 Versions 0.98 to 0.109 came in two editions, fast (one tick in two drawn) and smooth (four in five). Both can still be built (see Building).
 
@@ -107,7 +108,7 @@ It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3 and sjasmplus 1.2
 ```
 python3 build.py              # nemesis.sna
 python3 make_tap.py           # nemesis.tap from it
-sh release.sh 1.1             # the release: tape, snapshot and .nex, in release/
+sh release.sh 1.1.1           # the release: tape, snapshot and .nex, in release/
 sh verify.sh                  # the regression checks
 ```
 

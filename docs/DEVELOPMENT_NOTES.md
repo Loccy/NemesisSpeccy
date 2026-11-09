@@ -1641,6 +1641,56 @@ see-through, and showed the scenery behind.  They are now opaque black
 
 **1.1.**  Both builds take the version 1.1 (V1.1A, V1.1N).
 
+## 1.1.1: the Next's sound effects
+
+All the changes are the Next's; the 128K's snapshot and tape are 1.1's
+apart from the version on the title.
+
+**Sound effects on a second AY.**  On the Next (and on the MSX) some
+effects were lost while the music played, in stage 1 most of all.
+Konami's request routine (`encola_sonido`, 0:4A22) gives a sound
+channels by its number: below 16h, an effect, channel C only; 16h-25h,
+two channels (A and B); 26h and over, all three.  A sound is played only
+if its number is not below the one already on its channel.  Konami's
+table at 1:7056 gives each stage's music by distance: the start tune
+(2Ch) to distance 64h, then the stage's theme, then the boss tune (35h).
+From stage 2 on the themes are two-channel (16h-24h), and channel C is
+left to the effects; stage 1's theme (2Fh), the start tune and the boss
+tune take all three, and an effect then has to outrank the tune to be
+heard, which none does.  The Next has three AYs.  The effects now go into
+three channel records of the port's own, played on the second AY by
+Konami's own channel routines after its driver (9.3 of the technical
+description).  The first trial played them on one record, as Konami's
+channel C; in stage 1's volcanoes one was not enough, and effects were
+still lost, so there are three, an effect going to a record already
+playing it, else a free one, else the one with the lowest number.  The
+third AY was considered for the two-channel themes, but moving them frees
+nothing: the effects already have the second AY.  The three-channel
+sounds that cut the music (the ship lost, the end of stage 8, the screen
+going dark after a boss, a core destroyed) cut it on the MSX too, and
+were left as they are.
+
+**Sprites clipped to the play area.**  Sprites could be drawn over the
+status rows (the Big Core at the bottom of the screen, for one).  The
+sprite clip window is now lines 0-175.
+
+**The Big Core's flick.**  A flick of the status rows, shifted sideways
+for a frame, was seen in the Big Core fight (caught in a recording from
+Xpeccy+), and 1.1 has it too.  1.1's
+fix for the crash held interrupts off round each read of a Next register
+from the main program, and the Big Core's pattern sends make those reads
+often; a line interrupt lost there leaves the status rows with the play
+area's scroll for a frame.  A trial read each register twice until two
+reads agreed; it was replaced by the way the 128K's paging is kept: the
+main program notes the register in `nx_sel` before selecting it, and the
+interrupt selects it again before returning, so the read can run with
+interrupts on.  The Next's code in play now has no `di` at all (the one
+left is on the title screen).  It was played to the Big Core twice
+without the flick.
+
+**1.1.1.**  Both builds take the version 1.1.1 (V1.1.1A, V1.1.1N), seven
+characters, as many as the title's space holds.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -1673,7 +1723,7 @@ replay from.  They compare memory, not the picture, so a wrong scroll
 split, palette or hardware sprite passes them, and the Next build is also
 played (1.1's flash was found that way).
 
-## Where it stands (1.1)
+## Where it stands (1.1.1)
 
 * The 128K build has no MSX graphics.  Every graphics load is a load of
   tiles and sprite patterns converted when the game is built, and
@@ -1695,4 +1745,6 @@ played (1.1's flash was found that way).
   have played the bonus route and two whole loops of the plain route with
   their code and read-only pages intact, the characters on show identical
   to 1.0N's at every point compared.  1.0N's crash and one-frame flash
-  are fixed in it.
+  are fixed in it.  From 1.1.1 its sound effects play on a second AY, its
+  sprites are not drawn over the status rows, and no code in play
+  disables interrupts.

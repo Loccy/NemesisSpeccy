@@ -261,6 +261,12 @@ bios_0093:                      ; WRTPSG: PSG register A = E, on the AY
     push hl
     and 15
     ld c,a
+    ifdef NEXT
+    ld a,(nx_ay)                ; Next: AY 2 or 3 selected (nx_sfx): written
+    or a                        ; every time (psg_regs is AY 1's)
+    ld a,c
+    jr nz,.write
+    endif
     ld hl,psg_regs
     add a,l
     ld l,a
@@ -1624,6 +1630,9 @@ isr:
     pop de
     ifdef NEXT
 .x:
+    ld a,(nx_sel)               ; Next: the register the main program selected
+    ld bc,0x243B                ; (nx_sel, noted before it selects), selected
+    out (c),a                   ; again: its read of 253Bh then reads that one
     endif
     pop bc
     pop af
@@ -1647,7 +1656,10 @@ run_sound:
     ifdef NEXT
     ld a,(snd_busy)             ; Next: Konami's sound request under way (0:4A02-
     or a                        ; 0:4A11, run without di): the driver, which reads
-    call z,m7_8063              ; its queue, waits a frame
+    jr nz,.nodrv                ; its queue, waits a frame
+    call m7_8063                ; the music (and the pause chime) on AY 1
+    call nx_sfx                 ; the effects on AY 2
+.nodrv:
     call nx_frame               ; Next: the shown screen's scroll, the clip window
     else
     call m7_8063
@@ -1728,6 +1740,107 @@ nx_off:     db 0                ; Next: scroll offset (pixels right, 0-7), set p
 nx_pend:    db 0                ; Next: offset of the screen waiting to be shown
 nx_tog:     db 0                ; Next: 1 after a frame interrupt, 0 after a line one
 snd_busy:   db 0                ; Next: pide_sonido is putting a request in its queue
+nx_sel:     db 0x52             ; Next: the register the main program last selected
+nx_ay:      db 0                ; Next: 0 with AY 1 selected, else AY 2 or 3
+snd_rec4:   ds 3*0x11           ; Next: the effects' three channels, records as
+snd_mix2:   db 0x3F             ; Konami's three at 0xE010 (sounds below 16h:
+                                ; encola_sonido, gen.py NEXT_PATCH, nx_pick), and
+                                ; AY 2's mixer (0xE043's)
+nx_pick:                        ; Next: A = an effect's number; HL = the record it
+    push bc                     ; goes to (+2, as encola_sonido's 0:4A3F wants): one
+    ld b,a                      ; already playing it, else a free one, else the
+    ld de,0x11                  ; lowest-numbered (encola_sonido then compares, as
+    ld hl,snd_rec4+2            ; Konami's channel C did)
+    ld c,3
+.same:
+    ld a,(hl)
+    and 0x7F
+    cp b
+    jr z,.got
+    add hl,de
+    dec c
+    jr nz,.same
+    ld hl,snd_rec4+2
+    ld c,3
+.free:
+    ld a,(hl)
+    or a
+    jr z,.got
+    add hl,de
+    dec c
+    jr nz,.free
+    ld hl,snd_rec4+2
+    ld a,(snd_rec4+2+0x11)
+    and 0x7F
+    ld c,a
+    ld a,(hl)
+    and 0x7F
+    cp c
+    jr c,.k1
+    ld hl,snd_rec4+2+0x11
+    ld a,c
+.k1:
+    ld c,a
+    ld a,(snd_rec4+2+0x22)
+    and 0x7F
+    cp c
+    jr nc,.got
+    ld hl,snd_rec4+2+0x22
+.got:
+    pop bc
+    ret
+nx_aysel:                       ; Next: AY chip A (FFh: 1, FEh: 2, FDh: 3) selected
+    push bc
+    ld bc,0xfffd
+    out (c),a
+    pop bc
+    cpl
+    ld (nx_ay),a
+    ret
+nx_sfx:                         ; Next, from the interrupt: the effects' three
+    ld a,0xFE                   ; channels, played on AY 2's A, B and C by Konami's
+    call nx_aysel               ; channel interpreter, with AY 2's mixer in 0xE043;
+    ld a,(0xE043-0x3100)        ; paused (0xE047), their volumes to 0, as Konami's
+    push af                     ; chime does with AY 1
+    ld a,(snd_mix2)
+    ld (0xE043-0x3100),a
+    ld a,(0xE047-0x3100)
+    or a
+    jr z,.play
+    ld e,0
+    ld a,8
+.mute:
+    call bios_0093
+    inc a
+    cp 11
+    jr nz,.mute
+    jr .done
+.play:
+    ld ix,snd_rec4
+    ld c,1
+.ch:
+    ld a,(ix+2)
+    or a
+    jr z,.off
+    call m7_8181                ; anda_un_canal
+    jr .next
+.off:
+    call m7_8206                ; calla_este_canal
+.next:
+    ld de,0x11
+    add ix,de
+    inc c
+    inc c
+    ld a,c
+    cp 7
+    jr nz,.ch
+.done:
+    ld a,(0xE043-0x3100)
+    ld (snd_mix2),a
+    pop af
+    ld (0xE043-0x3100),a
+    ld a,0xFF
+    jp nx_aysel
 snd_hold:                       ; (gen.py NEXT_PATCH, in place of its di and ei:
     push af                     ; one of the two interrupts lost there left the
     ld a,1                      ; play area unscrolled for a frame)
@@ -2198,6 +2311,14 @@ nx_init:
     dec b
     dec e
     jr nz,.r
+    ld a,0x08                   ; TurboSound on (nextreg 08h bit 1), the rest kept:
+    out (c),a                   ; the effects play on AY 2 (nx_sfx)
+    inc b
+    in a,(c)
+    or 2
+    out (c),a
+    ld a,0xFF                   ; and AY 1 selected
+    call nx_aysel
     jp 0x0109                   ; lo_init
 nx_regs:
     db 0x07,3                   ; CPU speed: 28 MHz
@@ -2218,6 +2339,10 @@ nx_regs:
     db 0x18,255
     db 0x18,0
     db 0x18,191
+    db 0x19,0                   ; sprites clipped to the play area (lines 0-175):
+    db 0x19,255                 ; none over the status lines (9 November)
+    db 0x19,0
+    db 0x19,175
 nx_regs_end:
 nx_shown:   db 0
 nx_lastbit: db 0

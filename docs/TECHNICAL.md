@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 1.1 (9 November 2026). 
+Version 1.1.1 (9 November 2026). 
 
 ## 1. What it is
 
@@ -100,7 +100,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the release build
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 1.1             # the release, tape, snapshot and .nex, in release/
+sh release.sh 1.1.1           # the release, tape, snapshot and .nex, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 
@@ -1132,7 +1132,8 @@ returns the joystick byte.  A write of the value a register already holds
 is skipped (about 12 of 19 a tick), except to the envelope shape, whose
 write restarts the envelope; `plat_boot` clears the AY's registers so that
 they match the copy (`psg_regs`).  The tempo depends on the interrupt
-running every frame (6.2).
+running every frame (6.2).  The Next plays the effects on a second AY
+(9.3).
 
 ### 6.11 Graphics loads
 
@@ -1548,20 +1549,55 @@ of the character pool, 9.5.)
   The Next's code reads a Next register in two steps: it selects the
   register (an `out` to 243Bh) and reads it (an `in` from 253Bh).  The
   interrupt selects registers too (`lo_snd`, `nx_frame`), so one that
-  comes between the two steps makes the read return another register.
-  From the main program, interrupts are held off round each such pair:
-  `lo_apply` (MMU7), and in `nx_tur.asm` `tu_bsend` and `tu_s8` (MMU2, put
-  back after use), `tu_bcq` (MMU2 and the palette control) and `tu_s8pal`
-  and `tu_znew` (the palette control).  Until 8 November the five in
-  `nx_tur.asm` read with interrupts on; a bad read of MMU2 in `tu_bsend`,
-  put back as MMU2, left another 8K page at 4000-5FFF over Konami's code,
-  and the game crashed (1.0N too).
+  comes between the two steps would make the read return another
+  register.  The main program notes the register in `nx_sel` before it
+  selects it, and the interrupt selects that register again before it
+  returns (`isr`), as it puts back the 128K's paging from `port_now`
+  (6.2).  The reads are `lo_apply` (MMU7) and, through `tu_rreg` in
+  `nx_tur.asm`, `tu_bsend` and `tu_s8` (MMU2, put back after use),
+  `tu_bcq` (MMU2 and the palette control) and `tu_s8pal` and `tu_znew`
+  (the palette control).  All run with interrupts on.  Until 8 November
+  the five in `nx_tur.asm` read with no guard; a bad read of MMU2 in
+  `tu_bsend`, put back as MMU2, left another 8K page at 4000-5FFF over
+  Konami's code, and the game crashed (1.0N too).  1.1 held interrupts
+  off round each pair instead; an interrupt lost there left the status
+  rows with the play area's scroll for a frame, seen in the Big Core
+  fight.  The only `di` left in the Next's own code is on the title
+  screen (`lo_logopal`).
+* **Sound.**  Konami's driver plays the music on the first AY, as on the
+  128K.  Its effects (sounds below 16h) go on Konami's channel C, under
+  the music: a three-channel tune (sound 26h and over: the start tune,
+  stage 1's theme, the boss tune) holds channel C, and a sound is played
+  only if its number is not below the one already there, so effects were
+  lost.  The Next has three AYs (TurboSound, NEXTREG 08h bit 1, set by
+  `nx_init`; port FFFD written with FFh, FEh or FDh selects the first,
+  second or third), and the effects play on the second.  `NEXT_PATCH`
+  puts `call nx_pick` in place of `encola_sonido`'s choice of channel C
+  (0:4A3C), so an effect goes into one of three channel records of the
+  port's own (`snd_rec4`, laid out as Konami's at E010): one already
+  playing the same sound, else a free one, else the one with the lowest
+  sound number, which Konami's own comparison then replaces or keeps.
+  After Konami's driver, `run_sound` calls `nx_sfx`, which selects the
+  second AY, swaps in its mixer byte (`snd_mix2`, for Konami's E043) and
+  runs Konami's channel routines (`m7_8181`, or `m7_8206` for a silent
+  channel) over the three records, then puts the first AY back.  While
+  `nx_ay` says another AY is selected, the WRTPSG stand-in skips its copy
+  of the first AY's registers (`psg_regs`) and writes every time.  With
+  the game paused (E047), the second AY's volumes are set to 0.  The
+  third AY is not used.  Konami's stage themes from stage 2 on (16h-25h)
+  use two channels and leave channel C to the effects; the sounds that
+  take all three channels and cut the music (the ship lost, 47h; the
+  explosion after stage 8's last boss, and the bonus target, 41h; the
+  screen going dark after a boss, 3Eh; a core destroyed, 3Bh) do so on
+  the MSX too, and the music starts again after them.
 * **Sprites** are the Next's: Konami's 64 patterns as 4-bit patterns, each
   sprite's MSX colour as its palette offset, with attributes and changed
   patterns sent when the screen they belong to is shown.  Sprites are drawn
   the scroll's distance to the left so they stay where Konami puts them;
   objects Konami moves with the scenery (its helper at 2:9251, which the
-  Next notes) move with it instead.
+  Next notes) move with it instead.  The sprite clip window (NEXTREG 19h,
+  set in `nx_regs`) is lines 0-175, so no sprite is drawn over the status
+  rows.
 * **Enemies drawn with characters** (Konami's objects with byte 11 set) are
   taken out of the map copy, the background put back under them, and drawn
   as sprites at their pixel positions.  Only rows 0-21 are handled: the map
@@ -1758,6 +1794,7 @@ of the character pool, 9.5.)
 | 0:544F | `call 5874` (the screen before each stage, 0:53C8; left out of the native build, kept for the Next by `NEXT_KEEP`) | `lo_prestage`, which puts in the coming stage's palette and bottom third | 9.5. |
 | 2:99A1, 2:99C3, 3:A19B | `ld a,(E200)` (the ship's state, choosing its sprites and where its second goes) | `lo_shipst`: with the MSX2 graphics, always the plain ship, as the patch's code does | 9.5 (the shield). |
 | 0:4A02, 0:4A11 | `di`, `ei` (pide_sonido, round its request into the sound queue) | `call snd_hold`, `call snd_free`: `snd_busy` set and cleared, and the interrupt leaves Konami's sound driver meanwhile | An interrupt that comes while they are off is lost (9.3). |
+| 0:4A3C | `ld l,34h` (encola_sonido: an effect to channel C's record, E034) | `call nx_pick`: one of the port's three records, played on the second AY | Effects not lost under three-channel music (9.3). |
 
 Each runs Konami's own instruction or routine where the build keeps it, so
 the game's logic is unchanged: Konami's 0:5874 is left out of both builds
