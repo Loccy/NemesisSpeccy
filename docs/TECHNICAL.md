@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 1.0 (5 November 2026); the 128K build's game is that of 0.110 (1 November 2026). 
+Version 1.1 (9 November 2026). 
 
 ## 1. What it is
 
@@ -100,7 +100,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the release build
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 1.0             # the release, tape, snapshot and .nex, in release/
+sh release.sh 1.1             # the release, tape, snapshot and .nex, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 

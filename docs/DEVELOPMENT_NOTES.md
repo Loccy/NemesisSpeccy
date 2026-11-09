@@ -1639,6 +1639,8 @@ has the same flash.
 see-through, and showed the scenery behind.  They are now opaque black
 (sprite colour 11, black in the walkers' two palettes).
 
+**1.1.**  Both builds take the version 1.1 (V1.1A, V1.1N).
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
