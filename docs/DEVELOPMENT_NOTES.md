@@ -1787,6 +1787,79 @@ title's version text): the route with every target (40,000 ticks), deaths
 traps pass.  The Next's .nex differs from 1.1.1N in the version's one
 digit.
 
+## 1.1.3: input lag on the 128K, the Next's drawing and 60 Hz
+
+**Where the 128K's lag goes.**  Timed press by press (first loop, every
+weapon, 779 presses, frames from the press): 1.40 to the tick that reads
+it, 1.98 to the end of that tick and the pacing decision, nothing waiting
+for the previous screen to be shown, 1.44 drawing, 0.98 to the screen
+shown down to the ship's line: 5.80 in all.  The two frames before drawing
+starts are the rest of the tick and, when the pacer leaves that tick
+undrawn, the next whole tick (0.55 ticks on average).  Waiting for the
+previous screen before the tick instead of after made the game 11% slower
+and the lag no less: the wait was not where the lag was.
+
+**Drawing the tick after a change of direction** (`INPUT_DRAW`, the 128K's
+default; `NEM_INPUTDRAW=0` for 1.1.2's pacing): `pace_adapt` compares the
+directions (`kb_cache+9` bits 0-3, the keys and a Kempston stick, not fire)
+with the last tick's and never leaves a tick where they changed undrawn;
+the debt it leaves makes the pacer skip a later one.  15 bytes in page C.
+With presses every 97 frames the median lag went from 5.49 frames to 4.51
+and the 90th percentile from 8.50 to 7.49, for 0.8% of speed (within the
+runs' noise); with presses every 17 frames (about four changes of
+direction a second), 5.50 to 4.50 and 8.50 to 6.51, for 2.7%.  The draw at
+a joystick change tried before 0.110 predates the adaptive pacer.
+
+**Why the Next left ticks undrawn.**  The Next has the time to draw every
+tick, yet over 1.1.1N's loop it left about 3% undrawn, in runs of one every
+8 ticks or so; at each, two ticks ran inside one frame.  Probes in ZEsarUX
+(breakpoints with its t-state count) showed a screen taking 1.30-1.34
+frames to draw in stage 1, so the 1-frame slots of the 2, 2, 1 rhythm were
+missed, the game ran at about 1.76 frames a tick against the pacer's 1.75,
+and the pacer's debt drifted over its slack.  The drawing: stars and setup
+0.06 of a frame, cells 0.40 (65 a screen), turrets and shots 0.01, and the
+sprites 0.83: Konami's 64 patterns compared with the copy last sent 0.19,
+the character enemies' 4-bit patterns made 0.46, Konami's 32 sprite
+entries 0.17.
+
+Two of those were work done again for nothing.  Konami's patterns change
+only with a graphics load, so all 64 are compared only after one
+(`spr_new`), and one in turn on other screens as a safety net.  The
+character enemies' patterns depend only on their four blocks of the pool:
+each slot keeps the blocks it was made from (`nx_ckey`, fixed memory), and
+a store of the last 32 patterns made, in bank 12's first 8K (unused until
+now), is searched before making one.  Stage 1's opening has only 9
+different patterns.  A first version kept only the slots: 0.84 of a frame
+a screen, still over a frame for a quarter of them.  With the store: 0.71
+on average, over a frame for 0.1% of screens, and in stage 1's first 30
+seconds 4 ticks undrawn of 874 where 1.1.2 left 143.  Bank 8's code below
+2000 had 51 bytes left; the hooks in it take 11, the rest is in fixed
+memory (`lo_ci` moved there too).
+
+Checked in ZEsarUX (`cachecheck.py`): at each hit the slot's pattern and
+palette were read, the hit turned into a miss so the pattern was made
+again as before, and the two compared.  The first store build had two
+bugs, a register overwritten in the copy and a key offset that wrapped
+for entries past 25; the check found them at once.
+
+**GAME OVER's colours.**  On the Next the game-over text took the stage's
+palette (dark olive in stage 8): the title and the ending put the TMS9918's
+text is drawn from the copies in Layer 2's entries 0-15, which hold the
+stage's colours.  `nl_gameover` now puts stage 1's 16 colours there
+(`nx_gopal`, the status line's set), so GAME OVER looks the same after
+every stage; nothing else changes, and a continue's stage load puts the
+stage's colours back.  (A first try called `lo_marcador`, which also turns
+the stage's graphics off, status line and all: Konami's original look,
+which is for the title and the ending only.)
+
+**60 Hz.**  A Next set to 60 Hz (NEXTREG 05h bit 2; NMI + 3 on the Next's
+keyboard) has frames of 262-264 lines, 60 a second, and the game ran 20%
+fast, its music too.  `nx_hz` reads the setting each frame: screens are 2
+frames apart at 60 Hz (30 ticks a second, as at 50), the pacer's rhythm
+is the same in 60 Hz frames, and Konami's sound driver is left out one
+frame in six.  Played in JNext.  ZEsarUX does not change its frame timing
+at 60 Hz.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -1819,7 +1892,7 @@ replay from.  They compare memory, not the picture, so a wrong scroll
 split, palette or hardware sprite passes them, and the Next build is also
 played (1.1's flash was found that way).
 
-## Where it stands (1.1.2)
+## Where it stands (1.1.3)
 
 * The 128K build has no MSX graphics.  Every graphics load is a load of
   tiles and sprite patterns converted when the game is built, and
@@ -1832,6 +1905,8 @@ played (1.1's flash was found that way).
 * 1.1's tape (70,445 bytes) passes the simulated load.
 * Since 1.1.2 a sprite colours and erases only the cells its pixels
   reach; its screens match 1.1.1's pixel for pixel over those three routes.
+* Since 1.1.3 a tick where the directions change is always drawn: a frame
+  off the typical input lag (median 4.5 frames, the MSX's 2.8).
 * Fixed memory has 1.5 KB free below AD00 (`platform_end` A700), and the
   switched banks about 1.4 KB, in pieces of at most 384 bytes.
 * Speed: over the first two stages in light play, 24.57 ticks and 14.7
@@ -1845,4 +1920,7 @@ played (1.1's flash was found that way).
   to 1.0N's at every point compared.  1.0N's crash and one-frame flash
   are fixed in it.  From 1.1.1 its sound effects play on a second AY, its
   sprites are not drawn over the status rows, and no code in play
-  disables interrupts.
+  disables interrupts.  From 1.1.3 it draws a screen in about 0.7 of a
+  frame (1.3 before, in stage 1's opening in ZEsarUX), so it shows nearly
+  every tick, and it keeps its
+  speed and its music's tempo at 60 Hz.

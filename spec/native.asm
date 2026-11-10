@@ -113,7 +113,9 @@ nl_prestage:                    ; 0:53D4 (lo_prestage follows, at 0:544F)
 nl_gameover:                    ; 0:54DD
     call nl_save
     ld hl,nxl_gameover_d
-    jr nx_desc
+    call nx_load
+    call nx_gopal               ; (1.1.3) its text in stage 1's colours, whatever the stage
+    jp nl_restore
 nl_marcador:                    ; 0:4C2E
     call nl_save
     ld hl,nxl_marcador_d
@@ -131,6 +133,26 @@ nx_desc:
 nx_tms:
     call 0x011E                 ; lo_marcador (A = 1: the title)
     jp nl_restore
+; Game over (nl_gameover): Layer 2's entries 0-15, which text drawn from the
+; copies uses, get stage 1's 16 colours (the status line's, F0-FF), so GAME
+; OVER looks the same after every stage; everything else stays as in play (no
+; lo_marcador: that is Konami's original look, for the title and the ending
+; only).  A continue's stage load (lo_apply) puts the stage's colours back.
+NX_ST1PAL   equ 33              ; 8K page: stage 1's VRAM 2000-3FFF, its palette at 1800
+nx_gopal:
+    db 0xED,0x91,0x52,NX_ST1PAL ; at 4000
+    db 0xED,0x91,0x43,0x10      ; Layer 2's first palette, from entry 0
+    db 0xED,0x91,0x40,0x00
+    ld hl,0x5800
+    ld b,32
+.p:
+    ld a,(hl)
+    db 0xED,0x92,0x44
+    inc hl
+    djnz .p
+    db 0xED,0x91,0x43,0x00
+    db 0xED,0x91,0x52,0x0A
+    ret
 
 ; HL = an event's descriptors (colours, patterns, sprite patterns).
 nx_load:
@@ -359,6 +381,10 @@ nl_done:                        ; every cell redrawn at the end of the tick
     ld (star_stale),a
     ifdef TRIM
     ld (spx_stale),a            ; the sprite patterns' extents to be worked out again
+    endif
+    ifdef NEXT
+    ld (spr_new),a              ; Next: lo_sprites compares all 64 patterns again,
+    call nx_cclr                ; and makes every character enemy afresh
     endif
     ld hl,nl_count
     inc (hl)

@@ -461,7 +461,10 @@ lo_ovflag:
 
 ; From the native loads of the title (A = 1: the logo's colours too), the
 ; ending and its status line (A = 0): none of our drawings, the TMS9918's
-; colours, as Konami's 0:5851 (carga_el_marcador) did here before.
+; colours, as Konami's 0:5851 (carga_el_marcador) did here before: Konami's
+; original look, for those two screens only (the ending's explosion is
+; Konami's).  Nothing else turns the stage's graphics off; a screen that
+; needs fixed colours takes stage 1's, as the status line and game over do.
 lo_marcador:
     push hl
     push de
@@ -1502,11 +1505,43 @@ lo_row:
 
 ; Konami's sprites and the character enemies, for the screen just drawn:
 ; changed patterns noted (sent by lo_sprflip), attributes into LO_ATTR.
+; Konami's patterns change only with a graphics load (spr_new: set by
+; nl_done, which lo_stage calls before lo_apply copies the stage's patterns,
+; and by nx_clear; 1 at boot, after lo_init), when all 64 are compared with
+; the copy; on other pictures one, in turn (lo_sproll), as a safety net:
+; about 0.2 of a frame less a picture (1.1.3).
+lo_sproll:  db 0
+lo_spe:     db 64
 lo_sprites:
     db 0xED,0x91,0x52,15        ; bank 7's F800-FFFF: Konami's patterns at 5800
-    ld hl,0x5800
-    ld de,LO_SPAT
-    ld c,0                      ; pattern
+    ld hl,spr_new
+    ld a,(hl)
+    ld (hl),0
+    or a
+    ld a,64                     ; all: patterns 0 to 63
+    ld c,0
+    jr nz,.go
+    ld a,(lo_sproll)            ; one: the next in turn
+    inc a
+    and 63
+    ld (lo_sproll),a
+    ld c,a
+    inc a
+.go:
+    ld (lo_spe),a               ; the pattern to stop at
+    ld a,c                      ; HL = 5800 + C * 32 = (2C0 + C) * 32
+    add a,0xC0
+    ld l,a
+    ld h,2
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld a,h                      ; DE = LO_SPAT + C * 32
+    sub 0x58-(LO_SPAT>>8)
+    ld d,a
+    ld e,l
 .pat:
     push hl
     push de
@@ -1547,9 +1582,9 @@ lo_sprites:
     inc d
 .a2:
     inc c
-    ld a,c
-    cp 64
-    jr c,.pat
+    ld a,(lo_spe)
+    cp c
+    jr nz,.pat
     db 0xED,0x91,0x52,0x0A
     ; the character enemies' 4-bit patterns
     ld a,(lo_nobj)
@@ -1983,6 +2018,8 @@ lo_pconv:
     ld a,(lo_pq)
     cp b
     jr nz,.q
+    call nx_cchk                ; (1.1.3) this slot holds these blocks' pattern?
+    jr z,.chit
     ld a,(lo_pours)             ; below 20h: none (ours), or all
     and 0x80
     jr z,.t
@@ -2057,6 +2094,8 @@ lo_pconv:
     ld a,(lo_pq)
     cp b
     jr nz,.cq
+    call nx_cput                ; its palette, with the blocks noted by nx_cchk
+.chit:
     ld a,(lo_pours)
     rla
     jr nc,.np
@@ -2076,6 +2115,7 @@ lo_pconv:
     pop bc
     pop de
 .no:
+    call nx_cinv                ; the slot made otherwise (lo_conv): no blocks
     db 0xED,0x91,0x52,0x0A
     pop ix
     or 1                        ; NZ
@@ -2098,7 +2138,6 @@ lo_pconv:
     xor a
     ret
 lo_cr:      dw 0
-lo_ci:      db 0
 
 ; The Big Core (stages 1-6) drawn with sprites so that it moves smoothly.
 ; Konami draws its 11 x 8 characters into the map at (E785, E783), whole
@@ -3873,7 +3912,8 @@ lo_mdone:
     ld (lo_rpend),a
     ret
 
-lo_enh:     db 0                ; the MSX2 graphics are in
+lo_enh:     db 0                ; a stage's graphics are loaded (lo_apply); 0 only on the
+                                ; title and the ending (lo_marcador)
 lo_par:     db 0
 lo_firesh:  db 0                ; entry 0 drawn in fire colours
 lo_mpo:     db 0                ; palette offset of the line-coloured pattern

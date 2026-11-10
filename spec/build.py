@@ -95,6 +95,10 @@ def main():
     # only; NEM_TRIM=0 for the full boxes of 1.1.1 and before).
     if os.environ.get('NEM_TRIM') != '0' and os.environ.get('NEM_NEXT') != '1':
         defs.append('-DTRIM=1')
+    # A tick whose directions changed is always drawn (1.1.3, the 128K only:
+    # a frame off the typical input lag); NEM_INPUTDRAW=0 for 1.1.2's pacing.
+    if adapt and os.environ.get('NEM_INPUTDRAW') != '0' and os.environ.get('NEM_NEXT') != '1':
+        defs.append('-DINPUT_DRAW')
     if os.environ.get('NEM_INVERT') == '0':
         defs.append('-DNO_INVERT=1')    # dense tiles stored as converted (not inverted)
     if os.environ.get('NEM_HOLD'):

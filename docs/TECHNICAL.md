@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 1.1.2 (10 November 2026). 
+Version 1.1.3 (10 November 2026). 
 
 ## 1. What it is
 
@@ -100,7 +100,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the release build
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 1.1.2           # the release, tape, snapshot and .nex, in release/
+sh release.sh 1.1.3           # the release, tape, snapshot and .nex, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 
@@ -531,7 +531,7 @@ Free space in the current build, about 4,400 bytes in all:
 | Bank 0 (page A) | 290 | FEDE-FFFF (it holds sjasmplus's default UDGs at FF58, which nothing uses) |
 | Bank 1 (page E) | 439 | E645-E768 (292), FF91-FFFF (111), FAF2-FB03 (18), F202-F20E (13), EEBC-EEC0 (5) |
 | Bank 3 (page B) | 397 | FF39-FFFF (199), F10B-F1D0 (198) |
-| Bank 4 (page C) | 274 | FF2C-FFFF (212), E108-E13F (56), E7FA-E7FF (6) |
+| Bank 4 (page C) | 252 | FF2C-FFFF (212), E11E-E13F (34, after 1.1.3's `pace_dir` check), E7FA-E7FF (6) |
 | Bank 6 (page D) | 446 | E64E-E7FF (434), FFF4-FFFF (12) |
 | Bank 7 (page 7) | 184 | F769-F7FF (151), F65F-F67F (33, before `spr_pmap`'s 128-byte alignment) |
 
@@ -1004,7 +1004,11 @@ a tick (about 26.7 ticks a second, near the MSX's), and a tick is left
 undrawn while the game is behind that rhythm by more than a frame, but never
 two in a row.  The balance (`pace_debt`, in eighths of a frame) is clamped
 to between 4 frames ahead and 8 behind, so a slow stretch does not leave a
-debt that makes a quiet one skip.  Screens are at least one frame apart.  In
+debt that makes a quiet one skip.  Since 1.1.3 a tick in which the
+directions differ from the last tick's (`kb_cache+9` bits 0-3: the keys
+and a Kempston stick; fire does not count) is always drawn; the debt it
+leaves makes the pacer skip a later one (`INPUT_DRAW`; `NEM_INPUTDRAW=0`
+for 1.1.2's pacing).  Screens are at least one frame apart.  In
 busy play this falls back to one tick in two, as the fast edition of
 0.98-0.109 drew all the time; where there is room it draws every tick.  The
 title shows the version ending in A.  Build options: `NEM_ADAPT=T,SLACK` for
@@ -1095,6 +1099,25 @@ converted tiles; the native build never shows fewer than 6 screens in a
 second.  In play the gain is less in the average than in consistency: no
 obvious lags at the turrets and the like, where 1.0 converted tiles as they
 scrolled in.
+
+Where the 128K's input lag goes (1.1.2, first loop, all weapons, 779
+presses; frames from the press): to the tick that reads it and moves the
+ship, 1.40; to the end of that tick and the pacing decision, 1.98 (the
+rest of the tick, and the next whole tick when the pacer leaves that one
+undrawn: 0.55 ticks on average); waiting for the previous screen to be
+shown, nil; drawing, 1.44; to the screen shown down to the ship's line,
+0.98; 5.80 in all.  Waiting for the previous screen before the tick
+instead of after was tried: 11% slower, no less lag.  Drawing the tick
+after a change of direction (1.1.3) was measured with presses every 97
+frames and every 17 (about four changes of direction a second):
+
+| | 1.1.2, 97 | 1.1.3, 97 | 1.1.2, 17 | 1.1.3, 17 |
+|---|---|---|---|---|
+| Ticks a second | 24.67 | 24.47 | 24.48 | 23.81 |
+| Screens a second | 15.23 | 15.38 | 14.98 | 15.49 |
+| Input lag, median (frames) | 5.49 | 4.51 | 5.50 | 4.50 |
+| Input lag, mean | 5.79 | 5.20 | 5.81 | 5.05 |
+| Input lag, 90th percentile | 8.50 | 7.49 | 8.50 | 6.51 |
 
 ### 6.9 Input
 
@@ -1429,7 +1452,12 @@ of the character pool, 9.5.)
   `nx_tur.asm`, and a few short routines it and the sprite colours use, are
   assembled into four free parts of this map, 3360-3434, 3448-34E6,
   3A60-3AE3 (the dissolve's fade) and 3B40-3C38.  The code below 2000,
-  with its buffers, ends at 1FC4.
+  with its buffers, ends at 1FFD.
+* Bank 12's first 8K (page 24, otherwise unused and not in the `.nex`)
+  holds the store of character enemies' patterns (1.1.3, 9.3): 32 patterns
+  at 0000-0FFF, their keys at 1000-113F, mapped at 6000 (MMU3) only while
+  it is read or filled.  Fixed memory (Next only) holds the slots' keys
+  (`nx_ckey`) and the code that uses them (`nx_cchk`, `nx_cput`).
 * Sprite patterns: 0-63 are Konami's; 64-85 the character enemies lifted
   out; 86-95 stage 8's bolts or the Big Core's core; 96-101 the MSX2
   patch's line-coloured sprites; 102 the volcano rocks; 103 takes the rest
@@ -1448,10 +1476,19 @@ of the character pool, 9.5.)
   a second).  The cap matters: without it a fast enough machine runs a
   tick every frame.  `NEM_PACE=25` builds the earlier pacing (screens at
   least two frames apart, the 128K's rhythm of 15 eighths, about 26.7 ticks
-  a second).  In ZEsarUX at 28 MHz the game keeps up only with some ticks
-  undrawn (about 22 screens a second); JNEXT runs it faster.  ZEsarUX by
+  a second).  Up to 1.1.2 a screen took about 1.3 frames to draw (ZEsarUX,
+  stage 1), so the 1-frame slots were missed, the game ran right at the
+  pacer's threshold and it left ticks undrawn (about 3% over the loop, 17%
+  in stage 1's opening); 1.1.3 draws in about 0.7 of a frame (the sprite
+  changes below) and leaves almost none undrawn.  ZEsarUX by
   default holds this `.nex` at 14 MHz (its turbo limit applies when the
   file is loaded); `--allowturbotbbluerom` lifts it.
+* At 60 Hz (NEXTREG 05h bit 2, which the Next's NMI + 3 toggles; frames
+  then have 262-264 lines and come 60 times a second) the game keeps its
+  50 Hz speed (1.1.3, `nx_hz`, read each frame): screens are 2 frames
+  apart (30 ticks a second), the pacer's rhythm is the same in 60 Hz
+  frames (`pace_t`: 17 eighths instead of 14), and Konami's sound driver
+  is left out one frame in six, so the music keeps its tempo.
 
 ### 9.3 Drawing
 
@@ -1601,7 +1638,11 @@ of the character pool, 9.5.)
   the MSX too, and the music starts again after them.
 * **Sprites** are the Next's: Konami's 64 patterns as 4-bit patterns, each
   sprite's MSX colour as its palette offset, with attributes and changed
-  patterns sent when the screen they belong to is shown.  Sprites are drawn
+  patterns sent when the screen they belong to is shown.  Konami's
+  patterns change only with a graphics load, so since 1.1.3 all 64 are
+  compared with the copy last sent only after one (`spr_new`, set by
+  `nl_done` and `nx_clear`), and one in turn on other screens as a
+  safety net (`lo_sproll`).  Sprites are drawn
   the scroll's distance to the left so they stay where Konami puts them;
   objects Konami moves with the scenery (its helper at 2:9251, which the
   Next notes) move with it instead.  The sprite clip window (NEXTREG 19h,
@@ -1625,7 +1666,16 @@ of the character pool, 9.5.)
   A character a load has changed since the stage loaded, or one with no
   block, and Konami's two-character objects (byte 11 from 2 to 5:
   characters A1-A2, BF-C0, 58-59 or 60-61, which the Big Core's load
-  supplies), are converted from the store instead (`lo_conv`).
+  supplies), are converted from the store instead (`lo_conv`).  The
+  pattern made from the pool depends only on its four blocks, so since
+  1.1.3 it is kept (`nx_cchk`, `nx_cput`): each of the 22 slots notes the
+  blocks it was made from, and a slot whose enemy has the same blocks next
+  time is left as it is; otherwise a store of the last 32 patterns made
+  (page 24) is searched and a match copied in, and only a pattern in
+  neither is made.  Both are emptied by each graphics load (`nx_cclr`).
+  Enemies with two blocks (row 21) are made every time.  Stage 1's opening
+  has 9 different patterns; making them took about 0.46 of a frame a
+  screen, comparing Konami's patterns 0.19.
 * **The Big Core** (the boss of stages 1-6) is drawn with characters,
   11 by 8, and Konami moves it a whole character at a time: in from the
   right one step every 8 ticks, then up or down a step every 3 to 5 ticks
@@ -1813,6 +1863,11 @@ into the sound queue the interrupt leaves alone the driver that reads it.
 changed.  Konami's status-line loader (0:5851), where `lo_marcador` was
 hooked before, is left out of the native build; the native loads of the
 title, the ending and its status line call `lo_marcador` instead (9.5).
+`lo_marcador` gives those two screens Konami's original look (the TMS9918's
+colours, none of our drawings, the status line from the copies; `lo_enh`
+0, which means only that no stage's graphics are loaded).  Nothing else
+uses it: game over keeps the stage's graphics and gives its text stage
+1's colours (`nx_gopal`, 1.1.3).
 
 ### 9.5 The graphics
 

@@ -74,6 +74,10 @@ lo_gnd:
 lo_tick:
     ld (lo_off),a
     ifdef PACE_30
+    ld a,(nx_hz60)              ; at 60 Hz (nx_hz): screens 2 frames apart,
+    or a                        ; 30 ticks a second as at 50
+    ld a,2
+    jr nz,.n3
     ld hl,lo_p30                ; NEM_PACE=30: screens 2, 2, 1 frames apart,
     dec (hl)                    ; at most 30 ticks a second at 50 Hz however
     ld a,2                      ; fast the machine (request_flip takes
@@ -412,5 +416,6 @@ lo_objs:    ds OBJ_MAX*8
 lo_pats:    ds OBJ_MAX*32       ; 1-bit patterns, TMS order
 lo_end:
     assert lo_end <= LO_SPAT
+    assert NX_PQ == lo_pq && NX_PBLK == lo_pblk && NX_PPAL == lo_ppal && NX_CSLOTS == OBJ_MAX && LO_CPAT == 0x2800 && NX_ST1PAL == ENH_BANK*2+1
 
     savebin "nx_low.bin", 0x0000, 0x4000

@@ -233,6 +233,8 @@ nx_clear:                       ; A: pages C and D E800-FFFF, bank 7 F800-FFFF
     ld a,PAGE_7
     ld hl,0xF800
     call .fill
+    ld a,1
+    ld (spr_new),a
     call unborrow_page
     pop bc
     pop hl
@@ -1657,6 +1659,8 @@ run_sound:
     ld a,(snd_busy)             ; Next: Konami's sound request under way (0:4A02-
     or a                        ; 0:4A11, run without di): the driver, which reads
     jr nz,.nodrv                ; its queue, waits a frame
+    call nx_hz                  ; at 60 Hz, one frame in six left out: Konami's
+    jr nz,.nodrv                ; driver runs 50 times a second either way
     call m7_8063                ; the music (and the pause chime) on AY 1
     call nx_sfx                 ; the effects on AY 2
 .nodrv:
@@ -1742,6 +1746,251 @@ nx_tog:     db 0                ; Next: 1 after a frame interrupt, 0 after a lin
 snd_busy:   db 0                ; Next: pide_sonido is putting a request in its queue
 nx_sel:     db 0x52             ; Next: the register the main program last selected
 nx_ay:      db 0                ; Next: 0 with AY 1 selected, else AY 2 or 3
+nx_hz60:    db 0                ; Next: 4 when the machine is at 60 Hz (NextReg 0x05 bit 2)
+nx_hzc:     db 6                ; Next, 60 Hz: frames to the next one without the sound driver
+; Next (1.1.3): the character enemies' 4-bit patterns kept between pictures.
+; lo_pconv makes slot (lo_ci) - 1 from four (or two) blocks of the stage's
+; character pool; the pattern depends only on those blocks, so a slot whose
+; blocks are the ones it was last made from is left as it is.  Per slot: the
+; blocks to make (lo_pq; 0: none noted), the four blocks (page, number), the
+; palette the conversion found (lo_ppal).  Cleared at each graphics load
+; (nl_done, before lo_apply copies the pool).
+NX_PQ       equ 0x3FF2          ; nx_l2.asm's lo_pq, lo_pblk, lo_ppal (asserted there)
+NX_PBLK     equ 0x3FE4
+NX_PPAL     equ 0x3FEF
+NX_CSLOTS   equ 22              ; OBJ_MAX
+nx_ckey:    ds NX_CSLOTS*10
+NX_STORE    equ 24              ; 8K page (bank 12's first half, otherwise unused):
+NX_SN       equ 32              ; 32 patterns made (6000-6FFF at MMU3), their keys at 7000
+nx_snext:   db 0                ; the store's entry to fill next
+nx_snew:    db 1                ; empty the store before its next use (a graphics load)
+lo_ci:      db 0                ; Next: lo_sprites' character enemy record (nx_l2.asm)
+spr_new:    db 1                ; Next: Konami's sprite patterns (bank 7 F800) written since
+                                ; lo_sprites last compared them all (nl_done, nx_clear)
+; HL = slot (lo_ci) - 1's entry in nx_ckey.  Uses DE.
+nx_cslot:
+    ld a,(lo_ci)
+    dec a
+    ld l,a
+    add a,a
+    add a,a
+    add a,l
+    add a,a                     ; * 10
+    ld l,a
+    ld h,0
+    ld de,nx_ckey
+    add hl,de
+    ret
+; After lo_pconv has found the blocks: Z if the slot was made from the same
+; ones (lo_ppal as it was then), or if the store holds their pattern (copied
+; into the slot); NZ otherwise, the blocks noted for nx_cput.  Only four
+; blocks: with two (row 21) lo_pconv has already cleared the slot's bottom
+; half, so it is made every time.
+nx_cchk:
+    call nx_cslot
+    ld a,(NX_PQ)
+    cp 4
+    jr nz,.two
+    push hl
+    cp (hl)
+    jr nz,.new
+    inc hl
+    ld de,NX_PBLK
+    ld b,8
+.c:
+    ld a,(de)
+    cp (hl)
+    jr nz,.new
+    inc de
+    inc hl
+    djnz .c
+    pop de
+    ld a,(hl)
+    ld (NX_PPAL),a
+    xor a
+    ret
+.new:
+    pop de
+    ld a,4
+    ld (de),a
+    inc de
+    ld hl,NX_PBLK
+    ld bc,8
+    ldir                        ; the slot's blocks noted
+    ex de,hl                    ; HL = its palette byte
+    push hl
+    db 0xED,0x91,0x53,NX_STORE  ; the store at 6000
+    call nx_sfind
+    jr nz,.out
+    ld a,(de)                   ; found: its palette
+    ld (NX_PPAL),a
+    pop hl
+    ld (hl),a
+    push hl
+    call nx_sslot               ; and its pattern into the slot
+    ex de,hl
+    ld h,b
+    ld l,c
+    ld bc,128
+    ldir
+    xor a                       ; Z
+.out:
+    pop hl
+    db 0xED,0x91,0x53,0x0B      ; MMU3 back (as lo_cells leaves it)
+    ret
+.two:
+    ld (hl),0                   ; none noted
+    or 1
+    ret
+nx_cput:                        ; after the conversion: its palette, and the
+    call nx_cslot               ; pattern into the store (in turn)
+    ld de,9
+    add hl,de
+    ld a,(NX_PPAL)
+    ld (hl),a
+    ld a,(NX_PQ)
+    cp 4
+    ret nz
+    db 0xED,0x91,0x53,NX_STORE
+    call nx_sclr
+    ld a,(nx_snext)
+    ld c,a
+    inc a
+    and NX_SN-1
+    ld (nx_snext),a
+    ld l,c                      ; DE = its key: 7000 + C * 10
+    ld h,0
+    add hl,hl
+    ld d,h
+    ld e,l
+    add hl,hl
+    add hl,hl
+    add hl,de
+    ld de,0x7000
+    add hl,de
+    ex de,hl
+    ld a,1                      ; valid, the blocks, the palette
+    ld (de),a
+    inc de
+    ld hl,NX_PBLK
+    push bc
+    ld bc,8
+    ldir
+    pop bc
+    ld a,(NX_PPAL)
+    ld (de),a
+    ld h,c                      ; its pattern: 6000 + C * 128
+    ld l,0
+    srl h
+    rr l
+    ld a,h
+    add a,0x60
+    ld d,a
+    ld e,l
+    call nx_sslot
+    ld bc,128
+    ldir
+    db 0xED,0x91,0x53,0x0B
+    ret
+; HL = the slot's pattern (LO_CPAT + slot * 128).  Uses A.
+nx_sslot:
+    ld a,(lo_ci)
+    dec a
+    ld h,a
+    ld l,0
+    srl h
+    rr l
+    ld a,h
+    add a,0x28                  ; LO_CPAT (asserted in nx_low.asm)
+    ld h,a
+    ret
+; The store (MMU3 = NX_STORE): emptied first after a graphics load; then the
+; entry whose key is NX_PBLK: Z, DE = its palette byte, BC = its pattern
+; (6000 + entry * 128); NZ if none.
+nx_sclr:
+    ld a,(nx_snew)
+    or a
+    ret z
+    xor a
+    ld (nx_snew),a
+    ld hl,0x7000
+    ld b,NX_SN
+.z:
+    ld (hl),a
+    ld de,10
+    add hl,de
+    djnz .z
+    ret
+nx_sfind:
+    call nx_sclr
+    ld hl,0x7000
+    ld bc,0x6000
+.e:
+    ld a,(hl)
+    or a
+    jr z,.next
+    push hl
+    push bc
+    inc hl
+    ld de,NX_PBLK
+    ld b,8
+.k:
+    ld a,(de)
+    cp (hl)
+    jr nz,.ne
+    inc de
+    inc hl
+    djnz .k
+    ex de,hl                    ; DE = the palette byte
+    pop bc
+    pop hl
+    xor a
+    ret
+.ne:
+    pop bc
+    pop hl
+.next:
+    ld de,10
+    add hl,de
+    ld a,c
+    add a,128
+    ld c,a
+    jr nc,.n2
+    inc b
+.n2:
+    ld a,b
+    cp 0x70
+    jr c,.e
+    or 1                        ; NZ (A = 70h)
+    ret
+nx_cinv:                        ; the slot made from the copies: no blocks.
+    push hl                     ; Preserves BC, DE, HL.
+    push de
+    call nx_cslot
+    ld (hl),0
+    pop de
+    pop hl
+    ret
+nx_cclr:                        ; a graphics load: none.  Preserves DE.
+    ld a,1
+    ld (nx_snew),a
+    push bc
+    ld hl,nx_ckey
+    ld b,NX_CSLOTS
+.z:
+    ld (hl),0
+    ld a,l
+    add a,10
+    ld l,a
+    jr nc,.n
+    inc h
+.n:
+    djnz .z
+    pop bc
+    ret
+    ifdef ADAPT
+pace_t:     db PACE_T           ; Next: pace_adapt's rhythm, eighths of a frame a tick (by 50/60 Hz)
+    endif
 snd_rec4:   ds 3*0x11           ; Next: the effects' three channels, records as
 snd_mix2:   db 0x3F             ; Konami's three at 0xE010 (sounds below 16h:
                                 ; encola_sonido, gen.py NEXT_PATCH, nx_pick), and
@@ -2131,7 +2380,20 @@ nx_tick:
 pace_last:  db 0
 pace_debt:  db 0
 pace_prev:  db 0
+    ifdef INPUT_DRAW
+pace_dir:   db 0x0F             ; the directions at the last tick (kb_cache+9 bits 0-3)
+pace_chg:   db 0                ; not 0: they changed this tick
+    endif
 pace_adapt:
+    ifdef INPUT_DRAW
+    ld a,(kb_cache+9)           ; a tick whose directions differ from the last
+    and 0x0F                    ; tick's is drawn (the press shows sooner);
+    ld hl,pace_dir              ; the debt it leaves skips a later one
+    sub (hl)
+    ld (pace_chg),a
+    add a,(hl)
+    ld (hl),a
+    endif
     ld hl,pace_last
     ld a,(frames)
     ld b,(hl)
@@ -2144,7 +2406,14 @@ pace_adapt:
     add a,a
     add a,a
     add a,a
+    ifdef NEXT
+    ld de,pace_t                ; (by 50/60 Hz, nx_hz)
+    ex de,hl
+    sub (hl)
+    ex de,hl
+    else
     sub PACE_T
+    endif
     inc hl                      ; pace_debt
     add a,(hl)
     bit 7,a
@@ -2167,6 +2436,11 @@ pace_adapt:
     ld a,(hl)
     or a
     jr nz,.draw                 ; never two in a row
+    ifdef INPUT_DRAW
+    ld a,(pace_chg)
+    or a
+    jr nz,.draw
+    endif
     ld (hl),1
     scf
     ret
@@ -2346,6 +2620,39 @@ nx_regs:
 nx_regs_end:
 nx_shown:   db 0
 nx_lastbit: db 0
+; At each frame interrupt (run_sound, page D in): the machine's 50/60 Hz
+; setting (NextReg 0x05 bit 2, which the F3 key toggles in play), noted for
+; the pacing (lo_tick: screens 2 frames apart at 60 Hz, 30 ticks a second as
+; at 50; pace_adapt's rhythm the same in ticks a second); NZ on one frame in
+; six at 60 Hz, which run_sound leaves without Konami's sound driver, so the
+; music keeps its 50 Hz tempo.
+nx_hz:
+    ld bc,0x243B
+    ld a,0x05
+    out (c),a
+    inc b
+    in a,(c)
+    and 4
+    ld (nx_hz60),a
+    ifdef ADAPT
+    ld a,PACE_T
+    jr z,.t
+    ld a,(PACE_T * 6 + 2) / 5   ; the same rhythm in 60 Hz frames
+.t:
+    ld (pace_t),a
+    ld a,(nx_hz60)
+    endif
+    or a
+    ret z                       ; 50 Hz: Z, the driver runs
+    ld hl,nx_hzc
+    dec (hl)
+    jr z,.skip
+    xor a                       ; Z: the driver runs
+    ret
+.skip:
+    ld (hl),6
+    or a                        ; (A = 4) NZ: left out this frame
+    ret
 nx_frame:                       ; from the frame interrupt, page D in
     ld bc,0x243B
     ld a,0x1E                   ; the line now: if it is the line interrupt's,
