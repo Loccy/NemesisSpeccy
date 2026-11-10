@@ -357,6 +357,9 @@ nl_done:                        ; every cell redrawn at the end of the tick
     ld (chg_n),a
     ld a,1
     ld (star_stale),a
+    ifdef TRIM
+    ld (spx_stale),a            ; the sprite patterns' extents to be worked out again
+    endif
     ld hl,nl_count
     inc (hl)
     ret

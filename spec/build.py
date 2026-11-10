@@ -91,6 +91,10 @@ def main():
     defs.append('-DFRAMES_PER_TICK=%d' % int(os.environ.get('NEM_FPT', '1')))
     if draw_every:
         defs.append('-DFLIP_FRAMES=%d' % int(os.environ.get('NEM_FLIP', '3')))
+    # Sprite boxes trimmed to the cells their pixels reach (1.1.2, the 128K
+    # only; NEM_TRIM=0 for the full boxes of 1.1.1 and before).
+    if os.environ.get('NEM_TRIM') != '0' and os.environ.get('NEM_NEXT') != '1':
+        defs.append('-DTRIM=1')
     if os.environ.get('NEM_INVERT') == '0':
         defs.append('-DNO_INVERT=1')    # dense tiles stored as converted (not inverted)
     if os.environ.get('NEM_HOLD'):

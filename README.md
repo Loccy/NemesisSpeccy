@@ -17,7 +17,7 @@ The game logic is Konami's, unchanged except where it meets the hardware. A test
 Departures from the MSX original are all deliberate:
 
 * The front end goes straight to the title screen: no Konami logo, no attract cycle (demo play and the illustration).  The title carries the controls and a credit line. This is to save on space - it was a tight fit!
-* Colours are chosen for the Spectrum's attribute cells: tiles are fitted to two colours per cell when the game is built, sprites take one ink per cell, and a few objects get colours of their own (technical description, sections 6.6 and 6.7). Where the automatic fit made a mess of the scenery (the bricks of stage 2 and the bonus stages, the Moai of stage 3, the brains of stages 6 and 8, the band and formations of stage 7 and the pipework of stage 8), the colours were picked by hand instead, stage by stage, against the MSX.
+* Colours are chosen for the Spectrum's attribute cells: tiles are fitted to two colours per cell when the game is built, sprites take one ink in each cell their pixels reach, and a few objects get colours of their own (technical description, sections 6.6 and 6.7). Where the automatic fit made a mess of the scenery (the bricks of stage 2 and the bonus stages, the Moai of stage 3, the brains of stages 6 and 8, the band and formations of stage 7 and the pipework of stage 8), the colours were picked by hand instead, stage by stage, against the MSX.
 * The ship keeps the MSX's shape, but on the MSX it is two sprites one over the other: white, with a red canopy, and a light blue belly when it climbs. A Spectrum cell has one colour, so the canopy is drawn as a black line inside the white outline, and the belly as a stippled pattern.
 
 Everything Konami made is still Konami's: see [LEGAL-NOTICE.md](LEGAL-NOTICE.md) for who owns what.
@@ -42,7 +42,7 @@ The same game also builds for the ZX Spectrum Next, as a `.nex` file. It runs th
 * The screen scrolls smoothly, a pixel at a time, where the MSX moves the scenery a character (8 pixels) at a time. Enemies that Konami draws with characters are lifted out and drawn as sprites, so they move smoothly too.
 * The graphics began as those of the MSX2 patch "Nemesis - Gradius ENHANCED" (V1.01, by Victor Martinez and Toni Galvez, based on SHALOM's). Over time most of these have been swapped out for graphics either from the arcade game or new original graphics. The graphics for the Next are kept in this repository (`spec/nxgfx/`) and changed from there, so the build does not need the patch.
 
-The title screen shows the version ending in N: V1.1.1N. It has been played on a ZX Spectrum Next (KS2) and an N-Go, as well as in emulators.
+The title screen shows the version ending in N: V1.1.2N. It has been played on a ZX Spectrum Next (KS2) and an N-Go, as well as in emulators.
 
 ![The Next: stage 1, with the laser](docs/images/next_01_stage1_laser.png)
 ![The Next: stage 1's Big Core](docs/images/next_02_stage1_big_core.png)
@@ -65,7 +65,7 @@ The title screen shows the version ending in N: V1.1.1N. It has been played on a
 
 ### One edition
 
-Since 0.110 there is one edition. It draws every game tick while the game keeps up with the MSX's pace, and skips drawing one tick in two (no more) when it falls behind, so quiet stretches move smoothly and busy ones keep their speed. The title screen shows the version in the top right corner, ending in A: V1.1.1A. (The Spectrum Next version ends in N.)
+Since 0.110 there is one edition. It draws every game tick while the game keeps up with the MSX's pace, and skips drawing one tick in two (no more) when it falls behind, so quiet stretches move smoothly and busy ones keep their speed. The title screen shows the version in the top right corner, ending in A: V1.1.2A. (The Spectrum Next version ends in N.)
 
 Versions 0.98 to 0.109 came in two editions, fast (one tick in two drawn) and smooth (four in five). Both can still be built (see Building).
 
@@ -108,7 +108,7 @@ It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3 and sjasmplus 1.2
 ```
 python3 build.py              # nemesis.sna
 python3 make_tap.py           # nemesis.tap from it
-sh release.sh 1.1.1           # the release: tape, snapshot and .nex, in release/
+sh release.sh 1.1.2           # the release: tape, snapshot and .nex, in release/
 sh verify.sh                  # the regression checks
 ```
 

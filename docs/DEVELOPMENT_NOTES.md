@@ -1691,6 +1691,102 @@ without the flick.
 **1.1.1.**  Both builds take the version 1.1.1 (V1.1.1A, V1.1.1N), seven
 characters, as many as the title's space holds.
 
+## After 1.1.1: the 128K's speed, measured again (10 November 2026)
+
+Measurements of 1.1.1 against the MSX, and experiments made from them; none
+changed the build. The method and every table are in the project's notes
+(`claude/feel-1.1.1.md`); the scripts are in `local/tools/measure/feel/`.
+
+**How it feels, per frame.**  The three machines played the same scripted
+first loop (invulnerable, Konami's all-weapons cheat, fire on
+keys_default's rhythm, a press up or down every 97 frames), and each 50 Hz
+frame's picture was traced to the game tick it shows: the MSX in the
+simulator (the last write to the sprite table before the beam reaches the
+middle of the play area), the 128K in the Spectrum simulator (the tick each
+screen was drawn for), the Next in ZEsarUX (stepped through `nx_frame` and
+`lo_render`). The MSX ran 26.5 ticks a second over the loop, but 25 in its
+median second in every stage, a new picture every second frame almost
+without exception, and sprints of up to 50 only in quiet stretches. The
+128K ran 24.5 ticks a second (92%), but drew only 15 pictures a second, at
+gaps of 1 to 7 frames, most of them two ticks apart, and its input lag was
+twice the MSX's (5.7 frames against 2.8). The Next held 29-30 throughout,
+one tick a picture, with lag of 3.8 frames. The difference felt between the
+MSX and the 128K is in the rhythm and the lag more than in the speed.
+
+**Drawing every tick** (`NEM_EXTRA=0`) gave the 128K 20 pictures a second,
+each one tick, but 75% of the MSX's speed, dipping to 12-14 ticks a second
+in busy stretches; it felt much slower in play. **A pacing target of 25
+ticks a second** (`NEM_ADAPT=16,8`) skipped about an eighth fewer ticks for
+3% less speed: in the seconds below 24 ticks the adaptive rule is already
+at one in two either way.
+
+**Where the time goes.**  Profiled over the loop (the PC sampled every
+300 T-states, by category): in the busiest quarter of seconds a tick took
+about 185,500 T-states, against 141,816 for 25 a second. Konami's code
+(logic and sound) was about 74,000, enough for about 48 ticks a second on
+its own; the port's drawing, tracking and paging the rest. A drawn picture
+cost about 136,000 there, mostly sprites (about 68,000) and cells (about
+54,000). Of the 79 cells redrawn a picture, 29 were there only because a
+sprite had covered them; the sprites' boxes cover 31 cells a picture, their
+pixels 17.
+
+**Compiled sprites.**  With every sprite pattern known when the game is
+built (since 1.1), each pattern can have drawing code of its own, one
+routine per pixel offset, with no loop and no blank bytes. In the simulator,
+with the code held in memory the 128K does not have, compiling every
+pattern made sprite drawing about 30% cheaper (35% in busy stretches), for
+4% more speed and 10% more pictures, at a cost of 124 KB of code over the
+loop (17-60 KB per stage). Five patterns are the same in every stage and
+take 58% of the draws in this play (the options' two frames, the ship, the
+round bullet, the missile), but compiling only those changed the slowest
+seconds not at all. A real build (`NEM_CSPR=1`, title V1.1.1C) compiled the
+ship's level frame and the round bullet into fixed memory: 1,664 of the
+2,048 bytes free there. The compiled draws checked in the simulator (3,937,
+all 16 routines) matched what `draw_sprite16` draws; sprites about 4% cheaper a picture, speed and
+pictures up by under 1%, the slowest seconds unchanged. Not kept: fixed
+memory is worth more than that. The change is in
+`local/tools/measure/feel/` (`cspr_real.diff`, `cspr_gen.py`). If it is
+ever taken up, the ship frame to compile should be chosen from real play:
+the scripted play keeps the ship mostly level, and a player climbing and
+diving shows the other two frames more.
+
+## 1.1.2: sprite boxes trimmed to their pixels
+
+The one change from the measurements above that went into the build.  A
+sprite used to colour, and record for the next erase, its whole box: 2 or 3
+cells across by 2 or 3 down, wherever its pixels were.  A bullet four pixels
+square coloured up to six cells.  Over the first loop with every weapon the
+boxes came to 7.7 cells a sprite and the cells the pixels reach to 4.7.
+
+`sp_ext` (268 bytes) holds each sprite pattern's first and last rows with
+pixels and the OR of its left and right column bytes: Konami's 64 patterns,
+worked out again (`sp_calc`) at the first drawing after each graphics load,
+which sets `spx_stale` in `nl_done`, and the ship's three frames.  At the
+colouring, `sp_trim` turns them into the rows and columns the pixels reach
+at the sprite's position and cuts the box down to those.  Patterns with no
+pixels at all are neither coloured nor recorded.  A clipped sprite at the
+edge (`edge_pat`) keeps its box.
+
+In play the difference is the colour: cells near a small sprite keep their
+own colours instead of taking its ink.  Each drawn picture costs about
+5,000 T-states less (cell redraws 12-14% fewer, sprite colouring a little
+less), but over the loop the speed was within the runs' noise of 1.1.1's.
+Fixed memory: `platform_end` A700, 1.5 KB free below AD00.
+
+A first build (title V1.1.1T, sent for a look) left pixels behind where a
+sprite crosses the left or right edge: `spr_edge` enters `draw_sprite16` at
+`.cols`, after the note of the pattern, so the trim used the previous
+sprite's.  The note is now at `.cols`.  The checker written for the
+change watched only `draw_sprite16`'s entry and missed it; the screen
+lockstep found it in stage 1.
+
+Checks: the screen lockstep against a 1.1.1 test build, pixels compared on
+every tick (attributes left out, as they now differ by design, and the
+title's version text): the route with every target (40,000 ticks), deaths
+(50,000) and game overs (20,000), all identical.  `verify.sh` and the tape
+traps pass.  The Next's .nex differs from 1.1.1N in the version's one
+digit.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -1723,7 +1819,7 @@ replay from.  They compare memory, not the picture, so a wrong scroll
 split, palette or hardware sprite passes them, and the Next build is also
 played (1.1's flash was found that way).
 
-## Where it stands (1.1.1)
+## Where it stands (1.1.2)
 
 * The 128K build has no MSX graphics.  Every graphics load is a load of
   tiles and sprite patterns converted when the game is built, and
@@ -1734,7 +1830,9 @@ played (1.1's flash was found that way).
   each of stages 1-8 (apart from the intended stage 3 Moai fix) and over
   five game overs.
 * 1.1's tape (70,445 bytes) passes the simulated load.
-* Fixed memory has 2 KB free below AD00 (`platform_end` A500), and the
+* Since 1.1.2 a sprite colours and erases only the cells its pixels
+  reach; its screens match 1.1.1's pixel for pixel over those three routes.
+* Fixed memory has 1.5 KB free below AD00 (`platform_end` A700), and the
   switched banks about 1.4 KB, in pieces of at most 384 bytes.
 * Speed: over the first two stages in light play, 24.57 ticks and 14.7
   screens a second (1.0: 24.16 and 13.7).  Over stages 1-6 with every

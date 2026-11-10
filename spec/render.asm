@@ -680,8 +680,205 @@ sp_cx:      db 0
 sp_cy:      db 0
 sp_cols:    db 0
 sp_rows:    db 0
+    ifdef TRIM
+; Sprite boxes trimmed to their pixels (10 November 2026, experiment).  For
+; each sprite pattern, sp_ext holds [first row with pixels (FF: none), last
+; row, OR of its left column's bytes, OR of its right column's]: Konami's 64
+; (bank 7, F800 + n * 32) at sp_ext + n * 4, the ship's three frames
+; (ship_pat) from sp_ext + 256.  Worked out again at the first drawing
+; after a graphics load (nl_done sets spx_stale).  sp_trim turns them into
+; the cells the sprite's pixels reach at its position, for the colouring
+; and the erase record.
+sp_ptr:     dw 0
+spx_stale:  db 1
+sp_tmp:     db 0
+    align 16
+sp_pow:     db 1,2,4,8,16,32,64,128     ; 1 << offset
+            db 0,1,3,7,15,31,63,127     ; (1 << offset) - 1
+sp_colsel:  db 0,1, 1,1, 0,2, 2,1, 0,3, 1,2, 0,3    ; columns used (bits 0-2): first, how many
+sp_ext:     ds 256 + 12
+
+; Carry set: the pattern has no pixels (draw_sprite16 returns).
+sp_trim:
+    ld hl,(sp_ptr)
+    ld a,h
+    cp 0xF8
+    jr c,.notk
+    ld de,0-0xF800
+    add hl,de
+    jr .idx
+.notk:
+    ld de,0-ship_pat
+    add hl,de
+    ld a,h
+    or a
+    jr nz,.none                 ; edge_pat: its box as it is
+    ld a,l
+    cp 96
+    jr nc,.none
+    ld de,256*8
+    add hl,de
+.idx:
+    srl h
+    rr l
+    srl h
+    rr l
+    srl h
+    rr l
+    ld de,sp_ext
+    add hl,de
+    ld a,(hl)                   ; first row
+    cp 0xff
+    jr z,.empty
+    ld b,a
+    inc hl
+    ld c,(hl)                   ; last row
+    inc hl
+    ld a,(sp_y)
+    ld e,a
+    add a,b
+    rrca
+    rrca
+    rrca
+    and 31
+    ld (sp_cy),a
+    ld d,a
+    ld a,e
+    add a,c
+    rrca
+    rrca
+    rrca
+    and 31
+    sub d
+    inc a
+    ld (sp_rows),a
+    ld a,(sp_x)
+    and 7
+    ld e,a
+    ld d,0
+    ld b,(hl)                   ; OR of the left column
+    inc hl
+    ld c,(hl)                   ; OR of the right column
+    ld hl,sp_pow
+    add hl,de
+    ld d,0                      ; columns used
+    ld a,b
+    cp (hl)
+    jr c,.u0
+    set 0,d                     ; left column >> offset: something
+.u0:
+    ld a,c
+    cp (hl)
+    jr c,.u1
+    set 1,d                     ; right column >> offset
+.u1:
+    ld a,l
+    add a,8
+    ld l,a
+    ld a,b
+    and (hl)
+    jr z,.u2
+    set 1,d                     ; left column's low bits, shifted on
+.u2:
+    ld a,c
+    and (hl)
+    jr z,.u3
+    set 2,d                     ; right column's low bits, shifted on
+.u3:
+    ld a,d
+    add a,a
+    ld e,a
+    ld d,0
+    ld hl,sp_colsel-2
+    add hl,de
+    ld a,(sp_cx)
+    add a,(hl)
+    ld (sp_cx),a
+    inc hl
+    ld a,(hl)
+    ld (sp_cols),a
+.none:
+    or a
+    ret
+.empty:
+    scf
+    ret
+
+; The extents of every pattern (page 7 in).
+sp_calc:
+    xor a
+    ld (spx_stale),a
+    push ix
+    ld hl,SPR_PAT
+    ld de,sp_ext
+    ld b,64
+.p:
+    call .one
+    djnz .p
+    ld hl,ship_pat
+    ld b,3
+.s:
+    call .one
+    djnz .s
+    pop ix
+    ret
+.one:                           ; HL = a pattern, DE = its entry; both stepped on
+    push bc
+    push de
+    ld bc,0x00FF                ; B last row, C first (FF: none yet)
+    ld ix,0                     ; IXH, IXL: OR of the left, right columns
+    ld d,0
+.r:
+    set 4,l
+    ld a,(hl)                   ; right
+    res 4,l
+    ld e,(hl)                   ; left
+    inc l
+    ld (sp_tmp),a
+    or e
+    jr z,.e
+    ld a,c
+    inc a
+    jr nz,.nf
+    ld c,d
+.nf:
+    ld b,d
+    ld a,ixh
+    or e
+    ld ixh,a
+    ld a,(sp_tmp)
+    or ixl
+    ld ixl,a
+.e:
+    inc d
+    ld a,d
+    cp 16
+    jr nz,.r
+    ld de,16
+    add hl,de
+    pop de
+    ld a,c
+    ld (de),a
+    inc de
+    ld a,b
+    ld (de),a
+    inc de
+    ld a,ixh
+    ld (de),a
+    inc de
+    ld a,ixl
+    ld (de),a
+    inc de
+    pop bc
+    ret
+    endif
 
 draw_sprites:
+    ifdef TRIM
+    ld a,(spx_stale)
+    or a
+    call nz,sp_calc
+    endif
     ld a,(spr_on)               ; Konami hid them all (a 0xD0 at VRAM 3B00)
     or a
     ret z
@@ -799,7 +996,10 @@ draw_sprite16:
     ld b,2
     jr z,.cols
     inc b
-.cols:
+.cols:                          ; (spr_edge comes in here, HL = edge_pat)
+    ifdef TRIM
+    ld (sp_ptr),hl              ; the pattern, for sp_trim
+    endif
     push af
     ld a,b
     ld (sp_cols),a
@@ -1016,6 +1216,10 @@ draw_sprite16:
     dec ixl
     jp nz,.row0
 .attrs:
+    ifdef TRIM
+    call sp_trim                ; the box cut down to the cells the pixels reach
+    ret c                       ; (an empty pattern: nothing to colour or erase)
+    endif
     ; attributes: ink = sprite colour
     ld a,(sp_cy)
     ld b,a

@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 1.1.1 (9 November 2026). 
+Version 1.1.2 (10 November 2026). 
 
 ## 1. What it is
 
@@ -100,7 +100,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the release build
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 1.1.1           # the release, tape, snapshot and .nex, in release/
+sh release.sh 1.1.2           # the release, tape, snapshot and .nex, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 
@@ -521,11 +521,11 @@ carried to A2A7, and its parts for the bonus stages are placed separately
 (6.1); past B64B it is padding.  Banks 6 and 13-15 are empty (all FF) and
 never read.
 
-Free space in the current build, about 4,900 bytes in all:
+Free space in the current build, about 4,400 bytes in all:
 
 | Where | Bytes | |
 |---|---|---|
-| Fixed 8000-ACFF | 2,323 | A500-ACFF (2,048, after the buffers), 9051-90FF (175, before `nl_buf`'s alignment), A2D2-A2FF (46, before `DRAWN`), 9AE0-9AFF (32, after `spr_vis`), 9A4C-9A5F (20, before `ship_pat`'s 32-byte alignment), 9BFE-9BFF (2) |
+| Fixed 8000-ACFF | 1,811 | A700-ACFF (1,536, after the buffers and 1.1.2's sprite extents), 9051-90FF (175, before `nl_buf`'s alignment), A2D2-A2FF (46, before `DRAWN`), 9AE0-9AFF (32, after `spr_vis`), 9A4C-9A5F (20, before `ship_pat`'s 32-byte alignment), 9BFE-9BFF (2) |
 | Fixed AD00-AEFF | 93 | AEA0-AEAD (14), AEB1-AEFF (79) |
 | Low fixed area | 465 | 7EA1-7FFF (351), 7ADE-7B3F (98), 7BF8-7BFF (8, after `spr_edge`), 7C58-7C5F (8) |
 | Bank 0 (page A) | 290 | FEDE-FFFF (it holds sjasmplus's default UDGs at FF58, which nothing uses) |
@@ -540,7 +540,7 @@ The room the packed pieces can use (`native_pack.py`'s regions) is about
 3:BE66-BFF4, 399 bytes, carried in bank C) could be dropped too, a
 generator change.  Fixed memory is no longer tight: the port's loads took
 Konami's loaders and the run-time conversion out of it, and left 2 KB free
-below the IM2 table.  Anything that need not be fast still goes into a
+below the IM2 table (1.5 KB since 1.1.2).  Anything that need not be fast still goes into a
 switched bank with a call from fixed code, or takes over an existing
 instruction.
 
@@ -901,7 +901,16 @@ position (right by 1-4 bits, or for offsets 5-7 left by 3-1 into the same
 three bytes, which halves the shifting).  Erasing marks each row of a
 sprite's cells in the dirty bitmap with one mask.  The cells it touches take its colour as their ink (over black
 paper they also take its brightness; over coloured paper, an inverted tile,
-they keep their own).  Sprites are drawn from the last to the first, so that
+they keep their own).  Since 1.1.2 those are only the cells its pixels
+reach, not its whole box of 2 or 3 by 2 or 3 cells: a table (`sp_ext`)
+holds each pattern's first and last rows with pixels and the OR of its left
+and right column bytes (Konami's 64 patterns, worked out again at the first
+drawing after each graphics load, which sets `spx_stale` in `nl_done`; the
+ship's three frames), and `sp_trim`, before the colouring, cuts the box to
+the rows and columns the pixels reach at the sprite's position.  The cut box
+is what is coloured and recorded for the next erase, so fewer cells are
+redrawn, and cells near a small sprite (a bullet, a shot) keep their own
+colours.  Build option `NEM_TRIM=0` for the whole boxes.  Sprites are drawn from the last to the first, so that
 where two share a cell, the higher-priority one's colour wins.  Konami's list
 is usually full, with most entries parked below the screen, so one pass
 collects the entries on screen (up to an end marker) into `spr_vis`, and
