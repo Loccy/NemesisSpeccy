@@ -27,9 +27,11 @@ from skoolkit.simutils import from_snapshot
 
 HERE = NEM_ROOT + '/spec'
 syms = {}
-for l in open(os.path.join(HERE, 'nemesis_test.sym')):
-    m = re.match(r'(\S+):\s+EQU\s+0x([0-9A-F]+)', l)
-    if m: syms[m.group(1)] = int(m.group(2), 16) & 0xFFFF
+SYMFILE = os.path.join(HERE, 'nemesis_test.sym')
+if os.path.exists(SYMFILE):     # a test build's symbols; absent in a fresh tree, where native_sets.py
+    for l in open(SYMFILE):     # (MSX side only) imports this module before any build has run
+        m = re.match(r'(\S+):\s+EQU\s+0x([0-9A-F]+)', l)
+        if m: syms[m.group(1)] = int(m.group(2), 16) & 0xFFFF
 
 TICK = [0]
 
@@ -192,6 +194,7 @@ def native_scratch(a, b, bad, spec):
     return out
 
 def main(N):
+    if not syms: sys.exit('lockstep_spec: no spec/nemesis_test.sym: make a test build first (NEM_PIN_R=1 python3 build.py)')
     orig = Orig(); patch_front_end(orig); orig.boot()
     spec = Spectrum(os.path.join(HERE, 'nemesis_test.sna'))
     # invulnerable ship: Konami's la_nave_ha_muerto (MSX 1:75F0) is in page A
