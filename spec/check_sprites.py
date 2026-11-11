@@ -21,6 +21,7 @@ syms = {}
 for l in open(os.path.join(HERE, 'nemesis.sym')):
     m = re.match(r'(\S+):\s+EQU\s+0x([0-9A-F]+)', l)
     if m: syms[m.group(1)] = int(m.group(2), 16) & 0xFFFF
+TRIM = 'sp_trim' in syms           # 1.1.2 on: boxes trimmed to the pixels (NEM_TRIM=0: whole boxes)
 secs = float(sys.argv[1]); skip = float(sys.argv[2]) if len(sys.argv) > 2 else 0
 every = int(sys.argv[3]) if len(sys.argv) > 3 else 1
 m = Spectrum()
@@ -92,8 +93,14 @@ while regs[25] < end:
             if keep and fx(ns + (y >> 3) * 32 + (max(x, 0) >> 3) + 64): nkeep += 1   # over terrain
             if pp < 24: src, base = B[2], syms['ship_pat'] - 0x8000 + pp * 4   # the ship: its own patterns (ship.asm)
             else: src, base = B[7], 0xF800 - 0xC000 + pp * 8
+            used = 0; rmin = rmax = None       # (1.1.2) the cells the pixels reach, as sp_trim
             for r in range(16):
                 row = src[base + r] << 8 | src[base + 16 + r]
+                if row:
+                    if rmin is None: rmin = r
+                    rmax = r
+                    v = (row << 8) >> (x & 7)
+                    used |= (4 if v >> 16 else 0) | (2 if v >> 8 & 255 else 0) | (1 if v & 255 else 0)
                 yy = y + r
                 if yy >= 192: continue
                 for k in range(16):
@@ -102,10 +109,16 @@ while regs[25] < end:
                         if not 0 <= xx < 256: continue      # clipped at the edges
                         a = ((yy & 0xC0) << 5) | ((yy & 7) << 8) | ((yy & 0x38) << 2) | (xx >> 3)
                         pix[a] |= 0x80 >> (xx & 7)
-            rows = 3 if y & 7 else 2
-            for ry in range(rows):
-                for cc in range(x >> 3, ((x + 15) >> 3) + 1):     # the cells the box covers, on screen
-                    cy = (y >> 3) + ry
+            if TRIM and not (x < 0 or x > 240):  # the box cut to the pixels (sp_trim); clipped sprites keep theirs
+                if rmin is None: continue        # no pixels: not coloured
+                cys = range((y + rmin) >> 3, ((y + rmax) >> 3) + 1)
+                cols = [i for i in range(3) if used & (4 >> i)]
+                ccs = range((x >> 3) + cols[0], (x >> 3) + cols[-1] + 1)
+            else:
+                cys = range(y >> 3, (y >> 3) + (3 if y & 7 else 2))
+                ccs = range(x >> 3, ((x + 15) >> 3) + 1)     # the cells the box covers, on screen
+            for cy in cys:
+                for cc in ccs:
                     if cy < 24 and 0 <= cc < 32:
                         a0 = att[cy * 32 + cc]
                         if keep:
