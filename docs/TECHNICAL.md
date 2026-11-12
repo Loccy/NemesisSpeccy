@@ -477,8 +477,8 @@ Fixed memory:
            input buffer (nl_buf, 9200-92FF), tables, far-call stubs, the
            ship's patterns, buffers (name_shadow, dirty bitmaps, region
            lists, star lists, DRAWN), the sprite patterns' extents (sp_ext)
-A60C-ABD1  copies of Konami's hot routines (6.1, 1,391 bytes), then the
-           adaptive pacing (pace_adapt)
+A60C-ABEC  copies of Konami's hot routines (6.1, 1,391 bytes), then the
+           adaptive pacing (pace_adapt) and stage 3's ring colour (st3_rings)
 AD00-AE00  IM2 vector table; AEAE jp isr; stack below AEA0
 AF00-BFFF  Konami's RAM (MSX E000-F0FF, displaced by -0x3100)
 ```
@@ -487,7 +487,7 @@ Banks switched in at C000 (the port's names for them in brackets):
 
 ```
 A  bank 0  MSX banks 1 and 2 (game code) C000-FEDD
-B  bank 3  packed graphics C000-F1B9 and F2E3-FFC3; MSX bank 5's object
+B  bank 3  packed graphics C000-F0D3 and F2E3-FFC3; MSX bank 5's object
            shapes (91D1-92E2) F1D1-F2E2
 C  bank 4  MSX bank 3 (game code) C000-E061; the title's text E062-E0C6;
            packed graphics E0C7-E7FC and E800-FFED
@@ -508,13 +508,19 @@ E  bank 1  MSX bank 11 C000-DFFF; bank 12 A000-A2A7 (the scripts of stages
            spr_pmap, attrs_keep F600-F733; sprite patterns F800-FFFF
 ```
 
-The packed graphics are 28 pieces, 27,592 bytes in all (6.11), in the room
+The packed graphics are 28 pieces, 27,362 bytes in all (6.11), in the room
 that the MSX's graphics, the copies of its video memory and 1.0's colour
 fit left.  `native_pack.py` places them (3), so their addresses above are
 those of the current build and move when a piece changes;
 `native_data.asm` asserts that the pieces of each region end within it,
 and that the code before them in pages C and D ends by E0C7 and E680, and
-in page A by FEDE.  The packer tries first-fit placements, the largest
+in page A by FEE8.  Those limits hold for the test build too, whose Konami
+code is longer (the fixed sequence that stands in for R costs a byte at
+each read: 7 in MSX bank 3, 10 in banks 1 and 2).  Page A's region
+therefore starts 10 bytes past the game build's end (FEDE), and a test
+build keeps the title's lines (`ctl_text`, 101 bytes) in fixed memory,
+after the copies, so that its page C ends with MSX bank 3, at E069.  The
+packer tries first-fit placements, the largest
 piece first, over many orders of the regions, before its exhaustive search,
 which remembers the states it has found to fail (1.2.1: with the room tight,
 the search alone ran for more than a quarter of an hour).
@@ -529,22 +535,22 @@ carried to A2A7, and its parts for the bonus stages are placed separately
 (6.1); past B64B it is padding.  Banks 6 and 13-15 are empty (all FF) and
 never read.
 
-Free space in the current build, about 3,000 bytes in all:
+Free space in the current build, about 3,150 bytes in all:
 
 | Where | Bytes | |
 |---|---|---|
-| Fixed 8000-ACFF | 625 | ABD2-ACFF (302, after the copies and the pacing), 911C-91FF (228, before `nl_buf`'s alignment), 9BC0-9BFF (64, after `spr_vis`), 9B23-9B3F (29, before `ship_pat`'s 32-byte alignment), 9CFE-9CFF (2) |
+| Fixed 8000-ACFF | 598 | ABED-ACFF (275, after the copies, the pacing and `st3_rings`), 911C-91FF (228, before `nl_buf`'s alignment), 9BC0-9BFF (64, after `spr_vis`), 9B23-9B3F (29, before `ship_pat`'s 32-byte alignment), 9CFE-9CFF (2) |
 | Fixed AD00-AEFF | 93 | AEA0-AEAD (14), AEB1-AEFF (79) |
 | Low fixed area | 473 | 7E99-7FFF (359), 7AE3-7B3F (93), 7BF3-7BFF (13, after `spr_edge`), 7C58-7C5F (8) |
-| Bank 0 (page A) | 290 | FEDE-FFFF (a packer region since 1.2.1, unused in this build; it holds sjasmplus's default UDGs at FF58, which nothing uses) |
+| Bank 0 (page A) | 290 | FEDE-FFFF (a packer region from FEE8 since 1.2.1, unused in this build; it holds sjasmplus's default UDGs at FF58, which nothing uses) |
 | Bank 1 (page E) | 972 | E64D-E768 (284), F9F2-FB03 (274), F101-F20E (270), FF7B-FFFF (133), EEB6-EEC0 (11) |
-| Bank 3 (page B) | 83 | FFC4-FFFF (60), F1BA-F1D0 (23) |
+| Bank 3 (page B) | 313 | F0D4-F1D0 (253), FFC4-FFFF (60) |
 | Bank 4 (page C) | 21 | FFEE-FFFF (18), E7FD-E7FF (3) |
 | Bank 6 (page D) | 168 | E796-E7FF (106), E64E-E67F (50), FFF4-FFFF (12) |
 | Bank 7 (page 7) | 237 | F734-F7FF (204), F65F-F67F (33, before `spr_pmap`'s 128-byte alignment) |
 
 The room the packed pieces can use (`native_pack.py`'s regions) is about
-1,480 bytes of that, in pieces of at most 290 bytes.  Where the pieces go
+1,700 bytes of that, in pieces of at most 284 bytes.  Where the pieces go
 depends on their sizes, so a change to any stage's graphics can move every
 piece and the free space with them.  Bank 3's padding (MSX
 3:BE66-BFF4, 399 bytes, carried in bank C) could be dropped too, a
@@ -896,19 +902,26 @@ section (from a census of every pass through the stage), and those get the
 rule, so they always have the Moai colours, as in an uninterrupted pass.
 The Big Core's characters, which come later, never get it.
 
-Since 1.2.1 the Moai heads and the rocks they stand on are not converted
-at all: stage 3's load takes our own tiles for them from
-`stage3_tiles.txt` (248 characters by third and number: 184 of the heads,
-64 of the rocks), in place of the converted ones (`native_sets.py`).  The
-heads are yellow, their shading yellow and black stippled, bright where the
-face is lit; the rocks green, solid at their edges and stippled inside.
+Since 1.2.1 the Moai heads, the rubble a destroyed head leaves and the
+rocks they stand on are not converted at all: stage 3's load takes our own
+tiles for them from `stage3_tiles.txt` (315 characters by third and number:
+227 of the heads, 24 of the rubble piles, 64 of the rocks), in place of the
+converted ones (`native_sets.py`).  The heads are yellow, their shading
+yellow and black stippled, bright where the face is lit; the rubble the
+same yellow; the rocks green, solid at their edges and stippled inside.
 Every tile is ink on black paper, stored inverted when more than half its
-pixels are set, as the conversion stores tiles.  Konami's turrets, which
-share the section, are not in the file (their characters come from the
-ROM's turret frame table, 2:9205, and shape table, 5:91D1) and keep the
-Moai rule's colours.  The tiles were made once from 1.2's screens of the
-section (`local/tools/art/moai_121/` in the linked clone); the file is the
-art now, a line to a tile.  Stage 3's packed set grew by 377 bytes (the
+pixels are set, as the conversion stores tiles.  The head and rubble
+characters are those of Konami's drawings (pointers at 1:6370, sizes at
+1:6283; drawings 4 to 11 the heads, 12 and 13 the rubble on the ground and
+hanging from the ceiling), each with a tile in every third it can appear
+in.  The rocks leave out the numbers of Konami's turret characters (from
+the ROM's turret frame table, 2:9205, and shape table, 5:91D1), whose
+barrels share the rocks' magenta and keep the Moai rule's colours; the
+heads do not leave them out, because in stage 3 characters D2-D9 are head
+pieces.  The laser's strip (FD) and the capsules (77-7E) are in no drawing
+and so have no tile here.  The tiles were made once from 1.2's screens of
+the section (`local/tools/art/moai_121/` in the linked clone); the file is
+the art now, a line to a tile.  Stage 3's packed set grew by 147 bytes (the
 stippling compresses less well than flat colour).  The Big Core's load
 later in the stage puts its own tiles over some of these characters, as
 before.
@@ -992,7 +1005,11 @@ MSX's light blue, light red and light yellow are mapped to bright cyan, red
 and yellow rather than to the nearest Spectrum colour, white), unless
 `spr_pmap.asm` gives its pattern a colour of its own: explosions go yellow
 then red, and enemy bullets stay white.  The option uses the explosion's
-last pattern (132; magenta on the MSX), so options show red.
+last pattern (132; magenta on the MSX), so options show red.  Stage 3's
+Moai rings (pattern 252 in MSX colour 8, medium red) are bright cyan since
+1.2.1.  The same pattern and colour is a red enemy in stages 1, 4, 8 and
+10, so `st3_rings` (fixed memory, called from `nl_stage`) writes the
+pattern's entry at each stage load: cyan for stage 3, empty for the rest.
 
 The ship is redrawn (0.100, `ship.asm`).  On the MSX it is two sprites at
 the same place, Konami's patterns 0/4 (level), 8/12 (diving) and 16/20
@@ -1440,7 +1457,7 @@ In `spec/` unless shown otherwise.
 | `VERSION` -> `version.inc` | The version, and the title's line for it (`build.py`). |
 | `star_check7.asm`, `spr_pmap.asm` | Code and tables in bank 7. |
 | `native_sets.py`, `tilemodel.py`, `native_moai.txt` | The build-time conversion: Konami's loads replayed in `msxsim` and converted by 1.0's rules (6.6); stage 3's Moai characters. |
-| `stage3_tiles.txt` | Stage 3's Moai heads and rocks, our own tiles (6.6, 1.2.1). |
+| `stage3_tiles.txt` | Stage 3's Moai heads, their rubble and the rocks, our own tiles (6.6, 1.2.1). |
 | `fit_model.py`, `stage_rules.py`, `convert.py`, `extract.py`, `gfxcap.py` | The colour fit's model, the stage colour rules' model, the colour conversion and palettes (also used by `tables.py`), Konami's palette and graphics read from the ROM, Konami's loaders run in `msxsim`. |
 | `native_pack.py` -> `native_data.asm`, `native_tables.asm`, `native/` | The pieces packed and placed in the banks, and their tables (3, 5; generated, not in the repository). |
 | `fullcmp_gen.asm` | The generated full map comparison (`gen_fullcmp.py`). |

@@ -2365,6 +2365,23 @@ platform_end:
     ifdef ADAPT
     include "pace.asm"          ; the pacing, called every tick from the main loop
     endif
+; (1.2.1) Stage 3's Moai rings, Konami's sprite pattern 63 (252) in MSX
+; colour 8, are bright cyan: at each stage load, spr_pmap's entry for that
+; pattern is set for stage 3 and cleared for the rest (the same pattern and
+; colour is a red enemy's in stages 1, 4, 8 and 10).
+st3_rings:
+    ld a,(0xE061+KRAM)
+    ld bc,0x4508                ; [MSX colour 8, ink bright cyan]
+    cp 3
+    jr z,.set
+    ld bc,0                     ; spr_pmap's empty entry
+.set:
+    push bc
+    ld a,PAGE_7
+    call borrow_page
+    pop bc
+    ld (spr_pmap+252/2),bc
+    jp unborrow_page
 hot_end:
     assert hot_end <= 0xAD00
     endif
@@ -2376,9 +2393,22 @@ hot_end:
 ; the blank row above it (rows 13-14), the credit on row 21.  Not row 22: it
 ; is the power-up bar's row, which play rewrites only in part.  Konami's
 ; font has letters and digits only.
+; Test builds (TEST, 128K): these lines go in fixed memory, after the copies,
+; and page C ends with MSX bank 3.  A test build's Konami code is longer (the
+; pinned R costs a byte at each read: 7 in bank 3), and page C's code must end
+; by E0C7 in every build: the packed graphics start there (native_pack.py).
+    ifdef TEST
+    ifndef NEXT
+    define CTL_TEXT_FIXED
+    endif
+    endif
+    ifdef CTL_TEXT_FIXED
+    org hot_end
+    else
     slot 3
     page PAGE_C
     org section_C_end
+    endif
 ctl_text:
     dw 0x39A3
     db 0x31,0x21,0x2F,0x30,0x00,0x00,0x33,0x30,0x21,0x23,0x25,0x00,0x26,0x29,0x32,0x25,0x00,0x00,0x2D,0x00,0x33,0x25,0x2C,0x25,0x23,0x34
@@ -2392,6 +2422,12 @@ ctl_text:
     include "version.inc"       ; the version, top right (row 0, ending at column 31)
     db 0xFF
 ctl_text_end:
+    ifdef CTL_TEXT_FIXED
+    assert ctl_text_end <= 0xAD00
+    slot 3
+    page PAGE_C
+    org section_C_end
+    endif
     ifdef ADAPT
 ; Adaptive pacing (0.110): pace.asm.  The Next has it here, after nx_tick,
 ; which comes first; the 128K in fixed memory, after the buffers.

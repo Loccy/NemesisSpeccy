@@ -67,7 +67,7 @@ The title screen shows the version ending in N: V1.2.1N. It has been played on a
 
 Since 0.110 there is one edition. It draws every game tick while the game keeps up with the MSX's pace, and skips drawing one tick in two (no more) when it falls behind, so quiet stretches move smoothly and busy ones keep their speed. A tick in which the joystick or keys change direction is always drawn, so the ship answers a frame sooner. The title screen shows the version in the top right corner, ending in A: V1.2.1A. (The Spectrum Next version ends in N.)
 
-Version 1.2 is about a tenth faster than 1.1.3 on the 128K and draws about a third more pictures a second. The Konami code and the screens it produces are the same. Version 1.2.1 gives stage 3's Moai heads and the rocks they stand on new colours on the 128K.
+Version 1.2 is about a tenth faster than 1.1.3 on the 128K and draws about a third more pictures a second. The Konami code and the screens it produces are the same. Version 1.2.1 gives stage 3's Moai heads, the rocks they stand on and the rings they fire new colours on the 128K.
 
 Versions 0.98 to 0.109 came in two editions, fast (one tick in two drawn) and smooth (four in five). Both can still be built (see Building).
 

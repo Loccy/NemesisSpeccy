@@ -40,7 +40,7 @@ REGIONS = [('B', 0xC000, 0xF1D1),       # MSX banks 4 and 5's graphics and lists
            ('C', 0xE0C7, 0xE800),       # after page C's code (asserted below; the pacing left page C in 1.2)
            ('D', 0xE680, 0xE800),       # after page D's code (asserted below)
            ('E', 0xF101, 0xF20F), ('E', 0xF9F2, 0xFB04), ('E', 0xFF7B, 0x10000),   # free in page E
-           ('A', 0xFEDE, 0x10000)]      # after MSX banks 1 and 2 in page A (1.2.1)
+           ('A', 0xFEE8, 0x10000)]      # after MSX banks 1 and 2 in page A (1.2.1; from a test build's end, 10 bytes past the game's FEDE)
 WORK = ('D', 0xE800, 0xFC00)            # patches are unpacked here (the copy of the MSX pattern table), up to the pieces at FC00
 
 def zx0(b):
@@ -174,7 +174,7 @@ def main():
         pg, a = place[name]; total += len(z)
         asm += ['    section_data PAGE_%s,0x%04X' % (pg, a), 'nlb_%s:' % name,
                 '    incbin "native/%s.zx0"' % name, 'nlb_%s_end:' % name]
-    asm += ['    assert page_c_end <= 0xE0C7', '    assert page_d_end <= 0xE680', '    assert section_A_end <= 0xFEDE']
+    asm += ['    assert page_c_end <= 0xE0C7', '    assert page_d_end <= 0xE680', '    assert section_A_end <= 0xFEE8']
     for pg, a, b in REGIONS:
         users = [n for n in place if place[n][0] == pg and a <= place[n][1] < b]
         if users:

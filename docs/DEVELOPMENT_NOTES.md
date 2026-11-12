@@ -2017,30 +2017,76 @@ work: most face cells hold black as well (the outline, the detail lines),
 and a cell cannot hold three colours.  Red rocks were tried and dropped
 (the stage's red rings and enemies sat on them).
 
-The tiles are ours, not converted: `spec/stage3_tiles.txt` holds 248 of
-them (184 for the heads, 64 for the rocks), by third and character, and
-stage 3's load takes them in place of the converted ones.  They were made
-once from the mock-up's rules, each character's tile taken from all its
-appearances in the section (`local/tools/art/moai_121/`); the file is the
-art from now on.  Konami's turrets share the section and the Moai rule's
-magenta; their characters (from the ROM's turret table) are left out of
-the file, so they keep 1.2's colours.
+The tiles are ours, not converted: `spec/stage3_tiles.txt` holds 315 of
+them (227 for the heads, 24 for the rubble a destroyed head leaves, 64 for
+the rocks), by third and character, and stage 3's load takes them in place
+of the converted ones.  They were made once from the mock-up's rules, each
+character's tile taken from all its appearances in the section
+(`local/tools/art/moai_121/`); the file is the art from now on.  The rings
+the heads fire are bright cyan (Konami's are red).  A sprite's ink is set
+by pattern and MSX colour in `spr_pmap`, and the ring's pattern and colour
+are also a red enemy's in stages 1, 4, 8 and 10, so `st3_rings` writes the
+entry at each stage load: cyan in stage 3, empty elsewhere.
 
-Stage 3's packed set grew by 377 bytes, the stippling compressing less well
-than flat colour, and the packed graphics no longer fitted where
-`native_pack.py` had room for them: its search, which tries every
-placement, ran for a quarter of an hour without an answer.  Two gaps were
-added to its regions, page C from E0C7 (where the pacing was until 1.2,
-121 bytes) and page A from FEDE (290 bytes, unused in this build), and it
-now tries first-fit placements over many orders of the regions before its
-search, which also remembers the states it has found to fail.  It places
-all 28 pieces (27,592 bytes) in about 13 seconds.  Every piece moved, so
-the checks were of the storage, not the art: the tape loads (both trap
-modes); the screen lockstep against 1.2 over the route with every hidden
-target (40,000 ticks: all twelve stages, the ending, into the second loop)
-differs only in stage 3 while the Moai section is on screen (distance
-1Fh-19Fh), with Konami's RAM matching the MSX's throughout; and the Next's
-`.nex` differs from 1.2N's only in the title's version text.
+The first build of 1.2.1 (commit 7178dff) was wrong in ways that play
+found within the hour.  Most came from taking the characters to recolour
+from captured screens and not from Konami's tables:
+
+* Konami's turret characters were left out of the list, so that the
+  turrets kept their colours.  But in stage 3 eight of those numbers
+  (D2-D9) are pieces of the heads, and those pieces kept 1.2's cyan and
+  blue.  Only the rocks leave the turret numbers out now.
+* The rings were left red.
+* A character's tile is separate in each third of the screen, and only the
+  thirds a character had been seen in got a tile.  A lying head's lone
+  bright cell against the rocks (23 hanging, E5 facing up) was dimmed in
+  one third and not in another.  The rubble pile (Konami's drawings 12 and
+  13) had never been captured and was yellow in one third and 1.2's colours
+  in the others.  A hanging head with its mouth open showed a dim cyan
+  character in the middle third.  The head and rubble characters now come
+  from Konami's drawing tables (1:6370, sizes 1:6283) and have a tile in
+  every third they can appear in.
+* The laser's strip (FD) and the nuke capsule (77-7A) had been crossing a
+  head in the captured screens, in the heads' own cyan, and were taken for
+  head pieces: the laser got a blank tile and vanished in the middle third.
+  A head character must now be in one of Konami's drawings.  The screen
+  lockstep's log had shown this at its first differing tick (character FD,
+  attribute 45h against 00h) and it was passed over as "stage 3 only": read
+  which characters differ, not only where.
+* `st3_rings` was first put at the end of `pace.asm`, which the test build
+  leaves out and the Next build includes, so the test build did not
+  assemble.  It is in `plat_spec.asm` now, after the pacing, where the game
+  build has it at the same address.
+* The two packer regions added for this version (below) started at the game
+  build's ends, E0C7 and FEDE.  A test build's Konami code is 7 and 10
+  bytes longer there, so no test build had assembled cleanly since.  Page
+  A's region now starts at FEE8, and a test build keeps the title's lines
+  in fixed memory so that its page C ends below E0C7 (TECHNICAL, section
+  5).  The game build is byte for byte the one that was played.
+
+Stage 3's packed set grew (by 377 bytes in the first build, 147 in the
+final one), the stippling compressing less well than flat colour, and the
+packed graphics no longer fitted where `native_pack.py` had room for them:
+its search, which tries every placement, ran for a quarter of an hour
+without an answer.  Two gaps were added to its regions, page C from E0C7
+(where the pacing was until 1.2, 121 bytes) and page A from FEE8 (280
+bytes, unused in this build), and it now tries first-fit placements over
+many orders of the regions before its search, which also remembers the
+states it has found to fail.  It places all 28 pieces (27,362 bytes) in
+about 13 seconds.
+
+The first build's checks were of the storage, every piece having moved: the
+tape loads (both trap modes); the screen lockstep against 1.2 over the
+route with every hidden target (40,000 ticks: all twelve stages, the
+ending, into the second loop) differed only in stage 3 while the Moai
+section is on screen (distance 1Fh-19Fh), with Konami's RAM matching the
+MSX's throughout; and the Next's `.nex` differed from 1.2N's only in the
+title's version text.  The final build was checked with `verify.sh`; with the
+same screen lockstep, which again differs only in stage 3 with the Moai
+section on screen (now from distance 80h: the laser's cells no longer
+differ), Konami's RAM matching the MSX's throughout; and by play of stage 3
+as each fault was fixed.  Its `.nex` is identical to the first build's, and
+the game build and tape are byte for byte those that were played.
 
 Tried and dropped: the power-up capsules flashing (the standard capsule red
 and white, the nuke cyan and white), by changing the capsule tiles' colour
@@ -2096,14 +2142,15 @@ played (1.1's flash was found that way).
 * 1.2's screens match 1.1.3's byte for byte over the same three routes:
   its changes are to where Konami's code runs and to how the port draws,
   not to what is drawn.
-* 1.2.1's differ from 1.2's only in stage 3's Moai section, whose heads and
-  rocks are our own tiles (`spec/stage3_tiles.txt`).
+* 1.2.1's differ from 1.2's only in stage 3: the Moai section's heads,
+  rubble and rocks are our own tiles (`spec/stage3_tiles.txt`), and the
+  rings the heads fire are cyan.
 * Since 1.1.3 a tick where the directions change is always drawn: a frame
   off the typical input lag (median 4.5 frames, the MSX's 2.8).
 * Fixed memory above 8000 holds copies of Konami's hottest routines (1.2,
-  1,391 bytes) and has 302 bytes free below AD00; the packed graphics'
-  regions in the switched banks have about 1.5 KB left, in pieces of at
-  most 290 bytes.
+  1,391 bytes) and has 275 bytes free below AD00; the packed graphics'
+  regions in the switched banks have about 1.7 KB left, in pieces of at
+  most 284 bytes.
 * Speed: over the first two stages in light play, 24.57 ticks and 14.7
   screens a second (1.0: 24.16 and 13.7).  Over stages 1-6 with every
   weapon, never fewer than 6 screens in any second, where 1.0 had seconds

@@ -29,6 +29,7 @@ nl_stage:
     ifndef NEXT
     ld a,(0xE061+KRAM)
     call nl_full
+    call st3_rings              ; (1.2.1) stage 3's rings cyan
     else
     call nl_done                ; Next: lo_stage's lo_apply copies the stage file
     endif
