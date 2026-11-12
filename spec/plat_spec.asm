@@ -85,6 +85,25 @@ HOLD_TICKS equ 12               ; fire held this many ticks: power-up as well (f
         org base
     endm
 
+; The Next build draws on Layer 2 with hardware sprites (nx_l2.asm) and never
+; calls the 128K's renderer (render_frame and all it calls: the main loop
+; calls lo_render there), so those routines are left out of it, under ifndef
+; NEXT.  NX_AT then puts what follows at the address it has had since 1.1.3N:
+; nothing in the Next build moves, and the room between is free, about 2.2 KB
+; in all.  It is filled with di / halt, so that anything that did come there
+; would stop at once.  On the 128K NX_AT does nothing.
+    macro NX_AT addr
+        ifdef NEXT
+            assert $ <= addr
+            dup (addr - $) / 2
+                db 0xF3, 0x76
+            edup
+            if $ < addr
+                db 0xF3
+            endif
+        endif
+    endm
+
     include "konami_spec.asm"
 
 ; The dissolve's pattern chunks (0.107), here since 0.109 to make room in
@@ -414,11 +433,8 @@ render_init:
     ldir
     ld a,PAGE_A
     call set_page
+    ifdef NEXT
     ld a,0xff
-    ifndef NEXT
-    ld (erase0),a
-    ld (erase1),a
-    else
     ld (0x3D00),a               ; Next: nx_low.asm's erase lists
     ld (0x3E00),a
     endif
@@ -576,15 +592,15 @@ low_end:
 ; column is coloured and recorded (on the right, the pixels still go
 ; through column 30, whose bytes are empty).
 ; A = X (241-255) or, with the early clock (bit 7 of C), X - 32 (-32 to -1);
-; HL = the sprite's entry in the list, page 7 in.  Back to draw_sprites.next
-; with BC and HL as they were.
+; D = the sprite's pattern, page 7 in, draw_sprites' BC on the stack.  Back
+; to draw_sprites.next with BC popped.
     org 0x7B40
     assert section_fixed_end <= edge_pat
-edge_pat:   ds 32               ; 32-byte aligned: draw_sprite16 steps it by L
+edge_pat:
+    ifndef NEXT                 ; (the 128K's renderer: not in the Next build, NX_AT)
+            ds 32               ; 32-byte aligned: draw_sprite16 steps it by L
 se_k:       db 0                ; pixels off screen, 1-15
 spr_edge:
-    push hl
-    push bc
     ld e,a
     ld a,c
     rla                         ; carry: the early clock, so the left edge
@@ -606,9 +622,7 @@ spr_edge:
     rrca
     rrca
     ld (sp_cx),a                ; 0 or 30
-    inc l
-    inc l
-    ld a,(hl)                   ; pattern
+    ld a,d                      ; pattern
     and 0xfc
     call spr_patsel
     jp c,.done                  ; the ship's second colour: not drawn
@@ -675,8 +689,9 @@ spr_edge:
     call draw_sprite16.cols
 .done:
     pop bc
-    pop hl
     jp draw_sprites.next
+    endif
+    NX_AT 0x7BF8
 spr_edge_end:
     assert spr_edge_end <= 0x7C00
     assert m7_83C8 == 0xC3C8          ; sound data at MSX address + 0x4000
@@ -1718,13 +1733,13 @@ pm_flip:
     jr plat_main.loop
 
     ifdef ADAPT
+    ifdef NEXT
 far_pace:                       ; far_go returns to this stub's caller
     call far_go
     db PAGE_C
-    ifndef NEXT
-    dw pace_adapt
-    else
     dw nx_tick
+    else
+far_pace equ pace_adapt         ; the 128K: in fixed memory (after the buffers), a plain call
     endif
     endif
 ; Pacing.  The screen just drawn is shown by the interrupt on the frame it
@@ -2197,11 +2212,15 @@ isr_flip:
 
     include "convert.asm"
     include "render.asm"
+    NX_AT 0x9300                ; (nl_buf)
     include "tables.asm"
     include "konami_spec_stubs.asm"
+    ifndef NEXT                 ; (the 128K's renderer: not in the Next build, NX_AT)
     include "ship.asm"          ; the ship's patterns (0.100), in the gap before the buffers
 spr_vis:    ds 32               ; draw_sprites (0.109): the list's entries on screen
     assert (spr_vis & 0xff) <= 0xe0
+    endif
+    NX_AT 0x9E00                ; (star_l)
 
 ; ---- buffers (page aligned) -------------------------------------------------
     align 256
@@ -2297,17 +2316,58 @@ title_end:
     call z,m0_49E9              ; pide_sonido
     ld hl,0xE004+KRAM           ; estado_3 as Konami has it
     jp m0_5382
-erase0:     ds 129              ; per screen: up to 32 sprite rects [cx, cy, cols, rows], 0xFF end
-erase1:     ds 129
+    ifdef NEXT
+erase0:     ds 129              ; (the 128K's erase lists until 1.2; the Next's are nx_low.asm's:
+erase1:     ds 129              ; the room is kept so that nothing in the Next build moves)
+    endif
 ; Small tables read with H fixed: kept in the alignment gap before DRAWN, so
 ; they never straddle a page as the code above them grows.
 drawn_n:    ds 8                ; cells in each drawn list: [screen * 4 + third]
 star_t80:   db 0,80,160         ; draw_stars: offset of each third's list
     assert (star_t80 >> 8) == ((star_t80 + 2) >> 8) && (drawn_n >> 8) == ((drawn_n + 7) >> 8)
+    ifndef NEXT
+; draw_sprite16: a sprite's columns (1-3 of them, from bit cx & 7) as bits of
+; two bytes of the dirty bitmap: [columns - 1][cx & 7] -> first byte, next byte.
+sp_mask:
+    dw 0x0001,0x0002,0x0004,0x0008,0x0010,0x0020,0x0040,0x0080
+    dw 0x0003,0x0006,0x000C,0x0018,0x0030,0x0060,0x00C0,0x0180
+    dw 0x0007,0x000E,0x001C,0x0038,0x0070,0x00E0,0x01C0,0x0380
+    assert (sp_mask >> 8) == ((sp_mask + 47) >> 8)
+    endif
     align 256
 DRAWN:      ds 512              ; draw_stars: per screen 0x100, per third 80 cells
+    ifndef NEXT
+; Each sprite pattern's extent (render.asm, sp_calc): four bytes for each of
+; Konami's 64, then the ship's three.  Page-aligned: draw_sprite16 indexes it
+; by the pattern number.
+sp_ext:
+    ifdef TRIM
+    ds 256
+sp_exts:
+    ds 12
+    else
+    dup 64
+    db 0,15,0,15
+    edup
+sp_exts:
+    dup 3
+    db 0,15,0,15
+    edup
+    endif
+    endif
 platform_end:
     assert platform_end <= 0xAD00
+    ifndef NEXT
+; Copies of Konami routines from the paged banks (reloc/gen.py HOT_CLONES,
+; the 128K only): this is uncontended fixed memory, so a call to one from
+; any page is a plain call, with no far stub's page switch there and back.
+    include "konami_spec_hot.asm"
+    ifdef ADAPT
+    include "pace.asm"          ; the pacing, called every tick from the main loop
+    endif
+hot_end:
+    assert hot_end <= 0xAD00
+    endif
 
     ; Konami's RAM and our boot stack start zeroed.
 ; Page C, after MSX bank 3: the title's own lines, in Konami's text stream
@@ -2333,10 +2393,8 @@ ctl_text:
     db 0xFF
 ctl_text_end:
     ifdef ADAPT
-; Adaptive pacing (0.110, experimental): called after each tick; carry: do
-; not draw this tick.  pace_debt is how far the game is behind a rhythm of
-; PACE_T eighths of a frame a tick (clamped to -32..64 eighths); a tick is
-; left undrawn when that is more than PACE_SLACK, but never two in a row.
+; Adaptive pacing (0.110): pace.asm.  The Next has it here, after nx_tick,
+; which comes first; the 128K in fixed memory, after the buffers.
     ifdef NEXT
 ; Next smooth scroll: after each tick.  Konami's map moves a whole character
 ; on a scroll step (distance E063 up by one); the screen is then shown 7
@@ -2376,78 +2434,8 @@ nx_tick:
     ld (nx_off),a
     call 0x0100                 ; lo_tick (nx_low.asm): sprites, character enemies
     jp pace_adapt
+    include "pace.asm"          ; (the 128K has it in fixed memory, after the buffers)
     endif
-pace_last:  db 0
-pace_debt:  db 0
-pace_prev:  db 0
-    ifdef INPUT_DRAW
-pace_dir:   db 0x0F             ; the directions at the last tick (kb_cache+9 bits 0-3)
-pace_chg:   db 0                ; not 0: they changed this tick
-    endif
-pace_adapt:
-    ifdef INPUT_DRAW
-    ld a,(kb_cache+9)           ; a tick whose directions differ from the last
-    and 0x0F                    ; tick's is drawn (the press shows sooner);
-    ld hl,pace_dir              ; the debt it leaves skips a later one
-    sub (hl)
-    ld (pace_chg),a
-    add a,(hl)
-    ld (hl),a
-    endif
-    ld hl,pace_last
-    ld a,(frames)
-    ld b,(hl)
-    ld (hl),a
-    sub b                       ; frames since the last tick's decision
-    cp 9
-    jr c,.d
-    ld a,8
-.d:
-    add a,a
-    add a,a
-    add a,a
-    ifdef NEXT
-    ld de,pace_t                ; (by 50/60 Hz, nx_hz)
-    ex de,hl
-    sub (hl)
-    ex de,hl
-    else
-    sub PACE_T
-    endif
-    inc hl                      ; pace_debt
-    add a,(hl)
-    bit 7,a
-    jr z,.pos
-    cp 0xe0                     ; at least -32
-    jr nc,.st
-    ld a,0xe0
-    jr .st
-.pos:
-    cp 65                       ; at most 64
-    jr c,.st
-    ld a,64
-.st:
-    ld (hl),a
-    inc hl                      ; pace_prev: was the last tick undrawn?
-    bit 7,a
-    jr nz,.draw
-    cp PACE_SLACK+1
-    jr c,.draw
-    ld a,(hl)
-    or a
-    jr nz,.draw                 ; never two in a row
-    ifdef INPUT_DRAW
-    ld a,(pace_chg)
-    or a
-    jr nz,.draw
-    endif
-    ld (hl),1
-    scf
-    ret
-.draw:
-    ld (hl),0
-    or a
-    ret
     endif
 page_c_end:
     assert page_c_end <= 0xE800
@@ -2459,57 +2447,12 @@ page_7_code:
     include "star_check7.asm"
     include "spr_pmap.asm"
 
+    ifndef NEXT                 ; (the 128K's renderer: not in the Next build, NX_AT)
 ; After a tile's conversion (ensure_tile, D = third, E = id): dense tiles
 ; inverted (tile_invert), then the nuke capsule's tiles (77-7A; the standard
 ; capsule is 7B-7E) given cyan: on the MSX both are a white frame round a
 ; coloured core, which one ink per cell turns into the same white capsule.
 ; Tiles 77-7E appear only as capsules (checked over all eight stages).
-; A sprite's ink (draw_sprites; A = its MSX colour 1-15, HL = its entry in
-; Konami's list, page 7 in): spr_ink[colour], unless spr_pmap gives this
-; pattern its own ink when it has that MSX colour (or any, for 0x10), or
-; flags it (bit 7, 0x20 in spr_pmap) for attrs_keep.  Preserves BC, DE, HL.
-spr_colour:
-    push hl
-    push de
-    ld e,a
-    inc l
-    inc l
-    ld a,(hl)                   ; pattern: 2 bytes per pattern / 4 in spr_pmap
-    rrca
-    and 0x7e
-    or spr_pmap & 0xff
-    ld l,a
-    ld h,spr_pmap>>8
-    ld d,0
-    ld a,(hl)
-    cp e
-    jr z,.own
-    cp 0x10                     ; 0x10: whatever its MSX colour
-    jr z,.own
-    cp 0x20                     ; 0x20: the usual ink, flagged for attrs_keep
-    jr nz,.map
-    ld d,0x80
-    jr .map
-.own:
-    inc l
-    ld a,(hl)
-    jr .set
-.map:
-    ld hl,spr_ink
-    ld a,l
-    add a,e
-    ld l,a
-    jr nc,.nc
-    inc h
-.nc:
-    ld a,(hl)
-    or d                        ; bit 7: terrain keeps its colours
-.set:
-    ld (sp_ink),a
-    pop de
-    pop hl
-    ret
-
 ; draw_sprite16's colouring for a sprite flagged in spr_pmap (bit 7 of
 ; sp_ink; A = sp_ink, DE = the attribute of the box's top-left cell): only
 ; the cells with nothing in them (tile 0) or a star (F6/F7) take its colour;
@@ -2554,6 +2497,8 @@ attrs_keep:
     jr nz,.row
     jp draw_sprite16.arec
     assert (name_shadow & 0xff) == 0
+    endif
+    NX_AT 0xF769
 page_7_end:
     assert page_7_end <= SPR_PAT
 ; Page D, E400-E7FF (after MSX bank 8's sound data, E000-E3DC): the full

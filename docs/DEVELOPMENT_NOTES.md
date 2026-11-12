@@ -1860,6 +1860,151 @@ is the same in 60 Hz frames, and Konami's sound driver is left out one
 frame in six.  Played in JNext.  ZEsarUX does not change its frame timing
 at 60 Hz.
 
+## 1.2: the 128K's speed (11 November 2026)
+
+A review of the 128K build for speed, instruction by instruction, and what
+came of it. The Konami code that runs and the screens it produces are
+unchanged; the game is about a tenth faster over the first loop and shows
+about a third more pictures a second. The method, every table and the
+candidates not taken up are in the project's notes
+(`claude/perf-review-1.1.3.md`); the scripts are in
+`local/tools/measure/prof/`.
+
+**An exact profile.**  SkoolKit's C simulator calls a Python function for
+every instruction when its trace is given one. That is slow (about 220
+frames a second against 4,600) but the whole first loop takes six minutes,
+and the result is every instruction's T-states by address and bank, and how
+often it ran, where the profile of 10 November sampled the PC. Over the
+loop with every weapon 1.1.3 spent 144,054 T-states a tick, 188,100 in the
+busiest quarter of seconds: Konami's game logic 38%, sprites 19%, cells
+12%, map tracking 10%, paging and far calls 9%, stars 4%, sound 3%. A
+sprite cost about 6,000 T-states all in, 2,460 of them the pixel rows; of a
+pattern's 16 rows, 7.3 lie outside its first and last rows with pixels and
+were walked for nothing. A cell cost 390, and 37% of the cells drawn held
+the blank character 0. Of 545,000 far calls, 360,000 switched the bank and
+switched it back, at 519 T-states more than a plain call each.
+
+**Contention.**  The same play was run through stages 1 and 2 with and
+without the 128K's memory contention (SkoolKit's two simulators). Konami's
+bank 0 code, in fixed memory at 5B00-760A, ran 19.4% slower with it, single
+routines 20% to 31%; Konami's code in the switched banks lost nothing. Bank
+0 is the only game code below 8000. Not measured: a +2A or +3 contends
+banks 4 to 7 in place of 1, 3, 5 and 7, which would put bank 3's code and
+the sound driver in contended memory there.
+
+**Copies in uncontended memory** (`HOT_CLONES` in `gen.py`).  The plan was
+to move routines into the 1.5 KB free at A700. The first five moved, small
+routines of banks 2 and 3 called across banks many times a tick, failed the
+lockstep at stage 1's first enemy: 2:90D4 loads HL with 9262h, the table at
+9264 less 2, and 9262 is inside the routine before the table (2:9251), so
+the table's base had moved with the routine. Konami's code cannot be shown
+free of such addresses, so the routines are copied instead and the
+originals left whole: a copy has labels of its own, every call, jump and
+table entry that names a copied instruction goes to the copy, and anything
+else that reaches the original finds it as it was. A copy's own data
+references are left pointing at the original for the same reason.
+
+The five routines and the pacer (`pace_adapt`, now `pace.asm`, in fixed
+memory on the 128K) took 231,000 of the 360,000 switching calls: paging
+fell from 12,274 T-states a tick to 8,893. For bank 0, the code was split
+into runs of instructions that end in a `ret` or a jump and ranked by time
+per byte. As whole routines the time is very concentrated: 1,146 of bank
+0's 6,923 bytes take 93% of its time. Copied to 8000-BFFF they take 17,358
+T-states a tick where they took 21,422. The interrupt routine (0:4028-4059)
+is not copied: the checks stop at 0:4054 for the end of a tick. The pause
+routine is one of the copies and no check presses pause, so pause was
+tried in the simulator on 1.1.3 and on the new build: the scroll stops and
+goes on the same in both.
+
+**The dissolve.**  Since 1.1.2 every chunk of Konami's dissolve had ended
+in `nl_done`, which marks the sprite extents stale, so every picture of a
+dissolve worked all 67 out again though a dissolve changes no sprite
+pattern. Each dissolve took 0.8 of a second longer for it (4.55 seconds;
+3.73 now). The chunks end in `nl_done_t`, which leaves the extents alone.
+
+**Sprites, outside the pixel work.**  Four changes, in code only the 128K
+runs:
+
+* Only the rows from a pattern's first with pixels to its last are drawn.
+  The extents of 1.1.2 held them already, but were read after the drawing.
+* The erase lists are gone. A sprite's box is ORed into its screen's dirty
+  bitmap as it is drawn, with one mask from a 48-byte table. That screen's
+  cells have just been redrawn, so the marks wait for its next picture,
+  which is what the list did. Nothing but `draw_cells` reads or clears the
+  bitmaps, so a bit set early is the same as one set just before it.
+* An extent now holds the pattern's leftmost and rightmost pixels in place
+  of the OR of its two columns, in a page-aligned table indexed by the
+  pattern number. The box's columns are (offset + leftmost) / 8 to (offset
+  + rightmost) / 8: the span `sp_trim` found with four mask tests after
+  working out the entry's address from the pattern's.
+* The ink is chosen in `draw_sprites` (it was `spr_colour`, in bank 7's
+  contended memory, saving two register pairs at every call).
+
+With them, a sprite on a cell boundary skips the shift's set-up, and the
+screen address is worked out once. A sprite costs about a third less all
+in (3,900 T-states against 5,700, counted over the same code).
+`NEM_TRIM=0` still builds the whole boxes: its extents are a fixed table of
+whole patterns.
+
+**Two small ones.**  Character 0 is blank in every third (no load writes
+it, and the dissolve leaves it zeros), so `draw_cells` writes its eight
+rows as zeros without reading the tile set. It saves less than estimated,
+about 490 T-states a tick against 1,100: the test costs every other cell
+15. And `redraw_star_rows` walked six entries at every picture for a row
+"still to be looked up", a flag only a row note sets; nothing has noted a
+row since the tiles came converted (`nt_row` is only ever FF). That walk
+was about 490 a tick, and is gone.
+
+**The Next** is not short of processor time (a tick takes a quarter of a
+frame at 28 MHz), so nothing here was aimed at it, and everything is either
+in code only the 128K runs or a matter of where the 128K's code is placed.
+One change is the Next's: the 128K's renderer, which it never called, is
+no longer assembled into it. `NX_AT` keeps what follows each piece at its
+1.1.3N address and fills the gap with `di` / `halt`, so its `.nex` differs
+from 1.1.3N's in those seven gaps (2,872 bytes, now free) and the version
+on the title, and in nothing else.
+
+**Measured**, the same scripted loop:
+
+| | 1.1.3 | 1.2 |
+|---|---|---|
+| Ticks a second, loop | 24.61 | 27.18 |
+| Pictures a second, loop | 15.30 | 20.30 |
+| Ticks a second, busiest quarter of seconds | 18.85 | 22.07 |
+| Pictures a second, busiest quarter | 9.60 | 12.04 |
+| T-states a tick, loop | 144,054 | 130,463 |
+| T-states a tick, busiest quarter | 188,100 | 160,627 |
+| Ticks drawn | 62% | 75% |
+| Seconds above 30 ticks | 8.4% | 13.7% |
+| The slowest twentieth of seconds, at or below | 18 ticks | 21 ticks |
+
+The pacer turns most of the time freed into pictures. Part of the gain is
+the lightest stretches running faster, since nothing holds the build back
+when it has time to spare; the MSX is the same (6.8 of the technical
+description), and at 50 Hz in the simulator it ran above 30 ticks in 9% of
+seconds of an older run.
+
+**Checks.**  The lockstep over 72,000 ticks with every weapon and 45,000
+with every target. The screen lockstep against a 1.1.3 test build, pixels
+and attributes, identical over the three routes (40,000, 50,000 and 20,000
+ticks). `verify.sh`, whose `check_screen.py` proves the erasing (every cell
+equal to its tile after `draw_cells`) and whose `check_sprites.py` now
+tells trimmed boxes by `sp_calc`. Character 0 was blank each of the 701,022
+times the blank path was taken over the loop. The tape traps pass; the tape
+is 71,671 bytes.
+
+**Not taken up.**  Five smaller candidates sit in code both builds run, so
+they would change the Next for nothing it can show: the sprite engine's
+bank switches made directly (about 950 T-states a tick), the frame's 35
+calls each testing a page that is already known (1,400 to 1,870, and a
+wrong assumption there maps the wrong bank), a short path for sound chip
+writes that change nothing (765), `out_page`'s own overhead (about 450) and
+the keyboard decoded only when a key changes (410). The star twinkle still
+switches to bank 7 and back every tick to write rows that are only needed
+at the next picture (1,120 a tick); deferring the writes touches the star
+layer's first lighting of a star, and was left. WRTPSG and the keyboard
+read stay in contended memory at 7C60.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -1892,7 +2037,7 @@ replay from.  They compare memory, not the picture, so a wrong scroll
 split, palette or hardware sprite passes them, and the Next build is also
 played (1.1's flash was found that way).
 
-## Where it stands (1.1.3)
+## Where it stands (1.2)
 
 * The 128K build has no MSX graphics.  Every graphics load is a load of
   tiles and sprite patterns converted when the game is built, and
@@ -1905,14 +2050,20 @@ played (1.1's flash was found that way).
 * 1.1's tape (70,445 bytes) passes the simulated load.
 * Since 1.1.2 a sprite colours and erases only the cells its pixels
   reach; its screens match 1.1.1's pixel for pixel over those three routes.
+* 1.2's screens match 1.1.3's byte for byte over the same three routes:
+  its changes are to where Konami's code runs and to how the port draws,
+  not to what is drawn.
 * Since 1.1.3 a tick where the directions change is always drawn: a frame
   off the typical input lag (median 4.5 frames, the MSX's 2.8).
-* Fixed memory has 1.5 KB free below AD00 (`platform_end` A700), and the
-  switched banks about 1.4 KB, in pieces of at most 384 bytes.
+* Fixed memory above 8000 holds copies of Konami's hottest routines (1.2,
+  1,391 bytes) and has 302 bytes free below AD00; the switched banks have
+  about 1.4 KB, in pieces of at most 384 bytes.
 * Speed: over the first two stages in light play, 24.57 ticks and 14.7
   screens a second (1.0: 24.16 and 13.7).  Over stages 1-6 with every
   weapon, never fewer than 6 screens in any second, where 1.0 had seconds
-  with none.
+  with none.  Over the first loop with every weapon, 1.2 runs 27.2 ticks
+  and 20.3 pictures a second (1.1.3: 24.6 and 15.3), and 22.1 ticks in its
+  busiest quarter of seconds (18.9).
 * The Next build is on the same code, with its store of character rows
   filled from data made when the game is built.  In ZEsarUX its builds
   have played the bonus route and two whole loops of the plain route with

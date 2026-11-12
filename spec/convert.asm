@@ -133,6 +133,7 @@ tick_tiles:
 .stars:
     ret                         ; the star rows are drawn by render_frame (star_update)
 
+    ifndef NEXT                 ; (the 128K's renderer: not in the Next build, NX_AT)
 ; From render_frame, with the hidden screen chosen: bring its star cells up to
 ; date (rows that changed this tick, or last tick for the other screen).
 star_update:
@@ -144,6 +145,8 @@ star_update:
     or a
     call nz,star_rebuild
     jp redraw_star_rows
+    endif
+    NX_AT 0x89CF
 
 star_reset:
     ld hl,star_rows
@@ -170,6 +173,7 @@ star_any:   db 0
 star_dirty: db 1                ; star_cells changed since the lists were made
 star_ovf:   db 0                ; a list overflowed: scan star_cells instead
 
+    ifndef NEXT                 ; (the 128K's renderer: not in the Next build, NX_AT)
 ; Lists of the star cells' screen low bytes, one list per (third, F6/F7),
 ; made from star_cells when it changes (the map scrolled).
 star_rebuild:
@@ -282,49 +286,11 @@ redraw_star_rows:
     push af
     ld a,PAGE_7
     call set_page
-    ; for each (third, F6/F7) whose row changed: the converted row byte and
-    ; its screen line (8 * third + row)
-    ld ix,star_rows
-    ld iy,star_bytes
-    ld d,0                      ; third
-.prep:
-    ld e,0xf6
-.prep2:
-    ld a,(ix+0)
-    cp 0xff
-    jr z,.pnext
-    bit 7,a
-    jr z,.pnext                 ; prepared already
-    and 7
-    ld c,a                      ; row
-    ld a,d
-    add a,a
-    add a,a
-    add a,a
-    add a,d
-    add a,TILE_PAGES
-    add a,c
-    ld h,a
-    ld l,e
-    ld a,(hl)
-    ld (iy+0),a                 ; converted row
-    ld a,d
-    add a,a
-    add a,a
-    add a,a
-    add a,c
-    ld (ix+0),a                 ; now: screen line 8 * third + row
-.pnext:
-    inc ix
-    inc iy
-    inc e
-    ld a,e
-    cp 0xf8
-    jr nz,.prep2
-    inc d
-    ld a,d
-    cp 3
-    jr nz,.prep
+    ; (star_rows holds each changed row's screen line and star_bytes its
+    ; byte, as blink_native leaves them.  Until 1.2 six entries were walked
+    ; here first for a row still to be looked up in the tile set (bit 7), which
+    ; only tick_tiles sets, for a note_tile with a row: nothing notes a row
+    ; now that the tiles come converted (nt_row is only ever 0xFF).)
     ld a,(star_ovf)
     or a
     jr nz,.slow
@@ -542,6 +508,8 @@ redraw_tile_row:
     pop af
     jp set_page
 
+    endif
+    NX_AT 0x8BEF
 
 ; Both screens redraw every cell of third D that shows tile E.
 invalidate_tile:

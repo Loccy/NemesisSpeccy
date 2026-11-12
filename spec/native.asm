@@ -375,13 +375,15 @@ nl_restore:                     ; (jumped to, with nl_save's pushes on the stack
     ret
 
 nl_done:                        ; every cell redrawn at the end of the tick
-    ld a,0xff
-    ld (chg_n),a
-    ld a,1
-    ld (star_stale),a
     ifdef TRIM
+    ld a,1
     ld (spx_stale),a            ; the sprite patterns' extents to be worked out again
     endif
+nl_done_t:                      ; the same for tiles alone (a chunk of the dissolve):
+    ld a,0xff                   ; the sprite patterns are as they were, and working
+    ld (chg_n),a                ; their extents out again takes over two frames
+    ld a,1
+    ld (star_stale),a
     ifdef NEXT
     ld (spr_new),a              ; Next: lo_sprites compares all 64 patterns again,
     call nx_cclr                ; and makes every character enemy afresh
@@ -823,12 +825,12 @@ dz_chunk:
     ld hl,nl_dz8_d
     cp 8
     jp z,nl_patch
-    jp nl_done
+    jp nl_done_t
 .pat:
     call dz_pat
 .out:
     call unborrow_page
-    jp nl_done
+    jp nl_done_t
 
 ; C characters from DE (row 0's address, page 7 in), B = third.
 dz_col:

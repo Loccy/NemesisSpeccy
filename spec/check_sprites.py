@@ -21,7 +21,7 @@ syms = {}
 for l in open(os.path.join(HERE, 'nemesis.sym')):
     m = re.match(r'(\S+):\s+EQU\s+0x([0-9A-F]+)', l)
     if m: syms[m.group(1)] = int(m.group(2), 16) & 0xFFFF
-TRIM = 'sp_trim' in syms           # 1.1.2 on: boxes trimmed to the pixels (NEM_TRIM=0: whole boxes)
+TRIM = 'sp_trim' in syms or 'sp_calc' in syms   # 1.1.2 on: boxes trimmed to the pixels (NEM_TRIM=0: whole boxes)
 secs = float(sys.argv[1]); skip = float(sys.argv[2]) if len(sys.argv) > 2 else 0
 every = int(sys.argv[3]) if len(sys.argv) > 3 else 1
 m = Spectrum()

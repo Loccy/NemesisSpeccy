@@ -5,7 +5,9 @@
 ; Each screen has a bitmap of cells it must redraw (dirty0 / dirty1, one bit
 ; per cell).  A cell is marked in both when its name changes (found while
 ; Konami's map is copied each tick, or written through the VDP port), when
-; its tile is re-converted, and in one screen when a sprite covered it there.
+; its tile is re-converted, and in one screen when a sprite is drawn over it
+; there (draw_sprite16: the cell is drawn again, without the sprite, at that
+; screen's next picture).
 ; Sprites are ORed in, and their cells take the sprite's colour as ink.
 
     ifndef NEXT
@@ -16,8 +18,8 @@ SPR_ATTR equ 0x3F80              ; Next: lo_sat (nx_low.asm), Konami's list with
 
 r_scr_hi:   db 0                ; hidden screen pixel high byte base (0x40 / 0xC0)
 r_dirty:    db 0                ; its dirty bitmap low byte (0x00 / 0x80)
-r_erase:    dw 0                ; its erase list
-r_eptr:     dw 0                ; erase list write pointer
+r_erase:    dw 0                ; (the Next's: its erase list; the 128K has none since 1.2)
+r_eptr:     dw 0                ; (erase list write pointer)
 
 ; Mark every cell of both screens.
 dirty_all:
@@ -65,6 +67,7 @@ dirty_cell:
     pop hl
     ret
 
+    ifndef NEXT                 ; (the 128K's renderer: not in the Next build, NX_AT)
 render_frame:
     ld a,(cur_page)
     push af
@@ -75,125 +78,32 @@ render_frame:
     and 8
     ld a,0x40
     ld b,0
-    ifndef NEXT
-    ld hl,erase0
-    else
-    ld hl,0x3D00                ; Next: nx_low.asm's erase lists (more rects)
-    endif
     jr nz,.set
     ld a,0xC0
     ld b,0x80
-    ifndef NEXT
-    ld hl,erase1
-    else
-    ld hl,0x3E00
-    endif
 .set:
     ld (r_scr_hi),a
     ld a,b
     ld (r_dirty),a
-    ld (r_erase),hl
     call star_update
-    call erase_sprites
     call draw_stars
 rf_erased:
     call draw_cells
 rf_cells:
     push ix
-    ifndef NEXT
     call draw_sprites
-    else
-    call 0x0103                 ; Next: lo_draw, then draw_sprites
-    endif
     pop ix
 rf_sprites:
     pop af
     jp set_page
 
-; Cells under last time's sprites on this screen: mark them for redrawing.
-; Each record is [cx, cy, cols 1-3, rows]: its columns, as bits of the dirty
-; bitmap (bit cx & 7 of byte cy * 4 + cx / 8), are one mask for every row,
-; which may run into the next byte (never past column 31, so never into the
-; next row's).  Rows from 24 on are below the screen.
-erase_sprites:
-    ld hl,(r_erase)
-.rect:
-    ld a,(hl)
-    cp 0xff
-    jr z,.done
-    ld c,a                      ; cx
-    inc hl
-    ld b,(hl)                   ; cy
-    inc hl
-    ld d,(hl)                   ; cols
-    inc hl
-    ld e,(hl)                   ; rows
-    inc hl
-    push hl
-    ld a,1
-.m:
-    add a,a
-    dec d
-    jr nz,.m
-    dec a                       ; cols bits
-    ld l,a
-    ld h,0
-    ld a,c
-    and 7
-    jr z,.mok
-.ms:
-    add hl,hl
-    dec a
-    jr nz,.ms
-.mok:
-    ld d,l                      ; mask, first byte
-    ld a,h
-    ld (.m2+1),a                ; mask, second byte
-    ld a,b
-    add a,a
-    add a,a                     ; cy * 4
-    ld l,a
-    ld a,c
-    rrca
-    rrca
-    rrca
-    and 3
-    add a,l
-    ld l,a
-    ld a,(r_dirty)
-    or l
-    ld l,a
-    ld h,dirty0>>8
-.row:
-    ld a,b
-    cp 24
-    jr nc,.rowdone
-    ld a,(hl)
-    or d
-    ld (hl),a
-    inc l
-    ld a,(hl)
-.m2:
-    or 0
-    ld (hl),a
-    inc l
-    inc l
-    inc l
-    inc b
-    dec e
-    jr nz,.row
-.rowdone:
-    pop hl
-    jr .rect
-.done:
-    ld hl,(r_erase)
-    ld (hl),0xff
-    ld (r_eptr),hl
-    ret
-
 ; Redraw every marked cell of the hidden screen.  For each bitmap byte (8
 ; cells of one third) the page bases are patched into the loop; a tile whose
 ; attribute in the tile set has bit 7 set is waiting for conversion.
+; Character 0 is blank in every third (no load writes it, and the dissolve
+; leaves it zeros), and over a third of the cells drawn hold it: its eight
+; rows are written as zeros without reading the tile set (.blank).  Its
+; attribute is still the tile set's.
 draw_cells:
     xor a
     call .third
@@ -218,6 +128,7 @@ draw_cells:
     ld a,(r_scr_hi)
     add a,e
     ld (.dst+1),a
+    ld (.bdst+1),a
     ld a,(r_scr_hi)
     add a,0x18
     add a,d
@@ -287,6 +198,9 @@ draw_cells:
 .att:
     ld d,0
     ld (de),a
+    inc l
+    dec l
+    jr z,.blank                 ; character 0
 .src:
     ld h,0
 .dst:
@@ -329,6 +243,33 @@ draw_cells:
     pop hl
     pop bc
     ret
+.blank:
+.bdst:
+    ld d,0
+    xor a
+    ld (de),a
+    inc d
+    ld (de),a
+    inc d
+    ld (de),a
+    inc d
+    ld (de),a
+    inc d
+    ld (de),a
+    inc d
+    ld (de),a
+    inc d
+    ld (de),a
+    inc d
+    ld (de),a
+    ld a,c
+    dec a
+    and c
+    ld c,a
+    jp nz,.bit
+    pop hl
+    pop bc
+    ret
 .conv:
     push de
     ld e,l
@@ -339,6 +280,8 @@ draw_cells:
     res 7,(hl)
     ld a,(hl)
     jp .att
+    endif
+    NX_AT 0x8E12
 
 
 ; ---------------------------------------------------------------------------
@@ -355,6 +298,7 @@ star_ok:    db 0                ; set by star_check: the full comparison may lea
 star_stale: db 1                ; a tile changed or was converted: check again
 star_off:   db 0                ; a star list overflowed once: stars are plain cells from then on
 
+    ifndef NEXT                 ; (the 128K's renderer, to the end of this file: not in the Next build)
 ; From render_frame (page 7, after erase_sprites): bring this screen's stars
 ; up to date if the star lists changed since it was last drawn.
 draw_stars:
@@ -673,136 +617,25 @@ dc_third:   db 0
 
 ; ---------------------------------------------------------------------------
 ; Konami's sprite buffer: 32 x [Y, X, pattern, colour]; Y = 0xD0 ends the list.
-sp_x:       db 0
+sp_x:       db 0                ; (spr_edge's: 0 or 240)
 sp_y:       db 0
 sp_ink:     db 0
-sp_cx:      db 0
-sp_cy:      db 0
-sp_cols:    db 0
-sp_rows:    db 0
+sp_cx:      db 0                ; the box of cells the sprite's pixels reach:
+sp_cy:      db 0                ; its first column and row,
+sp_cols:    db 0                ; columns (1-3)
+sp_rows:    db 0                ; and rows (1-3)
+; Each sprite pattern's extent (1.1.2; used for the drawing too since 1.2):
+; sp_ext (plat_spec.asm, page-aligned) holds, for each of Konami's 64
+; patterns (bank 7, F800 + n * 32) at sp_ext + n * 4 and for the ship's three
+; frames (ship_pat) from sp_exts = sp_ext + 256, [first row with pixels
+; (FF: none), last row, leftmost pixel 0-15, rightmost pixel].  draw_sprite16
+; draws only the rows from the first to the last, and colours and marks only
+; the cells the pixels reach at the sprite's position.  Worked out again at
+; the first drawing after a graphics load (nl_done sets spx_stale).
+; NEM_TRIM=0: every extent is the whole pattern (the boxes of 1.1.1), fixed.
     ifdef TRIM
-; Sprite boxes trimmed to their pixels (10 November 2026, experiment).  For
-; each sprite pattern, sp_ext holds [first row with pixels (FF: none), last
-; row, OR of its left column's bytes, OR of its right column's]: Konami's 64
-; (bank 7, F800 + n * 32) at sp_ext + n * 4, the ship's three frames
-; (ship_pat) from sp_ext + 256.  Worked out again at the first drawing
-; after a graphics load (nl_done sets spx_stale).  sp_trim turns them into
-; the cells the sprite's pixels reach at its position, for the colouring
-; and the erase record.
-sp_ptr:     dw 0
 spx_stale:  db 1
 sp_tmp:     db 0
-    align 16
-sp_pow:     db 1,2,4,8,16,32,64,128     ; 1 << offset
-            db 0,1,3,7,15,31,63,127     ; (1 << offset) - 1
-sp_colsel:  db 0,1, 1,1, 0,2, 2,1, 0,3, 1,2, 0,3    ; columns used (bits 0-2): first, how many
-sp_ext:     ds 256 + 12
-
-; Carry set: the pattern has no pixels (draw_sprite16 returns).
-sp_trim:
-    ld hl,(sp_ptr)
-    ld a,h
-    cp 0xF8
-    jr c,.notk
-    ld de,0-0xF800
-    add hl,de
-    jr .idx
-.notk:
-    ld de,0-ship_pat
-    add hl,de
-    ld a,h
-    or a
-    jr nz,.none                 ; edge_pat: its box as it is
-    ld a,l
-    cp 96
-    jr nc,.none
-    ld de,256*8
-    add hl,de
-.idx:
-    srl h
-    rr l
-    srl h
-    rr l
-    srl h
-    rr l
-    ld de,sp_ext
-    add hl,de
-    ld a,(hl)                   ; first row
-    cp 0xff
-    jr z,.empty
-    ld b,a
-    inc hl
-    ld c,(hl)                   ; last row
-    inc hl
-    ld a,(sp_y)
-    ld e,a
-    add a,b
-    rrca
-    rrca
-    rrca
-    and 31
-    ld (sp_cy),a
-    ld d,a
-    ld a,e
-    add a,c
-    rrca
-    rrca
-    rrca
-    and 31
-    sub d
-    inc a
-    ld (sp_rows),a
-    ld a,(sp_x)
-    and 7
-    ld e,a
-    ld d,0
-    ld b,(hl)                   ; OR of the left column
-    inc hl
-    ld c,(hl)                   ; OR of the right column
-    ld hl,sp_pow
-    add hl,de
-    ld d,0                      ; columns used
-    ld a,b
-    cp (hl)
-    jr c,.u0
-    set 0,d                     ; left column >> offset: something
-.u0:
-    ld a,c
-    cp (hl)
-    jr c,.u1
-    set 1,d                     ; right column >> offset
-.u1:
-    ld a,l
-    add a,8
-    ld l,a
-    ld a,b
-    and (hl)
-    jr z,.u2
-    set 1,d                     ; left column's low bits, shifted on
-.u2:
-    ld a,c
-    and (hl)
-    jr z,.u3
-    set 2,d                     ; right column's low bits, shifted on
-.u3:
-    ld a,d
-    add a,a
-    ld e,a
-    ld d,0
-    ld hl,sp_colsel-2
-    add hl,de
-    ld a,(sp_cx)
-    add a,(hl)
-    ld (sp_cx),a
-    inc hl
-    ld a,(hl)
-    ld (sp_cols),a
-.none:
-    or a
-    ret
-.empty:
-    scf
-    ret
 
 ; The extents of every pattern (page 7 in).
 sp_calc:
@@ -863,12 +696,38 @@ sp_calc:
     ld a,b
     ld (de),a
     inc de
-    ld a,ixh
-    ld (de),a
+    push hl
+    push ix
+    pop hl                      ; the 16 columns that have pixels, the leftmost in bit 15
+    ld a,h
+    or l
+    jr z,.z                     ; (no pixels: the rest of the entry is not read)
+    push hl
+    ld b,0xff
+.lm:
+    inc b
+    add hl,hl
+    jr nc,.lm
+    pop hl
+    ld c,16
+.rm:
+    dec c
+    srl h
+    rr l
+    jr nc,.rm
+    ld a,b
+    ld (de),a                   ; the leftmost pixel
     inc de
-    ld a,ixl
-    ld (de),a
+    ld a,c
+    ld (de),a                   ; the rightmost
     inc de
+    pop hl
+    pop bc
+    ret
+.z:
+    inc de
+    inc de
+    pop hl
     pop bc
     ret
     endif
@@ -923,132 +782,68 @@ draw_sprites:
     inc a
     ld (sp_y),a
     inc l
+    ld e,(hl)                   ; X
     inc l
     ld a,(hl)                   ; pattern: 4-7, 12-15, 20-23 are the ship's
+    ld d,a
     cp 24                       ; second colour, never drawn (ship.asm), so
     jr nc,.drawn                ; not worth a colour either (0.109)
     and 4
     jr nz,.next
 .drawn:
     inc l
-    ld a,(hl)                   ; colour
-    dec l
-    dec l
-    dec l
-    ld c,a
+    ld c,(hl)                   ; colour, and the early clock in bit 7
+    ld a,c
     and 15
     jr z,.next                  ; transparent
-    call spr_colour             ; -> sp_ink (page 7: the MSX colour, or this pattern's own)
+    push bc
+    ld b,a
+    ; The sprite's ink (1.2: here, out of bank 7's contended memory):
+    ; spr_ink[colour], unless spr_pmap (page 7; two bytes for each pattern)
+    ; gives this pattern its own ink when it has that MSX colour (or any, for
+    ; 0x10), or flags it (0x20: bit 7 of sp_ink) for attrs_keep.
+    ld a,d
+    rrca
+    and 0x7e
+    or spr_pmap&0xff
+    ld l,a
+    ld h,spr_pmap>>8
+    ld a,(hl)
+    cp b
+    jr z,.own
+    cp 0x10                     ; 0x10: whatever its MSX colour
+    jr z,.own
+    sub 0x20                    ; 0x20: the usual ink, flagged for attrs_keep
+    ld h,0x80
+    jr z,.map
+    ld h,0
+.map:
+    ld l,b
+    ld a,h
+    ld h,spr_ink>>8
+    or (hl)
+    jr .set
+.own:
     inc l
-    ld a,(hl)                   ; X
-    dec l
+    ld a,(hl)
+.set:
+    ld (sp_ink),a
+    ld a,e                      ; X
     bit 7,c                     ; early clock: 32 pixels to the left
-    ifndef NEXT
     jr z,.x
-    else
-    jr z,.xp
-    endif
     sub 32
-    ifndef NEXT
     jp c,spr_edge               ; partly off the left edge (or wholly)
-    else
-    jr nc,.xp
-.sx1:
-    sub 0                       ; Next: the screen's scroll offset (nx_tick)
-    jp spr_edge                 ; partly off the left edge (or wholly)
-.xp:
-.sx2:
-    sub 0
-    jr nc,.x
-    set 7,c                     ; now off the left edge: spr_edge's left case
-    jp spr_edge
-    endif
 .x:
     cp 241
     jp nc,spr_edge              ; partly off the right edge
-    ld (sp_x),a
-    push hl
-    push bc
-    inc l
-    inc l
-    ld a,(hl)                   ; pattern
-    and 0xfc
-    call spr_patsel             ; its bytes (Konami's, or the ship's: ship.asm)
-    call nc,draw_sprite16       ; (carry: the ship's second colour, not drawn)
+    call draw_sprite16
     pop bc
-    pop hl
-.next:
+.next:                          ; (spr_edge comes back here, with BC popped)
     djnz .spr
     ret
+    assert (spr_ink & 0xff) == 0
 
-; OR the 16x16 sprite at HL (TMS layout: left column bytes 0-15, right 16-31)
-; at (sp_x, sp_y) into the hidden screen, colour its cells, record them.
-draw_sprite16:
-    ld a,(sp_x)
-    rrca
-    rrca
-    rrca
-    and 31
-    ld (sp_cx),a
-    ld c,a
-    ld a,(sp_x)
-    and 7
-    ld b,2
-    jr z,.cols
-    inc b
-.cols:                          ; (spr_edge comes in here, HL = edge_pat)
-    ifdef TRIM
-    ld (sp_ptr),hl              ; the pattern, for sp_trim
-    endif
-    push af
-    ld a,b
-    ld (sp_cols),a
-    pop af
-    ; shift entry: .shift_end - 5 * s for s 1-4; for s 5-7 the sprite is
-    ; shifted left by 8 - s instead, into the same three bytes (.lrow)
-    cp 5
-    jr c,.rsh
-    neg
-    add a,8
-    ld e,a
-    add a,a
-    add a,a
-    add a,e
-    ld e,a
-    ld d,0
-    push hl
-    ld hl,.lshift_end
-    jr .shset
-.rsh:
-    ld e,a
-    add a,a
-    add a,a
-    add a,e
-    ld e,a
-    ld d,0
-    push hl
-    ld hl,.shift_end
-.shset:
-    or a
-    sbc hl,de
-    ld (.shift_jump+1),hl
-    ld (.lshift_jump+1),hl
-    pop hl
-    ld a,(sp_y)
-    ld b,a
-    rrca
-    rrca
-    rrca
-    and 31
-    ld (sp_cy),a
-    ld a,b
-    and 7
-    ld a,2
-    jr z,.rows
-    inc a
-.rows:
-    ld (sp_rows),a
-    ; screen address of line y, column cx
+    macro SPR_ADDR              ; DE = the hidden screen's byte for line B, column C
     ld a,b
     and 0xc0
     rrca
@@ -1068,12 +863,156 @@ draw_sprite16:
     add a,a
     or c
     ld e,a
-    ld ixl,16
-    ld a,(sp_x)
+    endm
+
+; OR a 16x16 sprite (TMS layout: left column bytes 0-15, right 16-31) into
+; the hidden screen at (A, sp_y), A = X (0-240), D = its pattern number as
+; Konami's list has it; colour its cells with sp_ink, and mark them in this
+; screen's dirty bitmap.
+draw_sprite16:
+    ld ixh,a                    ; X
     and 7
-    jp z,.row0
+    ld c,a                      ; its offset in the cell
+    ld a,d
+    and 0xfc
+    ld d,a
+    cp 24
+    jr nc,.kext
+    rrca                        ; the ship's (0, 8, 16): its extent at sp_exts + 0, 4, 8
+    add a,sp_exts&0xff
+    ld l,a
+    ld h,sp_exts>>8
+    jr .ext
+.kext:
+    ld l,a                      ; Konami's: its extent at sp_ext + pattern
+    ld h,sp_ext>>8
+.ext:
+    ld a,(hl)                   ; first row with pixels
+    cp 0xff
+    ret z                       ; none: nothing to draw, colour or mark
+    ld b,a
+    inc l
+    ld a,(hl)                   ; last row with pixels
+    sub b
+    inc a
+    ld ixl,a                    ; rows to draw
+    inc l
+    ld a,(hl)                   ; leftmost pixel
+    add a,c
+    rrca
+    rrca
+    rrca
+    and 3
+    ld e,a                      ; the first column with pixels: 0-2
+    inc l
+    ld a,(hl)                   ; rightmost pixel
+    add a,c
+    rrca
+    rrca
+    rrca
+    and 3
+    sub e
+    inc a
+    ld (sp_cols),a
+    ld a,ixh
+    rrca
+    rrca
+    rrca
+    and 31
+    ld c,a                      ; the column drawn from
+    add a,e
+    ld (sp_cx),a
+    ld a,(sp_y)
+    add a,b
+    ld e,a                      ; the first row's line
+    rrca
+    rrca
+    rrca
+    and 31
+    ld (sp_cy),a
+    ld h,a
+    ld a,ixl
+    add a,e
+    dec a                       ; the last row's line
+    rrca
+    rrca
+    rrca
+    and 31
+    sub h
+    inc a
+    ld (sp_rows),a
+    ld a,d                      ; the pattern's bytes, from its first row with pixels
+    cp 24
+    jr nc,.kpat
+    add a,a
+    add a,a                     ; the ship's: ship_pat + pattern * 4
+    add a,b
+    add a,ship_pat&0xff
+    ld l,a
+    ld h,ship_pat>>8
+    jr .pat
+.kpat:
+    ld l,a                      ; Konami's: SPR_PAT + pattern * 8
+    ld h,SPR_PAT>>11
+    add hl,hl
+    add hl,hl
+    add hl,hl
+    ld a,l
+    add a,b
+    ld l,a
+.pat:
+    ld b,e
+    ld a,ixh
+    and 7
+    jr z,.c0                    ; on a cell boundary: no shifting
+    ; shift entry: .shift_end - 5 * s for s 1-4; for s 5-7 the sprite is
+    ; shifted left by 8 - s instead, into the same three bytes (.lrow)
     cp 5
-    jp nc,.lrow
+    jr nc,.lset
+    ld e,a
+    add a,a
+    add a,a
+    add a,e
+    neg
+    add a,.shift_end&0xff
+    ld (.shift_jump+1),a
+    SPR_ADDR
+    jp .row
+.lset:
+    neg
+    add a,8
+    ld e,a
+    add a,a
+    add a,a
+    add a,e
+    neg
+    add a,.lshift_end&0xff
+    ld (.lshift_jump+1),a
+    SPR_ADDR
+    jp .lrow
+; spr_edge comes in here: HL = edge_pat (all 16 rows, no shift), B = columns
+; to colour (sp_cx set), C = the column drawn from.
+.cols:
+    ld a,b
+    ld (sp_cols),a
+    ld a,(sp_y)
+    ld b,a
+    rrca
+    rrca
+    rrca
+    and 31
+    ld (sp_cy),a
+    ld a,b
+    and 7
+    ld a,2
+    jr z,.erows
+    inc a
+.erows:
+    ld (sp_rows),a
+    ld ixl,16
+.c0:
+    SPR_ADDR
+    jp .row0
 .row:
     ld b,(hl)
     set 4,l
@@ -1216,10 +1155,6 @@ draw_sprite16:
     dec ixl
     jp nz,.row0
 .attrs:
-    ifdef TRIM
-    call sp_trim                ; the box cut down to the cells the pixels reach
-    ret c                       ; (an empty pattern: nothing to colour or erase)
-    endif
     ; attributes: ink = sprite colour
     ld a,(sp_cy)
     ld b,a
@@ -1275,21 +1210,77 @@ draw_sprite16:
 .anc:
     dec c
     jr nz,.arow
-    ; record [cx, cy, cols, rows]
+    ; The box's cells in this screen's dirty bitmap (attrs_keep comes back
+    ; here): draw_cells has had this picture's bits, so they wait for this
+    ; screen's next picture, which draws the cells again without the sprite.
+    ; (1.2; until then each screen kept a list of boxes for erase_sprites
+    ; to mark at its next picture.)  The columns, as bits (bit cx & 7 of byte
+    ; cy * 4 + cx / 8), are one mask for every row, which may run into the
+    ; next byte (never past column 31, so never into the next row's).
 .arec:
-    ld hl,(r_eptr)
     ld a,(sp_cx)
-    ld (hl),a
-    inc hl
-    ld a,(sp_cy)
-    ld (hl),a
-    inc hl
+    ld c,a
+    and 7
+    add a,a
+    ld e,a
     ld a,(sp_cols)
-    ld (hl),a
-    inc hl
+    dec a
+    add a,a
+    add a,a
+    add a,a
+    add a,a
+    or e
+    add a,sp_mask&0xff
+    ld l,a
+    ld h,sp_mask>>8
+    ld d,(hl)                   ; the columns' bits in the first byte,
+    inc l
+    ld e,(hl)                   ; and in the next
+    ld a,(sp_cy)
+    add a,a
+    add a,a
+    ld l,a
+    ld a,c
+    rrca
+    rrca
+    rrca
+    and 3
+    or l
+    ld l,a
+    ld a,(r_dirty)
+    or l
+    ld l,a
+    ld h,dirty0>>8
     ld a,(sp_rows)
+    ld b,a
+    ld a,e
+    or a
+    jr z,.m1
+.m2:
+    ld a,(hl)
+    or d
     ld (hl),a
-    inc hl
-    ld (hl),0xff
-    ld (r_eptr),hl
+    inc l
+    ld a,(hl)
+    or e
+    ld (hl),a
+    inc l
+    inc l
+    inc l
+    djnz .m2
     ret
+.m1:
+    ld a,(hl)
+    or d
+    ld (hl),a
+    ld a,l
+    add a,4
+    ld l,a
+    djnz .m1
+    ret
+    assert ((.shift_end - 20) >> 8) == (.shift_end >> 8) && ((.lshift_end - 15) >> 8) == (.lshift_end >> 8)
+    assert (ship_pat & 0xff) + 96 <= 256 && (sp_exts & 0xff) <= 0xf4 && (sp_ext & 0xff) == 0
+    else
+    NX_AT 0x8FF8
+draw_sprites:                   ; (nx_low.asm's lo_draw, itself never called, still names it)
+    endif

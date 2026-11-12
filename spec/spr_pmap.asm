@@ -1,4 +1,4 @@
-; Per-pattern sprite inks (spr_colour): for pattern p, the bytes at
+; Per-pattern sprite inks (draw_sprites): for pattern p, the bytes at
 ; spr_pmap + p/2 are [MSX colour, ZX ink]; when the sprite has that colour
 ; (any colour for 0x10) it gets that ink instead of spr_ink's.  Patterns as
 ; seen in play: 120-132 an explosion's frames, whatever the enemy (white,

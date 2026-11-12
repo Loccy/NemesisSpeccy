@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 1.1.3 (10 November 2026). 
+Version 1.2 (11 November 2026). 
 
 ## 1. What it is
 
@@ -46,7 +46,8 @@ The build has four stages, all driven by `build.py`:
    disassembly of it, and writes Konami's code back out as assembly source
    with every address symbolic, laid out for the Spectrum's memory
    (`konami_spec.asm`, plus `konami_spec_stubs.asm` for calls between
-   memory banks).  Section 6.1 explains why and how.
+   memory banks and, for the 128K, `konami_spec_hot.asm` for the copies of
+   hot routines).  Section 6.1 explains why and how.
 2. **Generated tables.**  `tables.py` writes the sprite inks, the border
    colours, the keyboard decoder and the unpacker's input buffer
    (`tables.asm`); `gen_fullcmp.py` writes an unrolled comparison routine
@@ -100,7 +101,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the release build
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 1.1.3           # the release, tape, snapshot and .nex, in release/
+sh release.sh 1.2             # the release, tape, snapshot and .nex, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 
@@ -117,6 +118,8 @@ Build options (environment variables):
 | `NEM_PACE=25` (`nxbuild.sh`) | The Next build at the earlier pacing, about 26.7 ticks a second instead of 30 (9.2). |
 | `NEM_TAP_RAW=1` | (make_tap.py) an uncompressed tape. |
 | `NEM_ANY_DISASM=1` | Build from a disassembly other than the pinned version. |
+| `NEM_HOT=0` | The 128K build without the copies of hot routines in uncontended memory (6.1); `NEM_HOT=paged` for those of the switched banks alone. |
+| `NEM_TRIM=0` | Sprites colour and mark their whole boxes, as in 1.1.1 and before (6.7). |
 | `NEM_NEXT=1` | The Spectrum Next build (`nxbuild.sh` sets it): assembles with `NEXT` defined, writes `nemesis_next.sna`, and the title's letter is N (section 9). |
 
 The version is kept in the file `VERSION`; `build.py` puts it at the top
@@ -461,19 +464,21 @@ Fixed memory:
 4000-5AFF  screen 0 (bank 5)
 5B00-760A  MSX bank 0 code, relocated (less the loaders the port leaves
            out, 6.11)
-760B-7ADD  the graphics loads, their unpacker and the dissolve
+760B-7AE2  the graphics loads, their unpacker and the dissolve
            (native.asm), and the table of the packed pieces
            (native_tables.asm)
-7B40-7BF7  sprites crossing the left and right edges (spr_edge, edge_pat)
+7B40-7BF2  sprites crossing the left and right edges (spr_edge, edge_pat)
 7C00-7C57  data moved out of page A (MSX 1:7EE6, 88 bytes)
-7C60-7EA0  rarely run code (contended memory): BIOS stand-ins, keyboard,
+7C60-7E98  rarely run code (contended memory): BIOS stand-ins, keyboard,
            boot, the title text writer, Kempston, hold-to-select
-8000-A4FF  platform: paging, mapper emulation, the name table and sprite
-           stand-ins, map tracking, interrupt, main loop, pacing, the tile
-           set's bookkeeping and the star twinkle, renderer, the unpacker's
-           input buffer (nl_buf, 9100-91FF), tables, far-call stubs, the
+8000-A60B  platform: paging, mapper emulation, the name table and sprite
+           stand-ins, map tracking, interrupt, main loop, the tile set's
+           bookkeeping and the star twinkle, renderer, the unpacker's
+           input buffer (nl_buf, 9200-92FF), tables, far-call stubs, the
            ship's patterns, buffers (name_shadow, dirty bitmaps, region
-           lists, star lists, DRAWN)
+           lists, star lists, DRAWN), the sprite patterns' extents (sp_ext)
+A60C-ABD1  copies of Konami's hot routines (6.1, 1,391 bytes), then the
+           adaptive pacing (pace_adapt)
 AD00-AE00  IM2 vector table; AEAE jp isr; stack below AEA0
 AF00-BFFF  Konami's RAM (MSX E000-F0FF, displaced by -0x3100)
 ```
@@ -485,8 +490,7 @@ A  bank 0  MSX banks 1 and 2 (game code) C000-FEDD
 B  bank 3  packed graphics C000-F10A and F2E3-FF38; MSX bank 5's object
            shapes (91D1-92E2) F1D1-F2E2
 C  bank 4  MSX bank 3 (game code) C000-E061; the title's text E062-E0C6;
-           the adaptive pacing (pace_adapt, 0.110) E0C7-E107; packed
-           graphics E140-FF2B
+           packed graphics E140-FF2B
 D  bank 6  MSX banks 7 and 8 (sound driver and tunes, E000-E3DC); the
            full map comparison E400-E64D; the work area a patch is
            unpacked into (6.11) E800-FBFF; packed graphics FC00-FFF3
@@ -500,8 +504,7 @@ E  bank 1  MSX bank 11 C000-DFFF; bank 12 A000-A2A7 (the scripts of stages
            (B2E4-B64B) FC13-FF7A; packed graphics in the gaps (E3C0-E644,
            E844-EEBB, F101-F201, F9F2-FAF1, FF7B-FF90)
 7  bank 7  screen 1 C000-DAFF; the tile set DB00-F5FF; star_check,
-           spr_pmap, spr_colour, attrs_keep F600-F768; sprite patterns
-           F800-FFFF
+           spr_pmap, attrs_keep F600-F733; sprite patterns F800-FFFF
 ```
 
 The packed graphics are 28 pieces, 27,215 bytes in all (6.11), in the room
@@ -521,28 +524,30 @@ carried to A2A7, and its parts for the bonus stages are placed separately
 (6.1); past B64B it is padding.  Banks 6 and 13-15 are empty (all FF) and
 never read.
 
-Free space in the current build, about 4,400 bytes in all:
+Free space in the current build, about 3,300 bytes in all:
 
 | Where | Bytes | |
 |---|---|---|
-| Fixed 8000-ACFF | 1,811 | A700-ACFF (1,536, after the buffers and 1.1.2's sprite extents), 9051-90FF (175, before `nl_buf`'s alignment), A2D2-A2FF (46, before `DRAWN`), 9AE0-9AFF (32, after `spr_vis`), 9A4C-9A5F (20, before `ship_pat`'s 32-byte alignment), 9BFE-9BFF (2) |
+| Fixed 8000-ACFF | 625 | ABD2-ACFF (302, after the copies and the pacing), 911C-91FF (228, before `nl_buf`'s alignment), 9BC0-9BFF (64, after `spr_vis`), 9B23-9B3F (29, before `ship_pat`'s 32-byte alignment), 9CFE-9CFF (2) |
 | Fixed AD00-AEFF | 93 | AEA0-AEAD (14), AEB1-AEFF (79) |
-| Low fixed area | 465 | 7EA1-7FFF (351), 7ADE-7B3F (98), 7BF8-7BFF (8, after `spr_edge`), 7C58-7C5F (8) |
+| Low fixed area | 473 | 7E99-7FFF (359), 7AE3-7B3F (93), 7BF3-7BFF (13, after `spr_edge`), 7C58-7C5F (8) |
 | Bank 0 (page A) | 290 | FEDE-FFFF (it holds sjasmplus's default UDGs at FF58, which nothing uses) |
 | Bank 1 (page E) | 439 | E645-E768 (292), FF91-FFFF (111), FAF2-FB03 (18), F202-F20E (13), EEBC-EEC0 (5) |
 | Bank 3 (page B) | 397 | FF39-FFFF (199), F10B-F1D0 (198) |
-| Bank 4 (page C) | 252 | FF2C-FFFF (212), E11E-E13F (34, after 1.1.3's `pace_dir` check), E7FA-E7FF (6) |
+| Bank 4 (page C) | 339 | FF2C-FFFF (212), E0C7-E13F (121, where the pacing was), E7FA-E7FF (6) |
 | Bank 6 (page D) | 446 | E64E-E7FF (434), FFF4-FFFF (12) |
-| Bank 7 (page 7) | 184 | F769-F7FF (151), F65F-F67F (33, before `spr_pmap`'s 128-byte alignment) |
+| Bank 7 (page 7) | 237 | F734-F7FF (204), F65F-F67F (33, before `spr_pmap`'s 128-byte alignment) |
 
 The room the packed pieces can use (`native_pack.py`'s regions) is about
 1,450 bytes of that, in pieces of at most 384 bytes.  Bank 3's padding (MSX
 3:BE66-BFF4, 399 bytes, carried in bank C) could be dropped too, a
-generator change.  Fixed memory is no longer tight: the port's loads took
-Konami's loaders and the run-time conversion out of it, and left 2 KB free
-below the IM2 table (1.5 KB since 1.1.2).  Anything that need not be fast still goes into a
-switched bank with a call from fixed code, or takes over an existing
-instruction.
+generator change.  The port's loads took Konami's loaders and the run-time
+conversion out of fixed memory and left 2 KB free below the IM2 table (1.5
+KB after 1.1.2).  Most of that now holds the copies of Konami's hot
+routines (6.1), because 8000-BFFF is the fixed memory the 128K's video
+circuit does not slow down; 302 bytes are left there.  Anything that need
+not be fast still goes into a switched bank with a call from fixed code, or
+takes over an existing instruction.
 
 ## 6. How it works
 
@@ -624,13 +629,46 @@ relocate two of Konami's graphics tables with care, `graficos_por_fase` and
 the per-stage table at 5:92E3; the port no longer carries either, 6.11.)
 Konami's RAM moves from E000 to AF00.
 
+The 128K build also has **copies of Konami's hot routines** in fixed memory
+at 8000-BFFF (`HOT_CLONES`, written to `konami_spec_hot.asm`; 1.2).  There
+are two reasons.  A small routine in a switched bank that is called across
+banks many times a tick costs a bank switch there and back at every call
+(about 520 T-states); in fixed memory it is a plain call from anywhere.
+And Konami's bank 0 code, though fixed, sits at 5B00-760A, which the
+128K's video circuit shares: while the picture is being sent the processor
+is held up whenever it touches 4000-7FFF, and code there runs 20% to 31%
+slower than above 8000.  The copies are five routines of banks 2 and 3
+(241 bytes: one moves an object with the scroll, two save and restore what
+is under the laser, the loop over the four turrets, and an enemy's unaimed
+shot), and 1,146 bytes of bank 0, a sixth of it, in which the game spends
+93% of the time it spends in bank 0: the dispatcher and its two adders, the
+frame's call list, the sprite engine, the rectangle copy and clear, the
+object loop, the map address helper and the speed and off-screen tests.
+They were chosen from an exact profile of the first loop, as whole runs of
+instructions that end in a `ret` or a jump.
+
+They are copies, not moves.  Konami takes addresses relative to its code:
+2:90D4 loads HL with 9262h, which is the table at 9264 less 2, and 9262 is
+inside the routine before the table.  When that routine was moved, the
+table's base moved with it and the lockstep stopped at stage 1's first
+enemy.  So the original stays where it is, whole.  A copy has labels of its
+own (`H_m<bank>_<addr>`); every call, jump and table entry that names an
+instruction of a copied range goes to the copy, from whatever bank, with no
+far stub; and nothing else in a copy is renamed, so an address it takes as
+data is the original's.  Anything that still reaches an original (a jump
+from beside it, the platform's own calls) finds it as it was.  `gen.py`
+checks that each range is whole instructions and cannot run off its end.
+0:4028-4059, the interrupt routine, is not copied: the checks stop at
+0:4054 for the end of a tick.  The Next build has no copies.
+
 The other tables in `gen.py` are changes to the code itself: `SPEC_PATCH`
 (the hardware boundary: video writes, the map upload, the graphics loads,
 the dissolve's chunks, the star twinkle, the sprite uploads, the front
 end), `LEAVE_OUT` (items not carried at all: Konami's graphics loaders,
 their decompressor and block routines, and their data, 6.11), `NM_SITES`
 (map writers that report what they wrote, 6.4), `ITEM_PATCH`,
-`ITEM_MOVES`, `CLONES`, `DATA_MOVES` (single items replaced or moved),
+`ITEM_MOVES`, `CLONES`, `HOT_CLONES`, `DATA_MOVES` (single items replaced,
+moved or copied),
 `LD_A_R` (the randomness sites pinned in the test build, 4.3), and
 `NEXT_PATCH` and `NEXT_KEEP` (the Next build's hooks, section 9).
 
@@ -890,33 +928,42 @@ The port draws into two screens: the hidden one is drawn while the other is
 shown, then they swap (by flipping the display bit in port 7FFD), so the
 player never sees a half-drawn picture.  Each screen has its own bitmap of
 dirty cells, since each must catch up with every change.  Drawing a screen
-(`render_frame`): redraw the cells under the sprites last drawn on that
-screen (which erases them), update the star layer, redraw the dirty cells
-from the converted tile set, then draw the sprites.
+(`render_frame`): update the star layer, redraw the dirty cells from the
+converted tile set, then draw the sprites.  A sprite is erased by marking
+its cells dirty in the screen it was drawn on, as it is drawn: that
+screen's cells have just been redrawn, so the marks wait for its next
+picture, which draws those cells again without the sprite.  (Until 1.2
+each screen kept a list of the boxes drawn on it and marked them at its
+next picture.)  Character 0, blank in every third and over a third of the
+cells drawn, is written as eight zeros without reading the tile set.
 
 The sprites come from the game's own sprite list (MSX EC80): the same
 32 entries of position, pattern and colour the game would give the video
 chip.  Each 16 x 16 sprite is ORed into the screen, shifted to its pixel
 position (right by 1-4 bits, or for offsets 5-7 left by 3-1 into the same
-three bytes, which halves the shifting).  Erasing marks each row of a
-sprite's cells in the dirty bitmap with one mask.  The cells it touches take its colour as their ink (over black
-paper they also take its brightness; over coloured paper, an inverted tile,
-they keep their own).  Since 1.1.2 those are only the cells its pixels
-reach, not its whole box of 2 or 3 by 2 or 3 cells: a table (`sp_ext`)
-holds each pattern's first and last rows with pixels and the OR of its left
-and right column bytes (Konami's 64 patterns, worked out again at the first
+three bytes, which halves the shifting; a sprite on a cell boundary is not
+shifted at all).  The cells it touches take its colour
+as their ink (over black paper they also take its brightness; over
+coloured paper, an inverted tile, they keep their own).  Since 1.1.2 those
+are only the cells its pixels reach, not its whole box of 2 or 3 by 2 or 3
+cells: a table (`sp_ext`, indexed by the pattern number) holds each
+pattern's first and last rows with pixels and its leftmost and rightmost
+pixels (Konami's 64 patterns, worked out again by `sp_calc` at the first
 drawing after each graphics load, which sets `spx_stale` in `nl_done`; the
-ship's three frames), and `sp_trim`, before the colouring, cuts the box to
-the rows and columns the pixels reach at the sprite's position.  The cut box
-is what is coloured and recorded for the next erase, so fewer cells are
-redrawn, and cells near a small sprite (a bullet, a shot) keep their own
-colours.  Build option `NEM_TRIM=0` for the whole boxes.  Sprites are drawn from the last to the first, so that
+ship's three frames).  `draw_sprite16` reads it before it draws: only the
+rows from the first to the last are drawn (since 1.2; a 16-row pattern has
+pixels in under 9 on average), a pattern with none is not drawn at all, and
+the box is cut to the rows and columns the pixels reach at the sprite's
+position.  The cut box is what is coloured and marked dirty, so fewer cells
+are redrawn, and cells near a small sprite (a bullet, a shot) keep their
+own colours.  The marking is one mask for every row of the box (`sp_mask`).
+Build option `NEM_TRIM=0` for the whole boxes.  Sprites are drawn from the last to the first, so that
 where two share a cell, the higher-priority one's colour wins.  Konami's list
 is usually full, with most entries parked below the screen, so one pass
 collects the entries on screen (up to an end marker) into `spr_vis`, and
 the drawing works back through those (0.109).
 
-A sprite's ink is chosen from its MSX colour (`spr_ink`, in `tables.py`; the
+A sprite's ink is chosen in `draw_sprites` from its MSX colour (`spr_ink`, in `tables.py`; the
 MSX's light blue, light red and light yellow are mapped to bright cyan, red
 and yellow rather than to the nearest Spectrum colour, white), unless
 `spr_pmap.asm` gives its pattern a colour of its own: explosions go yellow
@@ -928,10 +975,10 @@ the same place, Konami's patterns 0/4 (level), 8/12 (diving) and 16/20
 (climbing): white, with a red canopy (a light blue belly when climbing) as
 a second one-colour sprite, the only way an MSX1 sprite gets a second
 colour.  Here the cells take one ink, so the second sprite cost a draw and
-an erase for nothing.  The renderer gets every pattern's bytes from
-`spr_patsel`: patterns 4, 12 and 20 are not drawn at all (since 0.109
-`draw_sprites` drops them before looking up their colour), and 0, 8 and 16
-come from `ship_pat` instead of Konami's table.  Since 0.105 these are
+an erase for nothing.  Patterns 4, 12 and 20 are not drawn at all (since
+0.109 `draw_sprites` drops them before looking up their colour), and 0, 8
+and 16 come from `ship_pat` instead of Konami's table (`draw_sprite16`
+for a sprite wholly on screen, `spr_patsel` for one at an edge).  Since 0.105 these are
 Konami's own outlines with the second colour shown in one colour: on the
 level and diving frames, the red canopy becomes a black line inside the
 ship's white outline (the canopy's top edge white, the line beneath it);
@@ -965,9 +1012,9 @@ them (`spr_edge`, in the low gap at 7B40).  The part on screen is shifted
 into a 16 x 16 pattern of its own (`edge_pat`), which `draw_sprite16` draws
 on a cell boundary: at x 0 for the left edge (a sprite with the early clock
 bit, 1 to 15 pixels off), at x 240 for the right (X 241 to 255).  Only the
-columns that show are coloured and recorded, so with 8 or more pixels off
-screen a single column is.  Sprites are still drawn only when wholly below
-the top edge.
+columns that show are coloured and marked, so with 8 or more pixels off
+screen a single column is; all 16 rows are drawn, and the box is not cut.
+Sprites are still drawn only when wholly below the top edge.
 
 ### 6.8 Pacing and speed
 
@@ -998,7 +1045,8 @@ are only just over a frame the port can run a little faster (the stage 2
 boss: 30-33 ticks a second against the MSX's 27-29).
 
 Not every tick is drawn.  Since 0.110 the release decides tick by tick
-(`pace_adapt`, bank C, called after each tick through `far_pace`): every
+(`pace_adapt`, called after each tick; in fixed memory since 1.2, in bank C
+through a far call before): every
 tick is drawn while the game keeps up with a rhythm of 15 eighths of a frame
 a tick (about 26.7 ticks a second, near the MSX's), and a tick is left
 undrawn while the game is behind that rhythm by more than a frame, but never
@@ -1118,6 +1166,40 @@ frames and every 17 (about four changes of direction a second):
 | Input lag, median (frames) | 5.49 | 4.51 | 5.50 | 4.50 |
 | Input lag, mean | 5.79 | 5.20 | 5.81 | 5.05 |
 | Input lag, 90th percentile | 8.50 | 7.49 | 8.50 | 6.51 |
+
+The speed work for 1.2 (11 November 2026) started from an exact profile of
+1.1.3: SkoolKit's simulator calling a function for every instruction, over
+the first loop with every weapon, which gives each instruction's T-states
+by address and bank.  A tick cost 144,054 T-states over the loop and
+188,100 in the busiest quarter of seconds: Konami's game logic 38%, sprites
+19%, cells 12%, map tracking 10%, paging and far calls 9%.  The same play
+run with and without the video circuit's contention showed bank 0's code
+running 19% slower where it sits.  Three changes followed, none of which
+alters what is drawn: the copies of hot routines (6.1), the sprite work
+outside the pixel drawing (6.7: rows, the erasing, the extent's look-up,
+the ink), and small ones (the pacer in fixed memory; blank cells; a dead
+loop in the star redraw; and the dissolve no longer working out the sprite
+extents again at every chunk, which had made each dissolve 0.8 of a second
+longer since 1.1.2).  Measured over the same loop (`pp_feel.py` and the
+profile):
+
+| | 1.1.3 | 1.2 |
+|---|---|---|
+| Ticks a second, loop | 24.6 | 27.2 |
+| Pictures a second, loop | 15.3 | 20.3 |
+| Ticks a second, busiest quarter of seconds | 18.9 | 22.1 |
+| Pictures a second, busiest quarter | 9.6 | 12.0 |
+| T-states a tick, loop | 144,054 | 130,463 |
+| A sprite, all in (T-states) | 5,700 | 3,900 |
+| Ticks drawn | 62% | 75% |
+
+Nothing holds the build back when it has time to spare, so part of the
+gain is the lightest stretches running faster, as the MSX's do: 14% of
+seconds run above 30 ticks, against 8% in 1.1.3 and 9% for the MSX at 50
+Hz in the simulator (an older run of stages 1 to 3).  The slowest twentieth
+of seconds run at 21 ticks or fewer, against 18.  The project's
+`perf-review-1.1.3.md` has the method, every table and the candidates not
+taken up.
 
 ### 6.9 Input
 
@@ -1328,7 +1410,8 @@ In `spec/` unless shown otherwise.
 | `plat_spec.asm` | The platform: BIOS stand-ins, paging, mapper, the name table and sprite stand-ins, map tracking, main loop, interrupt, boot, buffers; includes the rest. |
 | `native.asm` | The graphics loads, the ZX0 unpacker and Konami's dissolve on the tiles (6.6, 6.11); the Next's loads into its store (section 9). |
 | `convert.asm` | The tile set's bookkeeping: tiles that changed redrawn where they show, the star twinkle and the star rows (6.5).  (No conversion, despite the name.) |
-| `render.asm` | The renderer: cells, stars, sprites, erasing. |
+| `render.asm` | The renderer: cells, stars, sprites and their erasing. |
+| `pace.asm` | The adaptive pacing (6.8): in fixed memory on the 128K, in bank C on the Next. |
 | `ship.asm` | The ship's own patterns and `spr_patsel` (6.7). |
 | `VERSION` -> `version.inc` | The version, and the title's line for it (`build.py`). |
 | `star_check7.asm`, `spr_pmap.asm` | Code and tables in bank 7. |
@@ -1338,7 +1421,7 @@ In `spec/` unless shown otherwise.
 | `fullcmp_gen.asm` | The generated full map comparison (`gen_fullcmp.py`). |
 | `tables.py` -> `tables.asm` | Sprite inks, border colours, keyboard decoder, the unpacker's buffer. |
 | `emu_bench.py` | The simulator's screen grabs. |
-| `konami_spec.asm`, `konami_spec_stubs.asm` | Konami's code, generated by `reloc/gen.py`. |
+| `konami_spec.asm`, `konami_spec_stubs.asm`, `konami_spec_hot.asm` | Konami's code, generated by `reloc/gen.py`; the last is the 128K's copies of hot routines (6.1). |
 | `build.py`, `make_tap.py`, `verify.sh`, `release.sh` | Build, tape, regression checks, the release. |
 | `lockstep_spec.py`, `screen_lockstep.py`, `check_*.py`, `test_*.py` | The checks of section 4. |
 | `tape/` | Loader source (generated), loading screen and its converter, ZX0 unpacker and licence. |
@@ -1373,7 +1456,16 @@ The shared files (`plat_spec.asm`, `render.asm`, `convert.asm`,
 `native.asm`) differ for the Next only inside `ifdef NEXT` blocks, and the
 ten places where the Next build takes over one of Konami's instructions are
 `reloc/gen.py`'s `NEXT_PATCH` (9.4), so the 128K builds are byte for byte
-what they were without the Next.  One of those places, 0:544F, is in code
+what they were without the Next.  The other way round, the 128K's renderer
+(`render_frame` and all that only it calls: the cell, star and sprite
+drawing), which the Next never calls, is left out of the Next build
+(`ifndef NEXT`; until 1.2 it was assembled in, unused).  `NX_AT` after
+each piece left out puts what follows at the address it had in 1.1.3N and
+fills the gap with `di` / `halt`, so nothing in the Next build moved: its
+`.nex` differs from 1.1.3N's only in those seven gaps, 2,872 bytes of
+free room in all (7B40-7BF7, 89BD-89CE, 89FA-8BEE, 8CBC-8E11, 8E17-92FF,
+9C2F-9DFF, and F700-F768 in bank 7).  The Next build has none of the 128K's
+copies of hot routines, and its pacing stays in bank C.  One of those places, 0:544F, is in code
 the native build leaves out (`LEAVE_OUT`); `NEXT_KEEP` keeps the Next's call
 there.  The 128K's packed graphics (`native_data.asm`) are not part of the
 Next build.  The result is `nemesis_next.sna` (never `nemesis.sna`,

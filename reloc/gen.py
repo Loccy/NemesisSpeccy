@@ -8,6 +8,7 @@ and 11 are placed raw.  Konami RAM E000-F0FF moves by RAM_DELTA.
 Each item has a home section:
   fixed   MSX bank 0 at 5B00 (+ the 8-byte loop tail from bank 1 at 6000)
   fixed2  data moved out of a full page (fixed RAM overflow area)
+  hot     copies of routines in uncontended fixed memory (HOT_CLONES; the 128K build only)
   A       MSX 1 at C000, MSX 2 after it, + bank 3's A000-A021 laser tail
   C       MSX 3 (rest) at C000
   D       MSX 7 at C000 (sound driver), MSX 8 data at E000
@@ -346,6 +347,62 @@ if TARGET == 'spec':      # the boss pieces' drawing and turrets, with bank 10 i
     ITEM_MOVES.append(((2, 0x8290, 0x839E), 'E', 2))
 DATA_MOVES = [(1, 0x7EE6, 88)]          # -> fixed2
 
+# Routines copied into uncontended fixed memory (section 'hot', written to
+# konami_spec_hot.asm and included after the platform's buffers), the 128K
+# build only.  Every call, jump and code pointer to an item of a range goes
+# to its copy there (labels H_m<bank>_<addr>), from whatever page, with no
+# far stub: for a small routine in a paged bank called across pages many
+# times a tick that saves a page switch there and back, about 520 T-states a
+# call.  Over the first loop these took 191,000 of the 360,000 switching far
+# calls (11 November 2026).
+# They are copies, not moves: the original stays where it is, whole.  Konami
+# takes addresses relative to its code (2:90D4's ld hl,9262h is the table at
+# 9264 less 2, and 9262 is inside se_corre_con_el_scroll_ocho: moving that
+# routine sent the table lookup into fixed memory, and the lockstep stopped
+# at stage 1's first enemy), and anything that still reaches the original
+# (a jump from beside it, an address in a register) finds it as it was.
+# A range's last item must be a ret or an unconditional jump (checked when
+# generating); none of these reads its own bank's data.  B42E-B452 is the
+# turrets' loop: its body (B453, with its tables) stays in page C and is
+# reached from the copy only while a turret is out.
+# The Next build has no copies (NEM_NEXT=1: its layout as before);
+# NEM_HOT=0 builds the 128K without them.
+HOT_CLONES = [(2, 0x9235, 0x9250),      # dispara_sin_apuntar
+              (2, 0x9251, 0x9263),      # se_corre_con_el_scroll_ocho
+              (3, 0xA22D, 0xA27E),      # guarda_lo_de_debajo_del_laser
+              (3, 0xA2C7, 0xA30F),      # devuelve_lo_de_debajo
+              (3, 0xB42E, 0xB452)]      # pinta_las_torretas (the loop over the four)
+# Konami's bank 0 code is in fixed memory, but at 5B00-760A, which the 128K's
+# ULA contends: its instructions run 20% to 31% slower there than they would
+# above 8000 (the exact profile of 11 November 2026, run with and without
+# contention).  These are the bank 0 routines the game spends its time in:
+# 1,146 of its 6,923 bytes, 93% of its time (21,565 of 23,161 T-states a tick
+# over the first loop), chosen as whole runs of instructions that end in a
+# ret or a jump (local/tools/measure/prof/chunks0.py).  0:4028-4059
+# (interrupcion) is left where it is: the checks stop at 0:4054 for the end
+# of a tick, and the platform calls 0:4045 by name.
+HOT_CLONES += [(0, 0x405D, 0x4070),     # suma_a_a_hl, suma_a_a_de, despachador
+               (0, 0x44E7, 0x45F4),     # mira_la_tecla_de_pausa, un_cuadro_de_juego
+               (0, 0x4664, 0x4669),     # marca_que_no_toca
+               (0, 0x47AE, 0x47C2),     # dame_palabra, corre_los_sprites
+               (0, 0x47CE, 0x47FD),     # sube_los_sprites_rotando
+               (0, 0x481C, 0x48DF),     # monta_los_sprites, pon_atributo, esconde_el_sprite
+               (0, 0x48F7, 0x493C),     # borra_un_rectangulo, copia_un_rectangulo, recorta_por_la_derecha
+               (0, 0x494A, 0x4955),     # pon_escritura_vram
+               (0, 0x4D7E, 0x4E12),     # mueve_la_metralla, sube_la_metralla_al_buffer, anima_la_metralla
+               (0, 0x5464, 0x546E),     # estado_5
+               (0, 0x5682, 0x569C),     # escribe_las_cifras
+               (0, 0x571B, 0x572E),     # casilla_a_direccion_de_ram
+               (0, 0x5767, 0x5773),     # lee_el_mando
+               (0, 0x577D, 0x57BC),     # junta_joystick_y_teclado, lee_el_joystick
+               (0, 0x5DC8, 0x5E5C),     # corre_los_doce_objetos, despacha_el_motor_del_objeto, anima_cuatro_dibujos
+               (0, 0x5F66, 0x5FA4)]     # mira_si_el_objeto_se_ha_ido, suma_la_velocidad, suma_una_palabra
+if os.environ.get('NEM_HOT') == 'paged':    # (the paged banks' routines alone, as first built)
+    HOT_CLONES = [r for r in HOT_CLONES if r[0] != 0]
+if not (TARGET == 'spec' and os.environ.get('NEM_NEXT') != '1' and os.environ.get('NEM_HOT') != '0'):
+    HOT_CLONES = []
+FIXED_SECTIONS = ('fixed', 'fixed2', 'hot')
+
 # Immediates that look like addresses but are numbers (BCD scores, X/Y positions, ...).
 CONST_IMM = {0xA45E, 0xA467,   # ld de,0xF030 / 0xF060: entry X,Y of a formation
              0x55D1, 0x5742, 0x4C66, 0x703F, 0x76A0, 0x508D, 0xA8CB, 0xA908, 0x879E,
@@ -415,13 +472,16 @@ class Gen:
     def page_of(self, bank, v):
         if bank in DATA_PLACE: return DATA_PLACE[bank][0]
         sec = self.home[(bank, self.item_of(bank, v))]
-        return 'fixed' if sec in ('fixed', 'fixed2') else sec
+        return 'fixed' if sec in FIXED_SECTIONS else sec
 
     def ram(self, v):
         return '0x%04X' % (v + (0 if self.identity else RAM_DELTA))
 
     def clone_label(self, bank, v, cur_sec):
         if self.identity: return None
+        for cb, lo, hi in HOT_CLONES:
+            if cb == bank and lo <= v <= hi and v == self.item_of(bank, v):
+                return 'H_m%d_%04X' % (bank, v)
         for (cb, lo, hi), secs in CLONES.items():
             if cb == bank and lo <= v <= hi and cur_sec in secs and v == self.item_of(bank, v):
                 return '%s_m%d_%04X' % (cur_sec, bank, v)
@@ -434,7 +494,7 @@ class Gen:
         s = self.sym(tb, v)
         if self.identity: return s
         tp = self.page_of(tb, v)
-        cp = 'fixed' if cur_sec in ('fixed', 'fixed2') else cur_sec
+        cp = 'fixed' if cur_sec in FIXED_SECTIONS else cur_sec
         if tp != 'fixed' and any(lo <= site <= hi for lo, hi in NORESTORE_SITES):
             name = 'nfar_' + s.replace('+', '_')
             self.nstubs[name] = (tp, s); self.report['far no-restore'] += 1
@@ -444,6 +504,14 @@ class Gen:
             self.stubs[name] = (tp, s); self.report['far'] += 1
             return name
         return s
+
+    def check_hot(self):
+        """A hot copy must not run off its end into the next one: its last
+        item must be a ret or an unconditional jump."""
+        for b, lo, hi in HOT_CLONES:
+            its = [it for it in self.items[b] if lo <= it[0] <= hi]
+            assert its and its[0][0] == lo and its[-1][0] + its[-1][1] - 1 == hi, 'hot range %d:%04X-%04X is not whole items' % (b, lo, hi)
+            assert its[-1][2] == 'code' and self.raw[b][its[-1][0] - ORG[b]] in (0xC9, 0xC3, 0x18, 0xE9), 'hot range %d:%04X-%04X runs off its end' % (b, lo, hi)
 
     def emit_item(self, b, it, sec, out):
         raw = self.raw[b]; org = ORG[b]; I = self.identity
@@ -456,7 +524,7 @@ class Gen:
                 out += ['    ifdef NEXT'] + NEXT_PATCH[(b, a)] + ['    endif']
                 self.report['next patched'] += 1
             return
-        if not I and TARGET == 'spec' and (b, a) in NEXT_PATCH and not getattr(self, 'in_next', False):
+        if not I and TARGET == 'spec' and (b, a) in NEXT_PATCH and not getattr(self, 'in_next', False) and not getattr(self, 'hot_ctx', None):   # (a hot copy is the 128K's alone)
             was = raw[a - org:a - org + n].hex()
             assert was == NEXT_PATCH_WAS[(b, a)], 'Next hook %d:%04X is %s, not %s' % (b, a, was, NEXT_PATCH_WAS[(b, a)])
             spec = []
@@ -472,7 +540,8 @@ class Gen:
             self.report['next patched'] += 1
             return
         byts = raw[a - org:a - org + n]
-        out.append('m%d_%04X:' % (b, a))
+        hot = getattr(self, 'hot_ctx', None)        # emitting a hot copy: its own labels, H_m<bank>_<addr>
+        out.append('%sm%d_%04X:' % ('H_' if hot else '', b, a))
         if not I and b == 1 and a == 0x7FFE:
             out.append('    ld hl,' + self.sym(2, 0x8041)); out.append('    jp m2_8001'); return
         if it[2] in ('defb', 'defw') and not I and any((b, x) in self.code_ptrs for x in range(a - 1, a + n)):
@@ -536,9 +605,11 @@ class Gen:
             t = a + 2 + d
             tb = b if ORG[b] <= t < ORG[b] + 8192 else default_bank(t)
             tsec = self.home[(tb, self.item_of(tb, t))]
+            ctx = getattr(self, 'hot_ctx', None)       # emitting a hot copy: jumps inside it stay relative
+            if ctx: tsec = sec if (tb == ctx[0] and ctx[1] <= t <= ctx[2]) else None
             if (tsec == sec or I) and (I or TARGET != 'spec' or (b, a) not in JR_LONG):
                 mn = {0x10: 'djnz ', 0x18: 'jr ', 0x20: 'jr nz,', 0x28: 'jr z,', 0x30: 'jr nc,', 0x38: 'jr c,'}[op]
-                out.append('    %s%s' % (mn, self.sym(tb, t)))
+                out.append('    %s%s%s' % (mn, 'H_' if ctx else '', self.sym(tb, t)))
             else:
                 s = self.target(tb, t, sec, a); self.report['rel->abs'] += 1
                 if op == 0x10:
@@ -598,9 +669,11 @@ class Gen:
         another page go through a far stub: the table's reader jumps with
         whatever page is mapped, and the stub maps the right one."""
         if self.identity or not self.is_code(tb, v): return self.sym(tb, v)
+        cl = self.clone_label(tb, v, sec)
+        if cl: return cl
         tp = self.page_of(tb, v)
         if tp == 'fixed': return self.sym(tb, v)
-        cp = 'fixed' if sec in ('fixed', 'fixed2') else sec
+        cp = 'fixed' if sec in FIXED_SECTIONS else sec
         if cp == 'fixed' or tp != cp:
             s = self.sym(tb, v); name = 'far_' + s.replace('+', '_')
             self.stubs[name] = (tp, s); self.report['far table'] += 1
@@ -666,7 +739,8 @@ class Gen:
                 for it in self.items[b]:
                     self.emit_item(b, it, BANK_SECTION[b], out)
             open(path, 'w').write('\n'.join(out) + '\n'); return
-        sections = collections.OrderedDict((k, []) for k in ('fixed', 'A', 'C', 'D', 'fixed2', 'E'))
+        sections = collections.OrderedDict((k, []) for k in ('fixed', 'A', 'C', 'D', 'fixed2', 'E', 'hot'))
+        self.check_hot()
         for b in (0, 1, 2, 3, 7):
             for it in self.items[b]:
                 sec = self.home[(b, it[0])]
@@ -691,7 +765,23 @@ class Gen:
                     return '%s_m%d_%04X' % (sec, cb, v) if lo <= v <= hi else m.group(0)
                 sections[sec].append('; clone of MSX bank %d %04X-%04X' % (cb, lo, hi))
                 sections[sec] += [pat.sub(ren, l) for l in body]
+        for cb, lo, hi in HOT_CLONES:
+            body = []; self.hot_ctx = (cb, lo, hi)
+            for it in self.items[cb]:
+                if lo <= it[0] <= hi: self.emit_item(cb, it, 'hot', body)
+            self.hot_ctx = None
+            # No renaming of what the copy refers to: its jumps and calls to
+            # copied code come out as H_ labels (clone_label, and the
+            # relative jumps inside the range), and every address it takes
+            # as data (a table, a base less an offset) is the original's,
+            # which is still there.
+            sections['hot'].append('; copy of MSX bank %d %04X-%04X' % (cb, lo, hi))
+            sections['hot'] += body
         out = []
+        hot = sections.pop('hot')
+        open(path.replace('.asm', '_hot.asm'), 'w').write('\n'.join(
+            ['; ===== section hot: copies of routines in uncontended fixed memory (gen.py HOT_CLONES) =====']
+            + hot + ['section_hot_end:']) + '\n')
         for sec, body in sections.items():
             out.append('\n; ===== section %s =====' % sec)
             out.append('    section_%s' % sec)
