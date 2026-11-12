@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 1.2 (11 November 2026). 
+Version 1.2.1 (12 November 2026). 
 
 ## 1. What it is
 
@@ -101,7 +101,7 @@ that root:
 ```
 python3 build.py              # nemesis.sna (+ .sym, .lst), the release build
 python3 make_tap.py           # nemesis.tap from nemesis.sna
-sh release.sh 1.2             # the release, tape, snapshot and .nex, in release/
+sh release.sh 1.2.1           # the release, tape, snapshot and .nex, in release/
 NEM_PIN_R=1 python3 build.py  # nemesis_test.sna, the test build (section 4)
 ```
 
@@ -487,13 +487,14 @@ Banks switched in at C000 (the port's names for them in brackets):
 
 ```
 A  bank 0  MSX banks 1 and 2 (game code) C000-FEDD
-B  bank 3  packed graphics C000-F10A and F2E3-FF38; MSX bank 5's object
+B  bank 3  packed graphics C000-F1B9 and F2E3-FFC3; MSX bank 5's object
            shapes (91D1-92E2) F1D1-F2E2
 C  bank 4  MSX bank 3 (game code) C000-E061; the title's text E062-E0C6;
-           packed graphics E140-FF2B
+           packed graphics E0C7-E7FC and E800-FFED
 D  bank 6  MSX banks 7 and 8 (sound driver and tunes, E000-E3DC); the
-           full map comparison E400-E64D; the work area a patch is
-           unpacked into (6.11) E800-FBFF; packed graphics FC00-FFF3
+           full map comparison E400-E64D; packed graphics E680-E795; the
+           work area a patch is unpacked into (6.11) E800-FBFF; packed
+           graphics FC00-FFF3
 E  bank 1  MSX bank 11 C000-DFFF; bank 12 A000-A2A7 (the scripts of stages
            1-8) E000-E2A7; at one displacement, bank 9's title panels
            (9B3F-9C56) E2A8-E3BF and bank 10's A000-A0DA E769-E843 and
@@ -501,18 +502,22 @@ E  bank 1  MSX bank 11 C000-DFFF; bank 12 A000-A2A7 (the scripts of stages
            boss pieces) FB04-FC12; bank 12's parts for the bonus stages:
            the scripts of stages 9 and 11 EEC1-F100, of stages 12 and 10
            F692-F9F1, and the bonus stages' ending table and records
-           (B2E4-B64B) FC13-FF7A; packed graphics in the gaps (E3C0-E644,
-           E844-EEBB, F101-F201, F9F2-FAF1, FF7B-FF90)
+           (B2E4-B64B) FC13-FF7A; packed graphics in the gaps (E3C0-E64C,
+           E844-EEB5)
 7  bank 7  screen 1 C000-DAFF; the tile set DB00-F5FF; star_check,
            spr_pmap, attrs_keep F600-F733; sprite patterns F800-FFFF
 ```
 
-The packed graphics are 28 pieces, 27,215 bytes in all (6.11), in the room
+The packed graphics are 28 pieces, 27,592 bytes in all (6.11), in the room
 that the MSX's graphics, the copies of its video memory and 1.0's colour
 fit left.  `native_pack.py` places them (3), so their addresses above are
 those of the current build and move when a piece changes;
 `native_data.asm` asserts that the pieces of each region end within it,
-and that the code before them in pages C and D ends by E140 and E680.
+and that the code before them in pages C and D ends by E0C7 and E680, and
+in page A by FEDE.  The packer tries first-fit placements, the largest
+piece first, over many orders of the regions, before its exhaustive search,
+which remembers the states it has found to fail (1.2.1: with the room tight,
+the search alone ran for more than a quarter of an hour).
 
 Only what the game reads is carried from the data banks, and every range
 left out is identified.  Konami's graphics reach the game converted, in
@@ -524,22 +529,24 @@ carried to A2A7, and its parts for the bonus stages are placed separately
 (6.1); past B64B it is padding.  Banks 6 and 13-15 are empty (all FF) and
 never read.
 
-Free space in the current build, about 3,300 bytes in all:
+Free space in the current build, about 3,000 bytes in all:
 
 | Where | Bytes | |
 |---|---|---|
 | Fixed 8000-ACFF | 625 | ABD2-ACFF (302, after the copies and the pacing), 911C-91FF (228, before `nl_buf`'s alignment), 9BC0-9BFF (64, after `spr_vis`), 9B23-9B3F (29, before `ship_pat`'s 32-byte alignment), 9CFE-9CFF (2) |
 | Fixed AD00-AEFF | 93 | AEA0-AEAD (14), AEB1-AEFF (79) |
 | Low fixed area | 473 | 7E99-7FFF (359), 7AE3-7B3F (93), 7BF3-7BFF (13, after `spr_edge`), 7C58-7C5F (8) |
-| Bank 0 (page A) | 290 | FEDE-FFFF (it holds sjasmplus's default UDGs at FF58, which nothing uses) |
-| Bank 1 (page E) | 439 | E645-E768 (292), FF91-FFFF (111), FAF2-FB03 (18), F202-F20E (13), EEBC-EEC0 (5) |
-| Bank 3 (page B) | 397 | FF39-FFFF (199), F10B-F1D0 (198) |
-| Bank 4 (page C) | 339 | FF2C-FFFF (212), E0C7-E13F (121, where the pacing was), E7FA-E7FF (6) |
-| Bank 6 (page D) | 446 | E64E-E7FF (434), FFF4-FFFF (12) |
+| Bank 0 (page A) | 290 | FEDE-FFFF (a packer region since 1.2.1, unused in this build; it holds sjasmplus's default UDGs at FF58, which nothing uses) |
+| Bank 1 (page E) | 972 | E64D-E768 (284), F9F2-FB03 (274), F101-F20E (270), FF7B-FFFF (133), EEB6-EEC0 (11) |
+| Bank 3 (page B) | 83 | FFC4-FFFF (60), F1BA-F1D0 (23) |
+| Bank 4 (page C) | 21 | FFEE-FFFF (18), E7FD-E7FF (3) |
+| Bank 6 (page D) | 168 | E796-E7FF (106), E64E-E67F (50), FFF4-FFFF (12) |
 | Bank 7 (page 7) | 237 | F734-F7FF (204), F65F-F67F (33, before `spr_pmap`'s 128-byte alignment) |
 
 The room the packed pieces can use (`native_pack.py`'s regions) is about
-1,450 bytes of that, in pieces of at most 384 bytes.  Bank 3's padding (MSX
+1,480 bytes of that, in pieces of at most 290 bytes.  Where the pieces go
+depends on their sizes, so a change to any stage's graphics can move every
+piece and the free space with them.  Bank 3's padding (MSX
 3:BE66-BFF4, 399 bytes, carried in bank C) could be dropped too, a
 generator change.  The port's loads took Konami's loaders and the run-time
 conversion out of fixed memory and left 2 KB free below the IM2 table (1.5
@@ -888,6 +895,23 @@ character: `native_moai.txt` lists the 561 characters 1.0 shows in the Moai
 section (from a census of every pass through the stage), and those get the
 rule, so they always have the Moai colours, as in an uninterrupted pass.
 The Big Core's characters, which come later, never get it.
+
+Since 1.2.1 the Moai heads and the rocks they stand on are not converted
+at all: stage 3's load takes our own tiles for them from
+`stage3_tiles.txt` (248 characters by third and number: 184 of the heads,
+64 of the rocks), in place of the converted ones (`native_sets.py`).  The
+heads are yellow, their shading yellow and black stippled, bright where the
+face is lit; the rocks green, solid at their edges and stippled inside.
+Every tile is ink on black paper, stored inverted when more than half its
+pixels are set, as the conversion stores tiles.  Konami's turrets, which
+share the section, are not in the file (their characters come from the
+ROM's turret frame table, 2:9205, and shape table, 5:91D1) and keep the
+Moai rule's colours.  The tiles were made once from 1.2's screens of the
+section (`local/tools/art/moai_121/` in the linked clone); the file is the
+art now, a line to a tile.  Stage 3's packed set grew by 377 bytes (the
+stippling compresses less well than flat colour).  The Big Core's load
+later in the stage puts its own tiles over some of these characters, as
+before.
 
 Konami's screen dissolve (MSX 3:A6C0, after the stage 8 brain and, when
 stage 7's secret is not found, the stage 7 boss) ends a stage by eating the
@@ -1416,6 +1440,7 @@ In `spec/` unless shown otherwise.
 | `VERSION` -> `version.inc` | The version, and the title's line for it (`build.py`). |
 | `star_check7.asm`, `spr_pmap.asm` | Code and tables in bank 7. |
 | `native_sets.py`, `tilemodel.py`, `native_moai.txt` | The build-time conversion: Konami's loads replayed in `msxsim` and converted by 1.0's rules (6.6); stage 3's Moai characters. |
+| `stage3_tiles.txt` | Stage 3's Moai heads and rocks, our own tiles (6.6, 1.2.1). |
 | `fit_model.py`, `stage_rules.py`, `convert.py`, `extract.py`, `gfxcap.py` | The colour fit's model, the stage colour rules' model, the colour conversion and palettes (also used by `tables.py`), Konami's palette and graphics read from the ROM, Konami's loaders run in `msxsim`. |
 | `native_pack.py` -> `native_data.asm`, `native_tables.asm`, `native/` | The pieces packed and placed in the banks, and their tables (3, 5; generated, not in the repository). |
 | `fullcmp_gen.asm` | The generated full map comparison (`gen_fullcmp.py`). |

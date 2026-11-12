@@ -2005,6 +2005,49 @@ at the next picture (1,120 a tick); deferring the writes touches the star
 layer's first lighting of a star, and was left. WRTPSG and the keyboard
 read stay in contended memory at 7C60.
 
+## 1.2.1: stage 3's Moai (12 November 2026)
+
+The Moai heads and the rocks they stand on were recoloured, to come closer
+to the Next's colours: the heads yellow, their shading yellow and black
+stippled, bright on the lit side; the rocks green, solid at their edges and
+stippled inside.  The look was settled on mock-ups: 1.2's screens of the
+Moai section recoloured cell by cell, under the Spectrum's rules (one ink
+and one paper a cell).  An orange made of red and yellow stipple did not
+work: most face cells hold black as well (the outline, the detail lines),
+and a cell cannot hold three colours.  Red rocks were tried and dropped
+(the stage's red rings and enemies sat on them).
+
+The tiles are ours, not converted: `spec/stage3_tiles.txt` holds 248 of
+them (184 for the heads, 64 for the rocks), by third and character, and
+stage 3's load takes them in place of the converted ones.  They were made
+once from the mock-up's rules, each character's tile taken from all its
+appearances in the section (`local/tools/art/moai_121/`); the file is the
+art from now on.  Konami's turrets share the section and the Moai rule's
+magenta; their characters (from the ROM's turret table) are left out of
+the file, so they keep 1.2's colours.
+
+Stage 3's packed set grew by 377 bytes, the stippling compressing less well
+than flat colour, and the packed graphics no longer fitted where
+`native_pack.py` had room for them: its search, which tries every
+placement, ran for a quarter of an hour without an answer.  Two gaps were
+added to its regions, page C from E0C7 (where the pacing was until 1.2,
+121 bytes) and page A from FEDE (290 bytes, unused in this build), and it
+now tries first-fit placements over many orders of the regions before its
+search, which also remembers the states it has found to fail.  It places
+all 28 pieces (27,592 bytes) in about 13 seconds.  Every piece moved, so
+the checks were of the storage, not the art: the tape loads (both trap
+modes); the screen lockstep against 1.2 over the route with every hidden
+target (40,000 ticks: all twelve stages, the ending, into the second loop)
+differs only in stage 3 while the Moai section is on screen (distance
+1Fh-19Fh), with Konami's RAM matching the MSX's throughout; and the Next's
+`.nex` differs from 1.2N's only in the title's version text.
+
+Tried and dropped: the power-up capsules flashing (the standard capsule red
+and white, the nuke cyan and white), by changing the capsule tiles' colour
+every 8 frames and redrawing the capsules' cells (found from Konami's
+object table).  It read as a slow, uneven blink, not a flash; the capsules
+are as in 1.2.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -2037,7 +2080,7 @@ replay from.  They compare memory, not the picture, so a wrong scroll
 split, palette or hardware sprite passes them, and the Next build is also
 played (1.1's flash was found that way).
 
-## Where it stands (1.2)
+## Where it stands (1.2.1)
 
 * The 128K build has no MSX graphics.  Every graphics load is a load of
   tiles and sprite patterns converted when the game is built, and
@@ -2053,11 +2096,14 @@ played (1.1's flash was found that way).
 * 1.2's screens match 1.1.3's byte for byte over the same three routes:
   its changes are to where Konami's code runs and to how the port draws,
   not to what is drawn.
+* 1.2.1's differ from 1.2's only in stage 3's Moai section, whose heads and
+  rocks are our own tiles (`spec/stage3_tiles.txt`).
 * Since 1.1.3 a tick where the directions change is always drawn: a frame
   off the typical input lag (median 4.5 frames, the MSX's 2.8).
 * Fixed memory above 8000 holds copies of Konami's hottest routines (1.2,
-  1,391 bytes) and has 302 bytes free below AD00; the switched banks have
-  about 1.4 KB, in pieces of at most 384 bytes.
+  1,391 bytes) and has 302 bytes free below AD00; the packed graphics'
+  regions in the switched banks have about 1.5 KB left, in pieces of at
+  most 290 bytes.
 * Speed: over the first two stages in light play, 24.57 ticks and 14.7
   screens a second (1.0: 24.16 and 13.7).  Over stages 1-6 with every
   weapon, never fewer than 6 screens in any second, where 1.0 had seconds

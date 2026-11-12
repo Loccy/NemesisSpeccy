@@ -80,6 +80,13 @@ def written(v):
     v.w = set()
     return ch, sp
 
+S3_TILES = {}    # stage 3's load: our tiles for the Moai heads and the rocks (1.2.1)
+for l in open(os.path.join(NEM, 'spec', 'stage3_tiles.txt')):
+    l = l.split('#')[0].split()
+    if l:
+        t, c = l[0].split(':')
+        S3_TILES[int(t) * 256 + int(c, 16)] = bytes(int(x, 16) for x in l[1:10])
+
 def tile(v, k, state, stage, dist=None):
     t, c = divmod(k, 256); o = t * 0x800 + c * 8
     pat = [v[0x2000 + o + r] for r in range(8)]; col = [v[o + r] for r in range(8)]
@@ -125,6 +132,7 @@ def events():
         global INV
         INV = set()
         tl = {k: (tile(v, k, 5, n) if k in ch else bytes(9)) for k in range(768)}
+        if n == 3: tl.update(S3_TILES)     # (1.2.1) the Moai heads and their rocks: our tiles
         inv, INV = INV, None
         ev[('stage', n)] = dict(full=True, tiles=tl, inv=inv,
                                  spr={i: spr(v, i) for i in range(64)}, spr_written=set(sp))

@@ -37,9 +37,10 @@ REGIONS = [('B', 0xC000, 0xF1D1),       # MSX banks 4 and 5's graphics and lists
            ('E', 0xE3C0, 0xE769),       # bank 9's title graphics
            ('E', 0xE844, 0xEEC1),       # bank 10's ending graphics
            ('D', 0xFC00, 0x10000),      # after the patches' work area
-           ('C', 0xE140, 0xE800),       # after page C's code (asserted below)
+           ('C', 0xE0C7, 0xE800),       # after page C's code (asserted below; the pacing left page C in 1.2)
            ('D', 0xE680, 0xE800),       # after page D's code (asserted below)
-           ('E', 0xF101, 0xF20F), ('E', 0xF9F2, 0xFB04), ('E', 0xFF7B, 0x10000)]   # free in page E
+           ('E', 0xF101, 0xF20F), ('E', 0xF9F2, 0xFB04), ('E', 0xFF7B, 0x10000),   # free in page E
+           ('A', 0xFEDE, 0x10000)]      # after MSX banks 1 and 2 in page A (1.2.1)
 WORK = ('D', 0xE800, 0xFC00)            # patches are unpacked here (the copy of the MSX pattern table), up to the pieces at FC00
 
 def zx0(b):
@@ -126,8 +127,13 @@ def main():
     # left smallest), searching on when that leaves a later piece no room
     free = [list(r) for r in REGIONS]; place = {}
     items = sorted(order, key=lambda x: -len(x[1]))
+    failed = set()      # (piece, the rooms left, as sizes): known to leave a later piece no room
+    print('native_pack: %d pieces, %d bytes, in %d bytes of room' % (
+        len(items), sum(len(z) for n, z in items), sum(b - a for p, a, b in REGIONS)), flush=True)
     def fit(i):
         if i == len(items): return True
+        key = (i, tuple(sorted(r[2] - r[1] for r in free)))
+        if key in failed: return False
         name, z = items[i]
         tried = set()
         for r in sorted((r for r in free if r[2] - r[1] >= len(z)), key=lambda r: r[2] - r[1]):
@@ -136,8 +142,28 @@ def main():
             place[name] = (r[0], r[1]); r[1] += len(z)
             if fit(i + 1): return True
             r[1] -= len(z); del place[name]
+        failed.add(key)
         return False
-    if not fit(0):
+    def quick():
+        # first-fit, largest piece first, over many orders of the rooms: finds a
+        # layout in moments when the room is tight, where the search above can
+        # take hours (1.2.1)
+        import random
+        rnd = random.Random(1)
+        for attempt in range(200000):
+            rooms = [list(r) for r in REGIONS]
+            if attempt: rnd.shuffle(rooms)
+            pl = {}
+            for name, z in items:
+                for r in rooms:
+                    if r[2] - r[1] >= len(z):
+                        pl[name] = (r[0], r[1]); r[1] += len(z); break
+                else:
+                    break
+            else:
+                place.update(pl); return True
+        return False
+    if not (quick() or fit(0)):
         raise SystemExit('native_pack: the pieces (%d bytes) do not fit the free room (%d bytes in %d regions)' % (
             sum(len(z) for n, z in items), sum(b - a for p, a, b in REGIONS), len(REGIONS)))
     os.makedirs(os.path.join(HERE, 'native'), exist_ok=True)
@@ -148,7 +174,7 @@ def main():
         pg, a = place[name]; total += len(z)
         asm += ['    section_data PAGE_%s,0x%04X' % (pg, a), 'nlb_%s:' % name,
                 '    incbin "native/%s.zx0"' % name, 'nlb_%s_end:' % name]
-    asm += ['    assert page_c_end <= 0xE140', '    assert page_d_end <= 0xE680']
+    asm += ['    assert page_c_end <= 0xE0C7', '    assert page_d_end <= 0xE680', '    assert section_A_end <= 0xFEDE']
     for pg, a, b in REGIONS:
         users = [n for n in place if place[n][0] == pg and a <= place[n][1] < b]
         if users:
