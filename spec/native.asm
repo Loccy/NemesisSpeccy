@@ -1,4 +1,4 @@
-; The native build's graphics (claude/native-128k-plan.md): Konami's
+; The native build's graphics (the development notes, 1.1): Konami's
 ; graphics loads become loads of sets converted when the game is built
 ; (native_sets.py, packed by native_pack.py into native_data.asm), and
 ; Konami's screen dissolve works on the converted tiles.  Fixed memory, after
@@ -79,7 +79,7 @@ nl_desc:                        ; HL = a patch's descriptor (page, address)
     jp nl_restore
 
     else
-; The Next (claude/native-128k-plan.md, step 3): the same events load the
+; The Next: the same events load the
 ; bytes Konami's loaders wrote (native_next.py) into its store of character
 ; rows (pages C and D, E800: colours and patterns as the MSX's tables) and
 ; sprite patterns (bank 7, F800), from the Next's 8K pages, raw.  A character

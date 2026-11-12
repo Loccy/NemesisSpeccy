@@ -1,0 +1,92 @@
+--- nem/spec/build.py	2026-11-08 13:35:24.798067494 +0000
++++ bis_r/spec/build.py	2026-11-10 11:22:41.805066402 +0000
+@@ -91,6 +91,12 @@
+     defs.append('-DFRAMES_PER_TICK=%d' % int(os.environ.get('NEM_FPT', '1')))
+     if draw_every:
+         defs.append('-DFLIP_FRAMES=%d' % int(os.environ.get('NEM_FLIP', '3')))
++    cspr = os.environ.get('NEM_CSPR') == '1'
++    if cspr:
++        # compiled sprites (10 November 2026, experiment): drawing code for a
++        # few of the most-drawn patterns, generated here (cspr_gen.py)
++        defs.append('-DCSPR=1')
++        run([sys.executable, 'cspr_gen.py'], HERE)
+     if os.environ.get('NEM_INVERT') == '0':
+         defs.append('-DNO_INVERT=1')    # dense tiles stored as converted (not inverted)
+     if os.environ.get('NEM_HOLD'):
+@@ -103,7 +109,7 @@
+     nxt = os.environ.get('NEM_NEXT') == '1'
+     if nxt:
+         defs.append('-DNEXT=1')
+-    ver = 'V' + open(os.path.join(HERE, 'VERSION')).read().strip() + ('N' if nxt else 'A' if adapt else 'F' if draw_every else 'S')
++    ver = 'V' + open(os.path.join(HERE, 'VERSION')).read().strip() + ('N' if nxt else 'C' if cspr else 'A' if adapt else 'F' if draw_every else 'S')
+     codes = [0x0E if ch == '.' else ord(ch) - 0x20 for ch in ver]
+     assert all(0x10 <= c <= 0x3A or c == 0x0E for c in codes), ver
+     # always 7 characters in row 0, columns 25-31 (a shorter version is padded
+--- nem/spec/native_pack.py	2026-11-08 23:01:29.171393384 +0000
++++ bis_r/spec/native_pack.py	2026-11-10 11:22:41.803431011 +0000
+@@ -109,6 +109,7 @@
+             s = piece('st%d_spr' % n, b''.join(e['spr'][i] for i in range(40, 64)))
+         stage[n] = (t, tp, s, star_attrs(n))
+     cs = piece('spr_common', common)
++    open(os.path.join(HERE, 'native', 'spr_common.bin'), 'wb').write(common)   # raw, for cspr_gen.py
+     def one(kind, ns):
+         datas = {n: patch(ev[(kind, n)]['tiles'], ev[(kind, n)]['spr']) for n in ns}
+         return {n: piece('%s%d' % (kind, n), d) for n, d in datas.items()}
+--- nem/spec/plat_spec.asm	2026-11-09 21:13:35.698642399 +0000
++++ bis_r/spec/plat_spec.asm	2026-11-10 11:22:41.805333440 +0000
+@@ -2057,6 +2057,9 @@
+     assert (star_t80 >> 8) == ((star_t80 + 2) >> 8) && (drawn_n >> 8) == ((drawn_n + 7) >> 8)
+     align 256
+ DRAWN:      ds 512              ; draw_stars: per screen 0x100, per third 80 cells
++    ifdef CSPR
++    include "cspr_code.asm"     ; compiled sprites (cspr_gen.py)
++    endif
+ platform_end:
+     assert platform_end <= 0xAD00
+ 
+--- nem/spec/render.asm	2026-11-04 17:00:56.000000000 +0000
++++ bis_r/spec/render.asm	2026-11-10 11:22:41.805459076 +0000
+@@ -868,6 +868,43 @@
+     add a,a
+     or c
+     ld e,a
++    ifdef CSPR
++    ; Compiled sprites (cspr_gen.py, 10 November 2026): the ship's level
++    ; frame (ship_pat) and Konami's round bullet (pattern 136, F800 + 136 * 8)
++    ; are drawn by code generated for them at each pixel offset; the others
++    ; by the loop below.
++    ld a,l
++    cp 0xFC40&0xff
++    jr z,.cs_bul
++    cp ship_pat&0xff
++    jr nz,.cs_loop
++    ld a,h
++    cp ship_pat>>8
++    jr nz,.cs_loop
++    ld bc,cs_ship_tab
++    jr .cs_go
++.cs_bul:
++    ld a,h
++    cp 0xFC40>>8
++    jr nz,.cs_loop
++    ld bc,cs_bul_tab
++.cs_go:
++    ld a,(sp_x)
++    and 7
++    add a,a
++    add a,c
++    ld c,a                      ; (tables 16-byte aligned)
++    ld a,(bc)
++    ld (.cs_call+1),a
++    inc c
++    ld a,(bc)
++    ld (.cs_call+2),a
++    ex de,hl                    ; HL the screen
++.cs_call:
++    call 0
++    jp .attrs
++.cs_loop:
++    endif
+     ld ixl,16
+     ld a,(sp_x)
+     and 7

@@ -1,0 +1,262 @@
+--- nem/spec/build.py	2026-11-08 13:35:24.798067494 +0000
++++ bis_t/spec/build.py	2026-11-10 11:57:10.849068607 +0000
+@@ -91,6 +91,9 @@
+     defs.append('-DFRAMES_PER_TICK=%d' % int(os.environ.get('NEM_FPT', '1')))
+     if draw_every:
+         defs.append('-DFLIP_FRAMES=%d' % int(os.environ.get('NEM_FLIP', '3')))
++    trim = os.environ.get('NEM_TRIM') == '1' and os.environ.get('NEM_NEXT') != '1'
++    if trim:
++        defs.append('-DTRIM=1')         # sprite boxes trimmed to their pixels (10 November 2026, experiment)
+     if os.environ.get('NEM_INVERT') == '0':
+         defs.append('-DNO_INVERT=1')    # dense tiles stored as converted (not inverted)
+     if os.environ.get('NEM_HOLD'):
+@@ -103,7 +106,7 @@
+     nxt = os.environ.get('NEM_NEXT') == '1'
+     if nxt:
+         defs.append('-DNEXT=1')
+-    ver = 'V' + open(os.path.join(HERE, 'VERSION')).read().strip() + ('N' if nxt else 'A' if adapt else 'F' if draw_every else 'S')
++    ver = 'V' + open(os.path.join(HERE, 'VERSION')).read().strip() + ('N' if nxt else 'T' if trim else 'A' if adapt else 'F' if draw_every else 'S')
+     codes = [0x0E if ch == '.' else ord(ch) - 0x20 for ch in ver]
+     assert all(0x10 <= c <= 0x3A or c == 0x0E for c in codes), ver
+     # always 7 characters in row 0, columns 25-31 (a shorter version is padded
+--- nem/spec/native.asm	2026-11-08 16:44:40.420159732 +0000
++++ bis_t/spec/native.asm	2026-11-10 11:57:10.849243601 +0000
+@@ -357,6 +357,9 @@
+     ld (chg_n),a
+     ld a,1
+     ld (star_stale),a
++    ifdef TRIM
++    ld (spx_stale),a            ; the sprite patterns' extents to be worked out again
++    endif
+     ld hl,nl_count
+     inc (hl)
+     ret
+--- nem/spec/render.asm	2026-11-04 17:00:56.000000000 +0000
++++ bis_t/spec/render.asm	2026-11-10 11:57:10.849470229 +0000
+@@ -680,8 +680,205 @@
+ sp_cy:      db 0
+ sp_cols:    db 0
+ sp_rows:    db 0
++    ifdef TRIM
++; Sprite boxes trimmed to their pixels (10 November 2026, experiment).  For
++; each sprite pattern, sp_ext holds [first row with pixels (FF: none), last
++; row, OR of its left column's bytes, OR of its right column's]: Konami's 64
++; (bank 7, F800 + n * 32) at sp_ext + n * 4, the ship's three frames
++; (ship_pat) from sp_ext + 256.  Worked out again at the first drawing
++; after a graphics load (nl_done sets spx_stale).  sp_trim turns them into
++; the cells the sprite's pixels reach at its position, for the colouring
++; and the erase record.
++sp_ptr:     dw 0
++spx_stale:  db 1
++sp_tmp:     db 0
++    align 16
++sp_pow:     db 1,2,4,8,16,32,64,128     ; 1 << offset
++            db 0,1,3,7,15,31,63,127     ; (1 << offset) - 1
++sp_colsel:  db 0,1, 1,1, 0,2, 2,1, 0,3, 1,2, 0,3    ; columns used (bits 0-2): first, how many
++sp_ext:     ds 256 + 12
++
++; Carry set: the pattern has no pixels (draw_sprite16 returns).
++sp_trim:
++    ld hl,(sp_ptr)
++    ld a,h
++    cp 0xF8
++    jr c,.notk
++    ld de,0-0xF800
++    add hl,de
++    jr .idx
++.notk:
++    ld de,0-ship_pat
++    add hl,de
++    ld a,h
++    or a
++    jr nz,.none                 ; edge_pat: its box as it is
++    ld a,l
++    cp 96
++    jr nc,.none
++    ld de,256*8
++    add hl,de
++.idx:
++    srl h
++    rr l
++    srl h
++    rr l
++    srl h
++    rr l
++    ld de,sp_ext
++    add hl,de
++    ld a,(hl)                   ; first row
++    cp 0xff
++    jr z,.empty
++    ld b,a
++    inc hl
++    ld c,(hl)                   ; last row
++    inc hl
++    ld a,(sp_y)
++    ld e,a
++    add a,b
++    rrca
++    rrca
++    rrca
++    and 31
++    ld (sp_cy),a
++    ld d,a
++    ld a,e
++    add a,c
++    rrca
++    rrca
++    rrca
++    and 31
++    sub d
++    inc a
++    ld (sp_rows),a
++    ld a,(sp_x)
++    and 7
++    ld e,a
++    ld d,0
++    ld b,(hl)                   ; OR of the left column
++    inc hl
++    ld c,(hl)                   ; OR of the right column
++    ld hl,sp_pow
++    add hl,de
++    ld d,0                      ; columns used
++    ld a,b
++    cp (hl)
++    jr c,.u0
++    set 0,d                     ; left column >> offset: something
++.u0:
++    ld a,c
++    cp (hl)
++    jr c,.u1
++    set 1,d                     ; right column >> offset
++.u1:
++    ld a,l
++    add a,8
++    ld l,a
++    ld a,b
++    and (hl)
++    jr z,.u2
++    set 1,d                     ; left column's low bits, shifted on
++.u2:
++    ld a,c
++    and (hl)
++    jr z,.u3
++    set 2,d                     ; right column's low bits, shifted on
++.u3:
++    ld a,d
++    add a,a
++    ld e,a
++    ld d,0
++    ld hl,sp_colsel-2
++    add hl,de
++    ld a,(sp_cx)
++    add a,(hl)
++    ld (sp_cx),a
++    inc hl
++    ld a,(hl)
++    ld (sp_cols),a
++.none:
++    or a
++    ret
++.empty:
++    scf
++    ret
++
++; The extents of every pattern (page 7 in).
++sp_calc:
++    xor a
++    ld (spx_stale),a
++    push ix
++    ld hl,SPR_PAT
++    ld de,sp_ext
++    ld b,64
++.p:
++    call .one
++    djnz .p
++    ld hl,ship_pat
++    ld b,3
++.s:
++    call .one
++    djnz .s
++    pop ix
++    ret
++.one:                           ; HL = a pattern, DE = its entry; both stepped on
++    push bc
++    push de
++    ld bc,0x00FF                ; B last row, C first (FF: none yet)
++    ld ix,0                     ; IXH, IXL: OR of the left, right columns
++    ld d,0
++.r:
++    set 4,l
++    ld a,(hl)                   ; right
++    res 4,l
++    ld e,(hl)                   ; left
++    inc l
++    ld (sp_tmp),a
++    or e
++    jr z,.e
++    ld a,c
++    inc a
++    jr nz,.nf
++    ld c,d
++.nf:
++    ld b,d
++    ld a,ixh
++    or e
++    ld ixh,a
++    ld a,(sp_tmp)
++    or ixl
++    ld ixl,a
++.e:
++    inc d
++    ld a,d
++    cp 16
++    jr nz,.r
++    ld de,16
++    add hl,de
++    pop de
++    ld a,c
++    ld (de),a
++    inc de
++    ld a,b
++    ld (de),a
++    inc de
++    ld a,ixh
++    ld (de),a
++    inc de
++    ld a,ixl
++    ld (de),a
++    inc de
++    pop bc
++    ret
++    endif
+ 
+ draw_sprites:
++    ifdef TRIM
++    ld a,(spx_stale)
++    or a
++    call nz,sp_calc
++    endif
+     ld a,(spr_on)               ; Konami hid them all (a 0xD0 at VRAM 3B00)
+     or a
+     ret z
+@@ -787,6 +984,9 @@
+ ; OR the 16x16 sprite at HL (TMS layout: left column bytes 0-15, right 16-31)
+ ; at (sp_x, sp_y) into the hidden screen, colour its cells, record them.
+ draw_sprite16:
++    ifdef TRIM
++    ld (sp_ptr),hl
++    endif
+     ld a,(sp_x)
+     rrca
+     rrca
+@@ -1016,6 +1216,10 @@
+     dec ixl
+     jp nz,.row0
+ .attrs:
++    ifdef TRIM
++    call sp_trim                ; the box cut down to the cells the pixels reach
++    ret c                       ; (an empty pattern: nothing to colour or erase)
++    endif
+     ; attributes: ink = sprite colour
+     ld a,(sp_cy)
+     ld b,a

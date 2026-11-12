@@ -169,7 +169,7 @@ def sync_tick(m):
         ops[mem[pc]]()
         regs[25] += 1
 
-# The native build (no MSX graphics, claude/native-128k-plan.md): it keeps no
+# The native build (no MSX graphics; the development notes, 1.1): it keeps no
 # copies of the MSX's pattern and colour tables, and its loads and dissolve
 # do not run Konami's loader code, whose scratch RAM (E101-E102, the
 # mirroring buffers at E300 and E700, the dissolve's chunk buffer EA00-EBFF) the

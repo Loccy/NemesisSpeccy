@@ -1272,7 +1272,7 @@ tu_qtick:
     ret
 
 ; Stage 8's electricity (nx_pack.py S8_PAGE, mapped at 4000 here: made by
-; local/tools/pool/art/st8_brain_make.py).  Six bolts from the brain to
+; tools/pool/art/st8_brain_make.py).  Six bolts from the brain to
 ; Konami's six sockets (its type 11h objects, 2:88D3), from when the brain's
 ; screen comes in (40 columns before the scroll stops at distance 19Fh,
 ; Konami's boss 4 on) and moving with it (as the scenery's sprites move,
@@ -1619,7 +1619,7 @@ tu_s8pal:
     ret
 
 ; The Big Core in the arcade's drawing (nx_pack.py BC_PAGE, mapped at 4000
-; here: made by local/tools/arcade/bigcore_make.py).  Its 24 blocks are made
+; here: made by tools/arcade/bigcore_make.py).  Its 24 blocks are made
 ; here in place of lo_bconv's (lo_bpats, through lo_bart, when a block's
 ; characters change): the arcade's, the wall blocks (6, 7, 12, 13) as many
 ; walls as Konami's life / 4 (E789: its own walls change with it, 1:7E91);
@@ -1843,7 +1843,7 @@ tu_bcq:
     jp (hl)
 
 ; The ending's Vic Viper zoom (nx_pack.py VV_PAGES, mapped at 4000 here:
-; made by local/tools/arcade/vv_zoom_make.py), in Konami's steps 4 and 5 of
+; made by tools/arcade/vv_zoom_make.py), in Konami's steps 4 and 5 of
 ; the ending (E1D1; 0:4BD8, 0:4C16): 16 sizes for Konami's 6, as sprites (palette
 ; 15), each size's drawings sent as it comes (to patterns 104-114 and
 ; 116-126 in turn, so the size shown keeps its own); Konami's drawings

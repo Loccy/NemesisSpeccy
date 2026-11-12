@@ -9,7 +9,7 @@
 #   (the native build: the tiles are converted when the game is built, so
 #   there is no run-time converter to check; the pictures are checked
 #   against 1.0 by screen_lockstep.py, the Next's by
-#   local/tools/nexttest/nx_poll.py in ZEsarUX)
+#   tools/nexttest/nx_poll.py in ZEsarUX)
 cd "$(dirname "$0")"
 set -e
 python3 check_names.py 240 0 | tail -1

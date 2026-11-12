@@ -3,7 +3,7 @@
 /nem.rom
 /ref/
 # The MSX2 patch's IPS and the ROM it makes: used only by
-# local/tools/msx2/msx2_extract.py, not by the build
+# tools/msx2/msx2_extract.py, not by the build
 /*.ips
 /nemmsx2.rom
 

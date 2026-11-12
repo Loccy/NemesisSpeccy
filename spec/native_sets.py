@@ -1,5 +1,5 @@
 """Build-time conversion of Konami's graphics for the native 128K build
-(claude/native-128k-plan.md, step 1): every load event replayed from the
+(the development notes, 1.1): every load event replayed from the
 cartridge ROM in msxsim, and every character it writes converted to a
 Spectrum tile as 1.0 converts it at run time (tilemodel.py).
 
@@ -189,7 +189,7 @@ def dz_patch(v, tl, inv):
             out[k] = bytes(pr) + bytes([pa])
     return out
 
-# ---- the Spectrum Next (claude/native-128k-plan.md, step 3) --------------------
+# ---- the Spectrum Next ---------------------------------------------------------
 # The Next draws characters outside its pool from its own store of TMS-style
 # rows (pages C and D, E800: a colour and a pattern byte a row) and Konami's
 # sprite patterns from bank 7's F800.  Its events are what Konami's loaders

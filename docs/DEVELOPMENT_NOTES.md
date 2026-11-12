@@ -867,8 +867,7 @@ another list's counters.
 
 The two editions had grown close in play, and a full profile was made to
 choose between them.  The measurements of 0.95-0.100 had been made with
-scripts that were never kept; they were recovered from an earlier session's
-workspace and are now kept in the linked clone (`local/tools/measure/`),
+scripts that were never kept; they were recovered and are now kept in `tools/measure/`,
 where the MSX run reproduced its saved data row for row.  Over the first
 two stages in light play, 0.109's fast edition ran at 98% of the MSX's
 speed and the smooth one at 91%; but the smooth edition's extra screens
@@ -1039,7 +1038,7 @@ of the same tree.
   held every character in the patch's two colours, and our drawings of the
   character enemies were kept a second time as whole sprites for the
   enemies lifted out of the map.  The pool and its maps are now the
-  committed artwork (made once by `local/tools/pool/make_pool.py`, byte for
+  committed artwork (made once by `tools/pool/make_pool.py`, byte for
   byte as the build had been making them), and the stage files keep only
   the sprites, the palette, the line-colour tables and the stars, the two
   characters Konami rewrites in play (a third, F8, was first kept as one
@@ -1089,7 +1088,7 @@ of the same tree.
   Konami's shapes and were shaded in the arcade's yellows, golds and
   creams.  Neither fits the stage's 16 colours, so a stage can now have a
   scenery palette of up to 15 more (Layer 2 entries D1h-DFh), loaded with
-  the stage and faded in the dissolve.  `local/tools/pool/put_blocks.py`
+  the stage and faded in the dissolve.  `tools/pool/put_blocks.py`
   writes such blocks into the pool.
 * **Stage 3's disc and wheel.**  Our sprite drawings had been matched to a
   stage only where its patterns were stage 1's, so stage 3's own enemies
@@ -1321,7 +1320,7 @@ the main line until it was moved across.
 
 ### The census
 
-`census_gfx.py` (in the linked clone, `local/tools/native/`) ran the
+`census_gfx.py` (`tools/native/`) ran the
 original cartridge in msxsim with the Spectrum build's front end, the
 ship sweeping up and down and firing, with every weapon.  One run (40,000
 ticks) took the route with every hidden target, the ending and the start
@@ -1372,7 +1371,7 @@ raises no false alarms.  It runs at about 110 ticks a second.
 converts each character with the rules 1.0 applied at run time, which
 `spec/tilemodel.py` does as a function: the colour fit, the power-up
 bar's design, the title logo, the stage colour rules, inversion and the
-nuke capsule.  A checker (`native_check.py`, in the linked clone) ran 1.0
+nuke capsule.  A checker (`tools/native/native_check.py`) ran 1.0
 through both routes, keeping a model of the tile set the native build
 would have, and required every tile 1.0 converted, and every sprite
 pattern on show, to equal the model's.  In the bonus-stage route all
@@ -1573,7 +1572,7 @@ both routes after the shared changes.
 
 ### Before the release
 
-`fulltest.py` (in the linked clone, `local/tools/nexttest/`) was rewritten
+`fulltest.py` (`tools/nexttest/`) was rewritten
 to play the whole Next game in ZEsarUX with an invulnerable copy, the ship
 put on every hidden target unless told otherwise, checking the code and
 read-only pages at every stage, and dumping for `nx_ftcmp.py`, which
@@ -1694,8 +1693,8 @@ characters, as many as the title's space holds.
 ## After 1.1.1: the 128K's speed, measured again (10 November 2026)
 
 Measurements of 1.1.1 against the MSX, and experiments made from them; none
-changed the build. The method and every table are in the project's notes
-(`claude/feel-1.1.1.md`); the scripts are in `local/tools/measure/feel/`.
+changed the build. The method and every table are kept outside the repository; the
+scripts are in `tools/measure/feel/`.
 
 **How it feels, per frame.**  The three machines played the same scripted
 first loop (invulnerable, Konami's all-weapons cheat, fire on
@@ -1745,7 +1744,7 @@ ship's level frame and the round bullet into fixed memory: 1,664 of the
 all 16 routines) matched what `draw_sprite16` draws; sprites about 4% cheaper a picture, speed and
 pictures up by under 1%, the slowest seconds unchanged. Not kept: fixed
 memory is worth more than that. The change is in
-`local/tools/measure/feel/` (`cspr_real.diff`, `cspr_gen.py`). If it is
+`tools/measure/feel/` (`cspr_real.diff`, `cspr_gen.py`). If it is
 ever taken up, the ship frame to compile should be chosen from real play:
 the scripted play keeps the ship mostly level, and a player climbing and
 diving shows the other two frames more.
@@ -1866,9 +1865,8 @@ A review of the 128K build for speed, instruction by instruction, and what
 came of it. The Konami code that runs and the screens it produces are
 unchanged; the game is about a tenth faster over the first loop and shows
 about a third more pictures a second. The method, every table and the
-candidates not taken up are in the project's notes
-(`claude/perf-review-1.1.3.md`); the scripts are in
-`local/tools/measure/prof/`.
+candidates not taken up are kept outside the repository; the scripts are in
+`tools/measure/prof/`.
 
 **An exact profile.**  SkoolKit's C simulator calls a Python function for
 every instruction when its trace is given one. That is slow (about 220
@@ -2022,7 +2020,7 @@ them (227 for the heads, 24 for the rubble a destroyed head leaves, 64 for
 the rocks), by third and character, and stage 3's load takes them in place
 of the converted ones.  They were made once from the mock-up's rules, each
 character's tile taken from all its appearances in the section
-(`local/tools/art/moai_121/`); the file is the art from now on.  The rings
+(`tools/art/moai_121/`); the file is the art from now on.  The rings
 the heads fire are bright cyan (Konami's are red).  A sprite's ink is set
 by pattern and MSX colour in `spr_pmap`, and the ring's pattern and colour
 are also a red enemy's in stages 1, 4, 8 and 10, so `st3_rings` writes the
@@ -2094,6 +2092,24 @@ every 8 frames and redrawing the capsules' cells (found from Konami's
 object table).  It read as a slow, uneven blink, not a flash; the capsules
 are as in 1.2.
 
+## After 1.2.1: the tools brought into the repository (12 November 2026)
+
+The tools the port was made with (the Next's test drivers, the
+measurements against the MSX, the profilers, the scripts that made the
+artwork) had been kept outside the repository, on the machines the work was
+done on, and had to be carried between them by hand.  They are in `tools/`
+now (164 files; `tools/README.md` describes them), and each finds the
+repository from its own place where it used to name one machine's paths.
+None is needed to build the game or to run `verify.sh`.  Not brought in:
+the files retired after 0.107, which are in the repository's history, and
+two files of screens sampled in runs through stages 5 and 7, which record
+Konami's stage layouts (the two scripts that read them say how to sample
+the screens again).
+
+The comments in the source that pointed at notes kept outside the
+repository now point at these notes or say what they mean, and the README
+names the ZX0 commit the packed graphics and the tape are built with.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -2117,7 +2133,7 @@ the native build having no copies of the MSX's tables.
 
 The Next build has no simulator.  `verify.sh` only assembles it, and
 `release.sh` plays the `.nex` for a minute in ZEsarUX (`nx_smoke.py`).
-The tools in the linked clone's `local/tools/nexttest/` play it through
+The tools in `tools/nexttest/` play it through
 in ZEsarUX: `fulltest.py` the whole game, on the bonus route or the plain
 one, checking the code and read-only pages at every stage; `nx_ftcmp.py`
 compares two runs at each stage start, boss and point of the ending;

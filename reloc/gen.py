@@ -64,7 +64,7 @@ if TARGET == 'spec':
     # 0:505A; the port's RDSLT answers FF, so it never does), and 9BE4-9FFF is
     # FF padding.  Its place in page B (F8B9-FFFF) takes the colour fit.
     DATA_RANGE[5] = (0x8000, 0x98B9)
-    # The native build (no MSX graphics, claude/native-128k-plan.md): the
+    # The native build (no MSX graphics; the development notes, 1.1): the
     # graphics streams and character lists are gone; the game reads only
     # bank 5's object shapes (formas_de_objeto, 91D1-92E2) in play, bank 9's
     # two title panels (names, 9B3F-9C56) and bank 10 from A000 less the
@@ -190,7 +190,7 @@ for _a in (0x567D, 0x5691, 0x5697, 0x56D2, 0x58F7, 0x5BA9):
 # The native build: Konami's graphics loads become native loads of sets
 # converted when the game is built (spec/native_sets.py, nl_load in
 # native.asm).  Each site is a load event the census of 8 November 2026
-# found (claude/native-128k-plan.md, sections 13 and 15).
+# found (the development notes, 1.1).
 SPEC_PATCH.update({
     (0, 0x422A): ['    jp nl_stage'],               # carga_los_graficos_de_la_fase: the stage's set
     (0, 0x4A8A): ['    call nl_bigcore'],           # the Big Core's characters (its call of carga_fichas)
@@ -378,7 +378,7 @@ HOT_CLONES = [(2, 0x9235, 0x9250),      # dispara_sin_apuntar
 # contention).  These are the bank 0 routines the game spends its time in:
 # 1,146 of its 6,923 bytes, 93% of its time (21,565 of 23,161 T-states a tick
 # over the first loop), chosen as whole runs of instructions that end in a
-# ret or a jump (local/tools/measure/prof/chunks0.py).  0:4028-4059
+# ret or a jump (tools/measure/prof/chunks0.py).  0:4028-4059
 # (interrupcion) is left where it is: the checks stop at 0:4054 for the end
 # of a tick, and the platform calls 0:4045 by name.
 HOT_CLONES += [(0, 0x405D, 0x4070),     # suma_a_a_hl, suma_a_a_de, despachador

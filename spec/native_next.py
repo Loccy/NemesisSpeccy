@@ -1,4 +1,4 @@
-"""The Spectrum Next's native graphics (claude/native-128k-plan.md, step 3):
+"""The Spectrum Next's native graphics:
 Konami's graphics loads other than the stage loads, as the bytes they wrote
 (native_sets.next_events), for native.asm's Next loads into the Next's own
 store of character rows (pages C and D, E800) and sprite patterns (bank 7,

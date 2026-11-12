@@ -1,5 +1,5 @@
 """1.0's conversion of an MSX character to a Spectrum tile, as a pure function
-(the native 128K plan's build-time converter; claude/native-128k-plan.md).
+(the build-time converter of the build without MSX graphics, 1.1).
 
 convert(pat, col, third, ch, state, stage, dist) -> (rows, attr)
   pat, col: the character's 8 pattern and 8 colour bytes (MSX)

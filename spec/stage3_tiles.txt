@@ -5,7 +5,7 @@
 # pixels set is stored inverted).  The heads: yellow, their shading yellow
 # and black stippled, bright where the face is lit; the rocks: green, solid
 # at their edges and stippled inside.  Made on 12 November 2026 from 1.2's
-# tiles (local/tools/art/moai_121/gentiles.py); change a line to change a tile.
+# tiles (tools/art/moai_121/gentiles.py); change a line to change a tile.
 # Konami's turret characters are not here: they keep their colours.
 # The rubble pile a destroyed head leaves (lines marked pile): yellow in
 # every third, from the middle third's ground pile (piles.py).

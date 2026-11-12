@@ -105,7 +105,7 @@ The source does not include the cartridge. You need:
 - sjasmplus (https://github.com/z00m128/sjasmplus) on the PATH.
 - Einar Saukas's ZX0 compressor (https://github.com/einar-saukas/ZX0) for the packed graphics and the tape, on the PATH as `zx0` or named by the `ZX0` environment variable.
 
-It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3 and sjasmplus 1.21.0. Then, in `spec/`:
+It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3, sjasmplus 1.21.0 and ZX0 at commit `ecde3a2ae05061fe06469ed46df81a33b7de7d86`. Then, in `spec/`:
 
 ```
 python3 build.py              # nemesis.sna
@@ -130,6 +130,7 @@ Its graphics are in `spec/nxgfx/`: the character pool (`pool.bin`, every stage's
 
 * [Technical description](docs/TECHNICAL.md): how the port works, how it is built and how it is checked against the MSX original.
 * [Development notes](docs/DEVELOPMENT_NOTES.md): the history of the project, what was tried, kept and dropped, and the bugs found on the way.
+* [Tools](tools/README.md): the test drivers, measurements and artwork scripts the port was made with. Not needed to build or play the game.
 * [Legal notice](LEGAL-NOTICE.md): who owns what.
 * [Licence](LICENSE): the MIT licence, which covers the port's own work and none of Konami's.
 
