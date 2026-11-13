@@ -1,4 +1,4 @@
-"""The Big Core in the arcade's drawing (made by tools/arcade/bigcore_make.py):
+"""The Big Core in the arcade's drawing (made by bigcore_make.py):
 TILES, 44 16 x 16 drawings (4-bit, palette 15): the 20 blocks that never
 change, then the wall blocks (6, 7, 12, 13) for walls 0-5; BLOCK, each
 tile's block; CORES, the five cores (palette 14); PAL14, PAL15 (entries

@@ -1,4 +1,4 @@
-"""Stage 8's electricity (made by tools/pool/art/st8_brain_make.py):
+"""Stage 8's electricity (made by st8_brain_make.py):
 its sprite drawings (16 rows of 16 pixels, 4-bit), each sprite (bolt
 0-5, X, Y where the scroll stops, drawing), the sockets' objects (X, Y),
 and palettes 14 and 15 (entries 0-15, Next 9-bit)."""

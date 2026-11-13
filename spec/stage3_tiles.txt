@@ -1,14 +1,14 @@
-# Stage 3's Moai heads and the rocks they stand on (1.2.1): our tiles for
-# these characters (third:char), in place of the converted ones, in stage
-# 3's load only (native_sets.py).  Eight pixel rows and the attribute, in
-# hex, stored as the renderer wants them (a tile with more than half its
-# pixels set is stored inverted).  The heads: yellow, their shading yellow
-# and black stippled, bright where the face is lit; the rocks: green, solid
-# at their edges and stippled inside.  Made on 12 November 2026 from 1.2's
-# tiles (tools/art/moai_121/gentiles.py); change a line to change a tile.
-# Konami's turret characters are not here: they keep their colours.
-# The rubble pile a destroyed head leaves (lines marked pile): yellow in
-# every third, from the middle third's ground pile (piles.py).
+# Stage 3's Moai heads, the rubble a destroyed head leaves and the rocks
+# they stand on (1.2.1): our tiles for these characters (third:char), in
+# place of the converted ones, in stage 3's load only (native_sets.py).
+# Eight pixel rows and the attribute, in hex, stored as the renderer wants
+# them (a tile with more than half its pixels set is stored inverted).  The
+# heads and rubble: yellow, their shading yellow and black stippled, bright
+# where the face is lit; the rocks: green, solid at their edges and stippled
+# inside.  The head and rubble characters are those of Konami's drawings
+# (1:6370), each in every third it can appear in; the rocks leave out the
+# numbers of Konami's turret characters.  Made on 12 November 2026 from
+# 1.2's tiles; change a line to change a tile.
 0:1D 78 19 02 00 00 00 00 00 06  head
 0:1E 55 AA 05 00 00 00 00 00 06  head
 0:1F C0 80 80 00 00 00 00 00 46  head

@@ -1038,7 +1038,7 @@ of the same tree.
   held every character in the patch's two colours, and our drawings of the
   character enemies were kept a second time as whole sprites for the
   enemies lifted out of the map.  The pool and its maps are now the
-  committed artwork (made once by `tools/pool/make_pool.py`, byte for
+  committed artwork (made once by `make_pool.py`, byte for
   byte as the build had been making them), and the stage files keep only
   the sprites, the palette, the line-colour tables and the stars, the two
   characters Konami rewrites in play (a third, F8, was first kept as one
@@ -1320,7 +1320,7 @@ the main line until it was moved across.
 
 ### The census
 
-`census_gfx.py` (`tools/native/`) ran the
+`census_gfx.py` ran the
 original cartridge in msxsim with the Spectrum build's front end, the
 ship sweeping up and down and firing, with every weapon.  One run (40,000
 ticks) took the route with every hidden target, the ending and the start
@@ -1371,7 +1371,7 @@ raises no false alarms.  It runs at about 110 ticks a second.
 converts each character with the rules 1.0 applied at run time, which
 `spec/tilemodel.py` does as a function: the colour fit, the power-up
 bar's design, the title logo, the stage colour rules, inversion and the
-nuke capsule.  A checker (`tools/native/native_check.py`) ran 1.0
+nuke capsule.  A checker (`native_check.py`) ran 1.0
 through both routes, keeping a model of the tile set the native build
 would have, and required every tile 1.0 converted, and every sprite
 pattern on show, to equal the model's.  In the bonus-stage route all
@@ -2019,8 +2019,7 @@ The tiles are ours, not converted: `spec/stage3_tiles.txt` holds 315 of
 them (227 for the heads, 24 for the rubble a destroyed head leaves, 64 for
 the rocks), by third and character, and stage 3's load takes them in place
 of the converted ones.  They were made once from the mock-up's rules, each
-character's tile taken from all its appearances in the section
-(`tools/art/moai_121/`); the file is the art from now on.  The rings
+character's tile taken from all its appearances in the section; the file is the art from now on.  The rings
 the heads fire are bright cyan (Konami's are red).  A sprite's ink is set
 by pattern and MSX colour in `spr_pmap`, and the ring's pattern and colour
 are also a red enemy's in stages 1, 4, 8 and 10, so `st3_rings` writes the
@@ -2109,6 +2108,17 @@ the screens again).
 The comments in the source that pointed at notes kept outside the
 repository now point at these notes or say what they mean, and the README
 names the ZX0 commit the packed graphics and the tape are built with.
+
+The day after, the scripts among them that had been used once and would not
+be needed again were removed: 124 of the 164 files.  They were the makers
+of the committed artwork and the art data they had produced, the
+investigations and probes of earlier versions, the one-time checks of 1.1
+against 1.0, and the measurement data of 0.95 to 0.100.  Where these notes
+and the technical description name such a script, it is in the repository's
+history, last at commit 1ebf098.  What is left in `tools/` (40 files) is
+what will be used again: the Next's test drivers, the measurements against
+the MSX and the profiler, the screenshot makers, and `put_blocks.py`, which
+puts artwork into the Next build.
 
 ## How releases are checked
 

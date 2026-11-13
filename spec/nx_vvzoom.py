@@ -1,4 +1,4 @@
-"""The ending's Vic Viper zoom (made by tools/arcade/vv_zoom_make.py):
+"""The ending's Vic Viper zoom (made by vv_zoom_make.py):
 FRAMES, each size's sprites (X, Y, 16 rows of 16 pixels, 4-bit);
 TABLE, the size for each tick of the zoom (Konami's steps 4 and 5);
 PAL15, palette 15 (entries 0-15, Next 9-bit)."""

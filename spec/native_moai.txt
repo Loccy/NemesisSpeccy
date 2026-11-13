@@ -1,6 +1,6 @@
 # Stage 3: the characters (third:char) 1.0 first shows before distance 195h in a
 # pass from the stage's start, so converts under the Moai colour rule (rules.asm
-# rules_3).  From the census of 8 November 2026 (tools/native/census_gfx.py:
+# rules_3).  From the census of 8 November 2026 (census_gfx.py:
 # the route with every target, and the plain route with a death, both passes),
 # characters as stage 3's load leaves them.  native_sets.py reads it.
 0:1D

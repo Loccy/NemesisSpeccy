@@ -17,7 +17,7 @@ colour tables, map pieces), applied to the .NEX by enh_patch.py.
 
 They began as the graphics of the MSX2 patch "Nemesis - Gradius ENHANCED"
 V1.01 (by Victor Martinez and Toni Galvez, based on SHALOM's), read from the
-patched ROM by tools/msx2/msx2_extract.py (3 November 2026), with our
+patched ROM by msx2_extract.py (3 November 2026), with our
 changes since: stage 1's ground edge in browns (character 43, bottom third,
 its top four lines 68, as the patch has it in stage 4).
 
@@ -125,7 +125,7 @@ def fire(p):
     return b
 
 # Our own drawings of Konami's enemies, after the arcade game's sprites.  The
-# sprite enemies' are spec/nx_art.py (made by tools/arcade/gen_art.py);
+# sprite enemies' are spec/nx_art.py (made by gen_art.py);
 # the character enemies' are in the character pool (spec/nxgfx/pool.bin:
 # blocks whose pixels are palette * 16 + value, palettes 2-12; the Next
 # turns the blocks of an enemy it lifts out of the map into its sprite).  The
@@ -159,7 +159,7 @@ def tab_stage(s):
 BONUS_BANK, BONUS_MAPS_BANK = 46, 47
 TUR_PAGE = 55                   # nx_tur.asm's 8K page (bank 27's second half)
 ART2_PAGE = 57                  # our drawings 65 on (bank 28's second half; nx_l2.asm LO_ART2)
-# stage 8's electricity (nx_st8.py, made by tools/pool/art/st8_brain_make.py)
+# stage 8's electricity (nx_st8.py, made by st8_brain_make.py)
 # in bank 29's second half, which nx_tur.asm maps at 4000 (nx_tur.asm S8_*):
 #   0000  the drawings, 128 bytes each (4-bit), sent to patterns 104-127, then
 #         86 on (S8_PATNO)
@@ -169,7 +169,7 @@ ART2_PAGE = 57                  # our drawings 65 on (bank 28's second half; nx_
 #   1200  palettes 14 and 15, entries 2-15 (28 bytes each, Next 9-bit)
 #   1300  the number of drawings
 S8_PAGE = 59
-# the ending's Vic Viper zoom (nx_vvzoom.py, made by tools/arcade/vv_zoom_make.py)
+# the ending's Vic Viper zoom (nx_vvzoom.py, made by vv_zoom_make.py)
 # in banks 30 and 31's second halves, which nx_tur.asm maps at 4000 (VV_*):
 #   page 61  0000  the size for each tick of the zoom (176)
 #            00C0  each size: its first drawing, its number of drawings
@@ -179,7 +179,7 @@ S8_PAGE = 59
 #                  rest from page 63's 0000
 VV_PAGES = (61, 63)
 # the Big Core in the arcade's drawing (nx_bigcore.py, made by
-# tools/arcade/bigcore_make.py) in bank 41's first half, which nx_tur.asm
+# bigcore_make.py) in bank 41's first half, which nx_tur.asm
 # maps at 4000 (BC_*): 0000 its 44 drawings (the 20 blocks that never change,
 # then the wall blocks for walls 0-5), 1600 its five cores, 1900 palettes 14
 # and 15 (entries 2-15, 28 bytes each)

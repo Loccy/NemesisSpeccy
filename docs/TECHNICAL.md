@@ -340,7 +340,7 @@ With 1.0's test build as the reference, the native build's screens are
 identical to 1.0's on every tick of: the route through every hidden target
 (`HYPER=1 TARGETS=1`, 40,000 ticks: stages 1-2-9-3-10-4-11-5-6-7-12-8, the
 ending, into the second loop), with the first three ticks of the dissolve
-allowed (6.6; `tools/native/allow_dissolve.py`);
+allowed (6.6; `allow_dissolve.py`);
 a death in each stage (`HYPER=1 DEATHS=1`, 50,000 ticks), apart from 88
 ticks in stage 3 after the restart, all of them the intended difference of
 6.6 (the Moai); and game over five times (`GAMEOVER=1 DEATH_AT=300`, 20,000
@@ -920,7 +920,7 @@ barrels share the rocks' magenta and keep the Moai rule's colours; the
 heads do not leave them out, because in stage 3 characters D2-D9 are head
 pieces.  The laser's strip (FD) and the capsules (77-7E) are in no drawing
 and so have no tile here.  The tiles were made once from 1.2's screens of
-the section (`tools/art/moai_121/`); the file is
+the section; the file is
 the art now, a line to a tile.  Stage 3's packed set grew by 147 bytes (the
 stippling compresses less well than flat colour).  The Big Core's load
 later in the stage puts its own tiles over some of these characters, as
@@ -1294,7 +1294,7 @@ running every frame (6.2).  The Next plays the effects on a second AY
 
 Konami writes its graphics into the video chip's pattern, colour and sprite
 pattern tables at a handful of events.  A census of the original
-(`tools/native/census_gfx.py`: every graphics
+(`census_gfx.py`: every graphics
 write, over a route through every hidden target and a route with deaths,
 game over and the title) found exactly these, and no other graphics writes
 apart from the stars, the dissolve and the boot's clearing of the video
@@ -1469,7 +1469,7 @@ In `spec/` unless shown otherwise.
 | `tape/` | Loader source (generated), loading screen and its converter, ZX0 unpacker and licence. |
 | `../reloc/` | The relocator (`gen.py`) and its disassembly parser. |
 | `../msxsim/` | The MSX simulator used by the build's conversion and the checks. |
-| `../tools/` | Tools from the port's making that are not part of the build or of `verify.sh`: the Next's test drivers, the measurements and profilers, and the artwork's scripts (`../tools/README.md`). |
+| `../tools/` | Tools that are not part of the build or of `verify.sh`: the Next's test drivers, the measurements and the profiler, the screenshot makers and `put_blocks.py` (`../tools/README.md`). The one-off scripts this description names without a path (the makers of the committed artwork, the censuses and checks of the no-msx work) were used once and are no longer kept: they are in the repository's history, last at commit 1ebf098. |
 | `../README.md`, `../LEGAL-NOTICE.md`, `../LICENSE` | The front page (background, playing, building); who owns what; the MIT licence for the port's own work. |
 | `../docs/` | This description, the development notes, and screenshots. |
 | `nx_low.asm`, `nx_l2.asm`, `nx_tur.asm` | The Spectrum Next's own code (section 9): Layer 2, hardware sprites, the smooth scroll, the MSX2 graphics. |
@@ -1834,7 +1834,7 @@ of the character pool, 9.5.)
   known then, so the boss glides without falling behind the game; Konami's
   collisions still use its whole-character position.
   The blocks show the arcade's Big Core rather than Konami's characters
-  (`tools/arcade/bigcore_make.py`, from the arcade's bosses sheet,
+  (`bigcore_make.py`, from the arcade's bosses sheet,
   kept as `spec/nx_bigcore.py`; page 82).  When a block's characters
   change, `lo_bconv` jumps to `lo_bart`, and `tu_bc` (in `nx_tur.asm`)
   sends the arcade's block instead of converting Konami's.  The body is
@@ -1952,7 +1952,7 @@ of the character pool, 9.5.)
   characters are blank; the electricity is six bolts of sprites from the
   brain to Konami's six sockets (its type 11h objects, 2:88D3, placed by
   the boss script at 2:88F8), 29 sprites in all (patterns 104-127 and
-  86-90), made by `tools/pool/art/st8_brain_make.py` and kept as
+  86-90), made by `st8_brain_make.py` and kept as
   `spec/nx_st8.py` (page 59).  `tu_s8` shows them from 40 columns before
   the scroll stops (distance 19Fh) and moves them with the scenery.  Each
   bolt is shown 5 ticks in 8, at random, and swaps its cyan and green
@@ -1970,7 +1970,7 @@ of the character pool, 9.5.)
   takes those characters out of the screen copy (blanked in
   `name_shadow`, their cells marked) and shows the ship as sprites in 16
   sizes instead, drawn from a head-on model
-  (`tools/arcade/vv_model.py`, `vv_zoom_make.py`; kept as
+  (`vv_model.py`, `vv_zoom_make.py`; kept as
   `spec/nx_vvzoom.py`, pages 61 and 63), palette 15.  The size follows
   Konami's own timing: the tick of the zoom is the start of Konami's
   drawing (E1D9) plus that drawing's length less the ticks it has left
@@ -2013,13 +2013,13 @@ Graphic mode 2 layout, two colours per row of 8 pixels, so the Next draws
 it the same way), new sprites, a 16-colour palette per stage, a new status
 bar font, colour changes, and sprite colours set line by line by its own
 code (it runs the MSX2's sprite mode 2).  They were read from the patched
-ROM once (3 November 2026, `tools/msx2/msx2_extract.py`: it applies
+ROM once (3 November 2026, `msx2_extract.py`: it applies
 the IPS to `nem.rom` and replays the patched cartridge's stage loader for
 each of the 8 stages with `extract.py`'s replay of Konami's, plus the
 patch's status-bar font routine and its sprite load, recording which bytes
 of video memory the load writes) and kept in `spec/nxgfx/`.  Later the
 same day the characters became a single set of artwork, the character
-pool (9.3): `tools/pool/make_pool.py`, run once, made it from the
+pool (9.3): `make_pool.py`, run once, made it from the
 stage files and our drawings of the character enemies (9.6), exactly as
 the build had been making it, and cut the stage files' characters down to
 those Konami rewrites in play.  `spec/nxgfx/` holds, ours to change:
@@ -2100,7 +2100,7 @@ graphics for them (Konami's loader puts them in, as for the other stages)
 but no palettes, and the pack covered stages 1-8, so they showed Konami's
 own characters and sprites in the palette and sprite line colours of the
 stage before.  Their graphics were read from the patched ROM in the same way
-(`tools/pool/make_bonus.py`, run once; the replay checked against
+(`make_bonus.py`, run once; the replay checked against
 openMSX captures of the patched cartridge for all four: every byte it
 writes matches, apart from characters Konami animates).  The four loads
 differ only in character 44's colours, the balls, so they share one stage
@@ -2228,8 +2228,7 @@ where Konami puts them, away from the skeletons' mouths.
   `lo_pal1415` loads with the others.  Stage 6's robots (Konami's type 0Ch,
   frames 29-2C, characters EC-F5, in the pool) are the arcade's, in
   palette 4; Konami's four frames share their left half, so all four take
-  the arcade's first frame's left half (`tools/pool/art/
-  st6_robots_make.py`).  Stage 6's brains and their balls are the arcade's
+  the arcade's first frame's left half (`st6_robots_make.py`).  Stage 6's brains and their balls are the arcade's
   brain (its second frame the first a quarter turn round, the small brains
   reduced from it) and two of its balls, purple and grey-brown, drawn as
   sprites (9.3).  Stage 7's amoeba (Konami's type 0Dh: patterns 56-59 as it
@@ -2237,7 +2236,7 @@ where Konami puts them, away from the skeletons' mouths.
   60-63) is the arcade's pink cell.  Stage 6 and stage 7 each give palette
   15 colours of their own (`TAB_PAL6`, `TAB_PAL7`).  Up to 90 drawings now
   (`NART`): 1-64 in page 51, 65 on in page 57.
-  `tools/arcade/gen_art.py` made the sprite drawings from the arcade
+  `gen_art.py` made the sprite drawings from the arcade
   sprite sheets once; they are kept as data in `spec/nx_art.py`, so the
   build does not need the sheets.  `nx_pack.py` stores them in bank 25's
   second 8K (page 51) and their tables in bank 26's (page 53): the
@@ -2262,7 +2261,7 @@ where Konami puts them, away from the skeletons' mouths.
   three thirds, which gave stages 1, 2 and 4 our turrets and left stages
   3, 5, 7 and 8 with the patch's: their middle thirds hold other turret
   pieces under the same numbers, or the red turret throughout.  Those four
-  were then placed by content (`tools/pool/art/turrets_ours.py`): a
+  were then placed by content (`turrets_ours.py`): a
   set takes our pieces in each third where every frame's image in Konami's
   own load is stage 1's ordinary turret, either as it is (our drawing as
   stage 1 has it) or with the colours stage 1's red turret gives it (our
@@ -2299,12 +2298,12 @@ where Konami puts them, away from the skeletons' mouths.
   warm brown in the stage's scenery palette (D1h-D9h), lit from the top
   left by each shape's outline, the stippling smoothed and the patch's
   black shading inside the bone turned into dark steps of the ramp; the
-  eggs keep their blues.  `tools/pool/art/st5_scenery_make.py` made
+  eggs keep their blues.  `st5_scenery_make.py` made
   the blocks from every screen sampled in a run through the stage (each
   character takes, pixel by pixel, the result it gets most often).
   Stage 7's conveyor belts are in the arcade's style: a lilac band with a
   darker rim, and white hollow rings, the arcade's links, in place of the
-  patch's green beads (`tools/pool/art/st7_belts_make.py`, from the
+  patch's green beads (`st7_belts_make.py`, from the
   screens of a run through the belt section, `st7_screens.z`; each
   character takes a ring where most of its appearances have one).
   Stage 8's brain is the arcade's (the bosses sheet), put at full size in
@@ -2314,7 +2313,7 @@ where Konami puts them, away from the skeletons' mouths.
   character each) take the arcade's socket, and Konami's tendril
   characters (A1-BF on that screen) are blank, the electricity being
   sprites (9.3).  Each of these characters is used once on that screen
-  and nowhere else in the stage (`tools/pool/art/st8_brain_make.py`).
+  and nowhere else in the stage (`st8_brain_make.py`).
 * **The enemy hatches** (Konami's background objects of types 1 and 2,
   each drawn as 4 by 4 characters from the table at 1:6370, a second set
   of characters once it has been shot, 1:7AB0) keep the patch's drawing,
@@ -2323,7 +2322,7 @@ where Konami puts them, away from the skeletons' mouths.
   colour 4) is (1,3,3) and the shot hatch's dark brown (stage colour 6)
   (4,3,0), in the stage's scenery palette (D2h, D3h); stage 8's ceiling
   hatch's dark olive is (2,3,1) (DDh).  The arcade's hatch was tried in a
-  mock-up and not taken.  `tools/pool/art/hatch_light_make.py` made
+  mock-up and not taken.  `hatch_light_make.py` made
   the blocks.
 * **Stage 2's brick-row end caps** (characters A1 and A4) are blank.  In
   play Konami puts them at the two ends of each row of bricks (the map

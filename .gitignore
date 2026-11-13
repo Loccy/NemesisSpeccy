@@ -2,8 +2,7 @@
 # project: supply your own copies (see README.md, "Building from source").
 /nem.rom
 /ref/
-# The MSX2 patch's IPS and the ROM it makes: used only by
-# tools/msx2/msx2_extract.py, not by the build
+# The MSX2 patch's IPS and the ROM it makes: not used by the build
 /*.ips
 /nemmsx2.rom
 

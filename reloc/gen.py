@@ -378,7 +378,7 @@ HOT_CLONES = [(2, 0x9235, 0x9250),      # dispara_sin_apuntar
 # contention).  These are the bank 0 routines the game spends its time in:
 # 1,146 of its 6,923 bytes, 93% of its time (21,565 of 23,161 T-states a tick
 # over the first loop), chosen as whole runs of instructions that end in a
-# ret or a jump (tools/measure/prof/chunks0.py).  0:4028-4059
+# ret or a jump (chunks0.py).  0:4028-4059
 # (interrupcion) is left where it is: the checks stop at 0:4054 for the end
 # of a tick, and the platform calls 0:4045 by name.
 HOT_CLONES += [(0, 0x405D, 0x4070),     # suma_a_a_hl, suma_a_a_de, despachador

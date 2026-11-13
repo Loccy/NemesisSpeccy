@@ -130,7 +130,7 @@ Its graphics are in `spec/nxgfx/`: the character pool (`pool.bin`, every stage's
 
 * [Technical description](docs/TECHNICAL.md): how the port works, how it is built and how it is checked against the MSX original.
 * [Development notes](docs/DEVELOPMENT_NOTES.md): the history of the project, what was tried, kept and dropped, and the bugs found on the way.
-* [Tools](tools/README.md): the test drivers, measurements and artwork scripts the port was made with. Not needed to build or play the game.
+* [Tools](tools/README.md): the Next build's test drivers, the measurements against the MSX and the profiler. Not needed to build or play the game.
 * [Legal notice](LEGAL-NOTICE.md): who owns what.
 * [Licence](LICENSE): the MIT licence, which covers the port's own work and none of Konami's.
 
