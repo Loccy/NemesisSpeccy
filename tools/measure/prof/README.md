@@ -1,10 +1,8 @@
 # prof: an exact profile of the 128K build (11 November 2026)
 
 The results are summarised in the development notes (1.2).  The scripts
-find the repository from their own place (or from `NEM_ROOT`).  They were
-written in a folder `work` beside the repository and import each other from
-there: copy them to it before running them (`NEM_SCRATCH` names the folder
-that holds `work`, by default the one the repository is in).
+find the repository from their own place (or from `NEM_ROOT`) and import
+each other from their own folder, so they run where they are.
 
 SkoolKit's C simulator calls a Python function for every instruction when
 `trace` is given one (about 220 frames a second with it, 4,600 without), so
@@ -27,10 +25,6 @@ the profile is exact: every instruction's T-states by address and page.
   loop in play): T-states a tick by function, the biggest changes first.
   The two runs do not play the same game tick for tick (keys by the clock,
   random numbers from R), so a stage's figures carry a difference in play.
-* nxdiff.py SPEC OUT.nex: the Next build against the 1.1.3N reference in
-  `work/ref113n` beside the repository: symbols moved or gone, the holes left by NX_AT,
-  and whether the snapshot, nx_low.bin, nx_tur.bin, nx_gfx.dat and the .nex
-  differ anywhere outside the holes.
 * persec.py SNA SYM (NEM_ALL=1): ticks in each second of play over the loop:
   the slow end, the median, and how many seconds run above 30, 33 and 40.
 * an2.py and stagecmp.py stop at the end of the first loop: prof2.py runs to

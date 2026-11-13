@@ -1,6 +1,6 @@
 import os as _os; _NEM = _os.environ.get('NEM_ROOT') or _os.path.normpath(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', '..')); _SCRATCH = _os.environ.get('NEM_SCRATCH') or _os.path.dirname(_NEM)   # the repository, and the folder beside it for working copies
 import sys, pickle, collections
-sys.path.insert(0, (_SCRATCH + '/work'))
+sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from labels import Labels, cat
 A = pickle.load(open(sys.argv[1], 'rb')); B = pickle.load(open(sys.argv[2], 'rb'))
 LB = Labels(A['sna'], A['sym']); func = LB.func; syms = LB.syms

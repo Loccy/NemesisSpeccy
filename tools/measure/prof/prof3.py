@@ -2,7 +2,7 @@
 usage: prof2.py SNA SYM FRAMES OUT.pkl  (NEM_ALL=1)"""
 import os as _os; _NEM = _os.environ.get('NEM_ROOT') or _os.path.normpath(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', '..')); _SCRATCH = _os.environ.get('NEM_SCRATCH') or _os.path.dirname(_NEM)   # the repository, and the folder beside it for working copies
 import sys, os, time, pickle, collections
-sys.path.insert(0, (_SCRATCH + '/work'))
+sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from labels import Labels
 from emu import Spectrum, _syms, keys_default
 SNA, SYM, N, OUT = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]

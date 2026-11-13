@@ -7,10 +7,10 @@ the screenshot makers, and the tool that puts artwork into the Next build.
 
 Each finds the repository from its own place (or from `NEM_ROOT`), and
 needs what the build needs: `nem.rom` and the disassembly in `ref/`, and
-usually a built `spec/nemesis.sna` and its `.sym`. Several keep working
-copies and results in folders beside the repository (`work`, `night2`, and
-ZEsarUX in `zes`); `NEM_SCRATCH` names the folder that holds those, by
-default the one the repository is in.
+usually a built `spec/nemesis.sna` and its `.sym`. Some keep results or
+look for ZEsarUX in folders beside the repository (`night2`, and ZEsarUX in
+`zes`); `NEM_SCRATCH` names the folder that holds those, by default the one
+the repository is in.
 
 The scripts that were used once and will not be needed again (the makers of
 the committed artwork, the investigations and probes of earlier versions,
@@ -37,8 +37,7 @@ assembling it.
   `JITTER`).
 * `nx_poll.py`, `nx_pollcmp.py`: dumps at points of a run, and their
   comparison.
-* `l2png.py`: Layer 2 dumps as false-colour PNGs. `sheets.py`: contact
-  sheets of `fulltest.py`'s screenshots.
+* `l2png.py`: Layer 2 dumps as false-colour PNGs.
 
 The dumps compare memory, not the picture: a wrong scroll split, palette or
 hardware sprite passes them.
@@ -55,7 +54,7 @@ hardware sprite passes them.
   (`nx_feel.py`), and their analysis (`feel_an.py`).
 * `measure/prof/` (README there): an exact profile of the 128K build, every
   instruction's T-states by address and page, with its analysis by routine
-  and by stage; and `nxdiff.py`, a Next build against 1.1.3N.
+  and by stage.
 * `perfprofile.py` (0.109): speed and smoothness of a build over stages
   1-2. `pp_feel.py` is its successor.
 

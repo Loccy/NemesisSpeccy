@@ -1,7 +1,7 @@
 """Two profiles, one stage: T-states a tick by function, the biggest changes.  stagecmp.py A.pkl B.pkl STAGE [N]"""
 import os as _os; _NEM = _os.environ.get('NEM_ROOT') or _os.path.normpath(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', '..')); _SCRATCH = _os.environ.get('NEM_SCRATCH') or _os.path.dirname(_NEM)   # the repository, and the folder beside it for working copies
 import sys, pickle, collections
-sys.path.insert(0, (_SCRATCH + '/work'))
+sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 from labels import cat
 A = pickle.load(open(sys.argv[1], 'rb')); B = pickle.load(open(sys.argv[2], 'rb')); ST = int(sys.argv[3]); N = int(sys.argv[4]) if len(sys.argv) > 4 else 25
 def stage(D):

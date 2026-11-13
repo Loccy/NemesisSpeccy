@@ -2120,6 +2120,17 @@ what will be used again: the Next's test drivers, the measurements against
 the MSX and the profiler, the screenshot makers, and `put_blocks.py`, which
 puts artwork into the Next build.
 
+Running each of the 40 from a copy of the repository on its own showed one
+fault and two more one-use scripts.  The profiler's scripts looked for each
+other in a folder `work` beside the repository, a leftover of where they
+were written, and failed there or where they are; they now import each
+other from their own folder, and give the same results as before.
+`nxdiff.py`, which compared 1.2's Next build with 1.1.3N's, and
+`sheets.py`, which made contact sheets of screenshots that only a removed
+script took, are gone too (both in the history at commit f84e317).  The
+rest gave the same output as before the move, or, for the Next's drivers in
+ZEsarUX, ran with their checks passing.
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
