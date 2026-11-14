@@ -18,6 +18,32 @@ the one-time checks of 1.1, old measurement data) are not kept here. They
 are in the repository's history: the last commit that holds them is
 1ebf098 (12 November 2026).
 
+## The 48K version (`z48/`)
+
+Unlike the rest of `tools/`, these are part of the 48K build.
+`spec/release48.sh` runs `keep48.sh`, and the keep lists in `reloc/` come
+from the scripts here.
+
+* `keep48.sh`: remakes the keep lists (`reloc/z48_keepc_1.txt` to
+  `z48_keepc_8.txt`, `z48_feonly.txt`, `z48_reads.txt`) from the census
+  and gen.py, and checks them against `reloc/` (about 90 seconds); `sh
+  keep48.sh write` writes them.  It runs `keep1.py`, `keepN.py`,
+  `keepC.py` (twice for each stage) and `tabread.py`, which use `reach.py`
+  (the static pass over the relocator's items) and `report48.py` (the
+  census by stage).
+* `census48.py`, `cA.pkl`, `cB.pkl`: the census of the MSX original the
+  lists are made from, and its two recorded routes.  Rerun only if the
+  census has to change (`keep48.sh` says how; about five minutes a route,
+  after a test build of the 128K, `NEM_PIN_R=1 python3 build.py`).
+* `test48.sh`: the 48K checks: both tapes through four loops, each stage's
+  game over and continue, a rewind and the pause, in a simulator (about 4
+  minutes; build the tapes first).
+* `z48tap.py`: plays a 48K tape in SkoolKit's 48K simulator, loading each
+  stage from the tape as the game asks (its options are in its docstring);
+  `fbus.py` gives it a 48K's floating bus.
+* `run128.py`: runs the 128K build from a chosen stage, for comparing
+  screens with the 48K's.
+
 ## Testing the Next build
 
 `nexttest/`: the Next build in ZEsarUX, headless, driven through ZRCP

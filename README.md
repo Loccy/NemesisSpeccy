@@ -50,16 +50,33 @@ The title screen shows the version ending in N: V1.2.1N. It has been played on a
 ![The Next: stage 5, the boneyard](docs/images/next_04_stage5_boneyard.png)
 ![The Next: stage 8, the brain](docs/images/next_05_stage8_brain.png)
 
+## The 48K version
+
+Since 1.3 the game also comes on a tape for the 48K Spectrum. A 48K has a third of the 128K's memory, so it is a multiload: the core of the game loads first, then each stage as you reach it. It is the same Konami code on the same platform layer, but some things had to go to make each stage fit:
+
+* One player only.
+* Sound effects on the beeper, and no music.
+* No bonus stages.
+* No ending sequence. After stage 8 the game shows THE END and PLEASE REWIND THE TAPE, then loads stage 1 and play goes on.
+* In stage 5 the skulls and skeletons are already up when they come into view, and the pieces the triangles split into fly straight on instead of chasing the ship.
+* No screen dissolve at the end of stages 7 and 8.
+* The title is the Nemesis logo in block characters, over NEMESIS 48 - BY PAUL AND CLAUDE and PRESS FIRE TO START.
+* At a game over the game waits for a key: C to continue in the same stage, or R to start again from stage 1 (in stages 2 to 8 that means rewinding the tape).
+
+Each stage is packed on the tape and unpacked as it loads, so the whole tape is about 90K. So far it has been tested in emulators.
+
 ## Playing it
 
 ### What you need
 
 * A ZX Spectrum 128K, +2, +2A, +2B or +3. It needs the 128K's extra memory, so it won't run on a 48K. I have tested on a real 128K and a real +3 (from tape, through a Retroleum SmartCard and through a DivMMC Future), and in emulators as a 128K, +2A and +3.
+* For the 48K tape (`nemesis48_1.3.0.tap`): any 48K Spectrum, or a 128K model in 48K mode or from 128 BASIC.
 * For the `.nex` file: a ZX Spectrum Next, or an emulator of one. I have tested on a KS2 Next and an N-Go (KS1 clone). It requires 1MB of RAM and the full ~~one point twenty-one jiggawatts~~ 28MHz so won't run on the early pre-release boards.
 
 ### Loading
 
 * **Tape:** `LOAD ""` (on a +2A, +2B or +3, choose Loader from the menu). The loading screen builds up, then the game starts by itself.
+* **The 48K tape:** `LOAD ""`. The loading screen comes up, then the game's core and stage 1 load and the title appears. Stop the tape when a stage has loaded, and start it again when the game shows LOADING STAGE and the stage's number. After a game over and R in stages 2 to 8, or after stage 8, rewind the tape to stage 1's block (it follows the core's blocks at the start of the tape).
 * **Emulators:** the `.tap` files load like a real tape; the `.sna` files are 128K snapshots that start straight away.
 * **Spectrum Next:** open the `.nex` file from the Next's browser, or load it in a Next emulator.
 
@@ -79,9 +96,9 @@ Versions 0.98 to 0.109 came in two editions, fast (one tick in two drawn) and sm
 | Fire | SPACE or 0 | Fire |
 | Power up | M, or hold fire | Second fire button, or hold fire |
 | Pause | H | |
-| Continue after game over | C, while the game-over tune is playing | |
+| Continue after game over | C, while the game-over tune is playing (48K: C, or R to start again from stage 1; it waits) | |
 
-On the title screen, choose 1 or 2 players with the movement keys and start with fire. A Kempston joystick is picked up when the machine is switched on; with none plugged in, the keys work as normal.
+The 48K version has the same controls, with one player only: fire on the title screen starts the game. On the 128K, on the title screen, choose 1 or 2 players with the movement keys and start with fire. A Kempston joystick is picked up when the machine is switched on; with none plugged in, the keys work as normal.
 
 Holding fire down for about half a second takes the highlighted power-up, once each time you hold it, so a one-button joystick can play without the keyboard. On an interface with a second fire button, that button takes the power-up too, like the MSX's second button. This works on the SmartCard and the DivMMC Future; on the SmartCard with a Mega Drive pad, B fires and C takes the power-up. The Mega Drive controller doesn't seem to work on the Next; I don't know if more Atari-ish "two-button" controllers might do better.
 
@@ -110,11 +127,12 @@ It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3, sjasmplus 1.21.0
 ```
 python3 build.py              # nemesis.sna
 python3 make_tap.py           # nemesis.tap from it
-sh release.sh 1.2.1           # the release: tape, snapshot and .nex, in release/
+sh release.sh 1.3.0           # the release: tape, snapshot and .nex, in release/
+sh release48.sh 1.3.0         # the 48K tape, in release/
 sh verify.sh                  # the regression checks
 ```
 
-Built this way, the files in `release/` are identical to the published ones.
+Built this way, the 48K tape in `release/` is identical to the published one. The 128K and Next files of 1.3.0 are the same as 1.2.1's but for the version number on the title, so they were not published again; built from the 1.2.1 tag, they are identical to the published 1.2.1 files.
 
 ### The Spectrum Next version
 
@@ -126,11 +144,22 @@ sh nxbuild.sh nemesis.nex     # the Spectrum Next build
 
 Its graphics are in `spec/nxgfx/`: the character pool (`pool.bin`, every stage's background characters and the enemies Konami draws with characters, and `maps.bin`, which says which block each stage's characters use), a file per stage for its sprites and palette, the title logo, and the data bytes it changes in Konami's tables. The enemies drawn as sprites are in `spec/nx_art.py`; `NEM_ARC_SPR=0` leaves them out (they are in by default). `release.sh` makes the `.nex` as well as the tape and snapshot; if ZEsarUX is on the PATH (or named by the `ZESARUX` environment variable), it also plays the `.nex` for a minute to check that it starts. `verify.sh` ends by checking that the Next build still assembles. The editions of 0.98 to 0.109 are build options: `NEM_DRAW_EVERY=2 python3 build.py` for fast, `NEM_DRAW_EVERY=0 python3 build.py` for smooth. Section 3 of the technical description has the details and the build options.
 
+### The 48K version
+
+The 48K tape needs the same tools as the 128K build. In `spec/`:
+
+```
+sh release48.sh 1.3.0         # release/nemesis48_1.3.0.tap, and the test tape nemesis48hc.tap
+sh ../tools/z48/test48.sh     # the 48K checks in a simulator: about 4 minutes
+```
+
+The test tape is for checking only: the ship cannot die and is powered up at each life. Each stage keeps only the parts of Konami's code and data it needs, listed in `reloc/z48_keepc_1.txt` to `z48_keepc_8.txt`. The lists are made from two recorded runs of the MSX original (`tools/z48/`), and `release48.sh` checks them against `reloc/gen.py` whenever either has changed (about 90 seconds; otherwise a build of both tapes takes about 40). The first build in a new copy of the repository takes a few minutes, as the layout of each image is searched for once and then kept. Section 10 of the technical description has the details.
+
 ## Documentation
 
 * [Technical description](docs/TECHNICAL.md): how the port works, how it is built and how it is checked against the MSX original.
 * [Development notes](docs/DEVELOPMENT_NOTES.md): the history of the project, what was tried, kept and dropped, and the bugs found on the way.
-* [Tools](tools/README.md): the Next build's test drivers, the measurements against the MSX and the profiler. Not needed to build or play the game.
+* [Tools](tools/README.md): the Next build's test drivers, the measurements against the MSX and the profiler, and the 48K's keep lists and tests (`tools/z48/`, which the 48K build needs).
 * [Legal notice](LEGAL-NOTICE.md): who owns what.
 * [Licence](LICENSE): the MIT licence, which covers the port's own work and none of Konami's.
 
@@ -138,6 +167,7 @@ Its graphics are in `spec/nxgfx/`: the character pool (`pool.bin`, every stage's
 
 * The game: Konami, 1986.
 * Spectrum 128K port: Paul and Claude (Anthropic's AI), built on the annotated disassembly of the cartridge by antxiko (https://github.com/antxiko/Nemesis-disassembly).
+* Spectrum 48K version: Paul and Claude.
 * Tape compression: ZX0 by Einar Saukas.
 * The Spectrum Next version's graphics started off based on the MSX2 patch "Nemesis - Gradius ENHANCED" V1.01, programmed by Victor Martinez with new graphics and colours by Toni Galvez, based on the patched version by SHALOM (with FRS's turbo fix and WYZ/ARTRAG's voice set). Over time they've been mostly swapped out for the arcade graphics plus some new redrawn enemies. The level terrain is still from the MSX2 patch.
 

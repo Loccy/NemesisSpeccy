@@ -1,6 +1,6 @@
 # Nemesis for the ZX Spectrum 128K: technical description
 
-Version 1.2.1 (12 November 2026). 
+Version 1.3.0 (14 November 2026): 1.2.1 with the 48K version added (section 10). 
 
 ## 1. What it is
 
@@ -16,6 +16,9 @@ the video chip (TMS9918), the sound chip (AY-3-8910, the same family as the
 128K's) and the keyboard and joystick.  Konami's graphics are converted to
 Spectrum tiles when the game is built, and each of Konami's graphics loads is
 replaced by a load of the converted set (6.6, 6.11).
+
+The same code also builds for the Spectrum Next (section 9) and, as a
+multiload tape, for the 48K Spectrum (section 10).
 
 The game logic is Konami's, unchanged except where it meets the hardware.
 A test build matches the MSX original byte for byte in Konami's RAM, tick by
@@ -2399,3 +2402,192 @@ which the two builds share.
   collide only in stages 3 and 4).
 * A second Konami cartridge (F0F4) is not supported, so its extra sprites
   are not loaded.
+
+## 10. The 48K version
+
+### 10.1 What it is
+
+A tape for the 48K Spectrum, built from the same Konami code and platform
+layer with `Z48` defined.  Konami's code and data for the whole game, the
+platform and the converted graphics come to far more than the 41K a 48K has
+above the screen, so the tape is a multiload: a core that every stage
+uses, and a block for each stage holding only what that stage needs.  The
+game changes this needed are listed in the README; how each was made is in
+10.6.
+
+Each stage is built as a whole 48K image of the game (`build48.py` with
+`Z48_SHARED=1` and `Z48_STAGE=N`), and the core is byte for byte the same
+in all eight (`make_tap48.py` checks).  The tape holds the core once and
+each image's stage block.
+
+### 10.2 Memory
+
+| Address | What |
+|---|---|
+| 4000-5AFF | The screen (one screen: the 48K draws where it is shown) |
+| 5B00-AEFF | The core: the platform, Konami's code and data that every stage keeps, the interrupt table (AD00, handler AEAE) and the way in from the loader (ENTRY48, AEFD) |
+| AF00-BFFF | Konami's RAM (E000-F0FF on the MSX; `KRAM` = AF00 - E000) |
+| BF01-BF80 | The stage loader (`z48_fixed.asm`), its stack at BFB6 |
+| C000-C3FF | The rest of the core |
+| C400-FFFF | The stage's block: its header (OV48 = C400), its share of Konami's code and data, its tile set (DB00-F2FF) and sprites; bank 5's object shapes end at DB00 (SHAPES48 = D9EE) |
+
+The stage's header gives the stage number, the tile patches, the colours of
+the stars, the map's table, the word on the game over screen's third line
+("REWIND" or "RESTART", OV48+47) and a 3-byte slot the title calls
+(OV48+52: the logo in stage 1's block, a `ret` in the others).
+
+Which of Konami's items go in the core and which in a stage's block comes
+from the keep lists (10.4).  `fit48.py` lays the core out over the areas
+between the platform's own parts, and `build48.py` searches for the size
+of the C000 area and the order the areas are filled that let every stage
+fit; the answer is kept in `spec/z48_fitcache.json` by a key made of what
+the layout depends on, so the search (half a minute to a minute and a half)
+runs only when the core changes.  Tables the core reads but not every stage
+keeps go to a shared table area, each stage holding only its own there.
+What is left in the stage's high areas (F300-F5FF and F6B4-F7FF) and in
+the tile store's unused tile numbers takes the stage's own tables and then
+its code, in whole runs (`gen.py`, `z48_ovhigh.asm`).
+
+### 10.3 The tape
+
+`make_tap48.py` writes, in order:
+
+| Block | Flag | What | Packed |
+|---|---|---|---|
+| BASIC | | `LOAD ""SCREEN$`, `LOAD ""CODE`, `RANDOMIZE USR 61440` | |
+| Screen | | The loading screen (`tape/loading.scr`, the 128K's) | |
+| Loader | | The first loader, at F000 (`tape/loader48.asm`, generated) | |
+| Core | 40 | 5B00-AEFF | ZX0 |
+| Konami's RAM | 30 | AF00-BFFF, with the stage loader | ZX0 |
+| Core 2 | 41 | C000-C3FF | ZX0 |
+| Stage 1 to 8 | 11 to 18 | C400-FFFF of each stage's image | ZX0 |
+
+The first loader loads the packed core so that it ends 3 bytes past its
+unpacked end (ZX0's delta) and unpacks it in place, then loads the other
+two core blocks at C400 and unpacks each into place, then jumps to the
+stage loader with stage 1 wanted.  Its stack, interrupt table (F200,
+handler F3F3) and itself lie in stage 1's block, which is loaded last.
+
+Every stage block on the tape is padded at the front to the length of the
+longest, so the stage loader loads any stage at the same address (10000
+less that length).  A block holds the stage's last 3 bytes, the address
+where its packed data start, the padding, then the packed data ending at
+FFFF; the loader unpacks them in place to C400 with the core's
+`dzx0_standard`, then puts the 3 bytes at FFFD.  `make_tap48.py` writes the
+length and address into the stage loader (`z48_lx`, `z48_ll`, `z48_lx2`).
+zx0 takes about two seconds a block, so its results are kept by the
+block's hash (`spec/zx0cache48/`).
+
+The stage loader is reached from Konami's change of stage (`nl_stage`):
+when the stage Konami wants (E061) is not the image's own, `z48_other`
+shows LOADING STAGE and the number (or, from stage 8 to stage 1, THE END
+and PLEASE REWIND THE TAPE), loads the block and comes back in through
+`z48_enter` in one of four ways: 0 at power-on, 1 a stage begun, 2 a new
+life, 3 the front end (the title, which only stage 1's block holds; from
+stages 2 to 8 the front end's jump slots go to `z48_fe`, which loads stage
+1 first).
+
+### 10.4 The keep lists
+
+`reloc/z48_keepc_N.txt` lists the items of Konami's banks 0 to 3 that stage
+N keeps; `gen.py` (with `NEM_Z48=1`) relocates those and puts a trap
+(`z48_trap`) in place of the rest, which shows the address it was reached
+from.  The core is what all eight lists keep, with the tables they share.
+
+The lists come from two recorded runs of the MSX original in `msxsim`
+(`tools/z48/census48.py`; `cA.pkl` with targets, `cB.pkl` with deaths and
+game overs; about five minutes each).  Each records, by Konami's state and
+stage, every instruction run, every cartridge byte read and every use of
+Konami's dispatcher.  From them, with a static pass over the relocator's
+items (`reach.py`, which follows calls, jumps, the dispatch tables and the
+port's patches), `keep1.py`, `keepN.py`, `keepC.py` and `tabread.py` make
+the lists (about 40 seconds; `keepC.py` twice for each stage, as its second
+phase needs what all eight lists kept in the first):
+
+* what the stage ran or read, as whole routines and tables;
+* the screens before a life, death and game over, from any stage;
+* the front end, in stage 1's list only;
+* code no run reached (less Konami's typed cheats), and the Big Core for
+  stages 1 to 6;
+* closed under control flow, then every routine any of it is in kept
+  whole and closed again, then the data the added code names, and every
+  kept `call 0x4067` with the table of addresses after it.
+
+`tools/z48/keep48.sh` remakes the lists and compares them with `reloc/`:
+they must be the same.  It then makes them again with gen.py's 48K-only
+patches seen too, and these may keep nothing the committed lists leave out
+(so a 48K patch that reaches code the lists dropped fails the check; as of
+1.3.0 they keep 35 items less in each stage, room that could be won back).
+`release48.sh` runs the check whenever gen.py, the platform's sources, the
+list scripts, the census files or the ROM have changed since it last passed
+(`reloc/z48_keep.stamp`).  The census is rerun only if the census itself
+has to change.
+
+### 10.5 Drawing, sound and the front end
+
+* One screen: the 48K draws straight into the screen being shown, with no
+  second buffer.  The stars are plain tiles (F6, F7) drawn by `draw_cells`
+  (`z48_stars.asm`).
+* Sound is on the beeper: each of Konami's sound codes that the 48K plays
+  is an effect of a few frames, one burst a frame from the interrupt
+  (`z48_sfx.py`, `z48_sfx.asm`).  Music is silent, but for the few tunes
+  that mark events (the ship's death, the Big Core's end, game over).
+* The title (`z48_title`) replaces Konami's menu: the logo (10.6) and two
+  lines of text; fire starts a one-player game at once, doing the game
+  start's own step (0:539C-53AC) without Konami's 80-frame blink and title
+  wipe.  Konami's menu cursor (0:5533) is a `ret`.
+* The border stays black: Konami's border colour write (`bios_0047`) is a
+  `ret`.
+* Game over (`z48_go`, 0:549F) waits with no time limit and no tune: C is
+  Konami's own continue; R goes back to stage 1 and the title (in stages 2
+  to 8 by loading stage 1's block).  The third line's word comes from the
+  stage's header (`z48_go_text`, 0:54E3).
+
+### 10.6 The changes to the game
+
+* **No ending sequence**: `gen.py` jumps from stage 8's boss (1:6F72)
+  straight to the stage's end (1:6FD0).  Konami's own wrap to stage 1 then
+  runs, and the load shows THE END.
+* **No bonus stages**, and **no screen dissolve** (3:A765, stages 7 and 8,
+  is a `ret`).
+* **Stage 5**, to fit: the skeletons (background types 1-4) start on their
+  risen picture and their rising pictures go (3:B2F3, 3:B50F); the skulls
+  (the turrets of E880) start at the row their rise and slide would have
+  reached, ready to fire on Konami's timing (3:B175, 3:B457, 3:B3B9-B3C5);
+  the pieces split from the triangles (type 1F) fly on at the speed the
+  split gave them, and the routine that steers them and its 512-byte table
+  go (3:BD8C-BD92).
+* **Stage 5's scenery** takes its map pieces from 11:8FF0, as Konami does
+  for stages 5, 9, 10 and 12 (0:46F2-4708).
+* **Stage 6's boss** reads its pieces from MSX bank 10, which the 48K does
+  not otherwise carry: stage 6's block holds a copy of A:AAA6-AF28.
+* **The logo** (`z48_logo.py`): the letters of the 128K title's logo drawn
+  on the Spectrum's block characters, 30 cells by 5, with character rows 1
+  and 3 dark cyan for the original's bands; the routine and its 80 bytes of
+  data are in stage 1's block.
+* **The pause**: the call at 0:451C to the typed codes is patched out.
+
+### 10.7 Checks
+
+* `make_tap48.py` checks that the core is the same in every image.
+* `tools/z48/test48.sh` plays the tapes in a 48K simulator
+  (`tools/z48/z48tap.py`, which loads each stage's block from the tape as
+  the game asks): the test tape and the plain tape with the ship safe, four
+  full loops; each stage with the ship safe up to it and mortal in it, the
+  first game over in that stage and C carrying on (to the end of the run,
+  over 50 game overs a stage); a game over in stage 2 and R; and the pause.
+  No run may reach the trap.  About 4 minutes.
+* SkoolKit's `tap2sna.py` with its simulated LOAD (the real ROM and BASIC)
+  checks the tape's front end: the picture, the loader and the first blocks,
+  the core and Konami's RAM unpacked byte for byte as the image.
+* `tools/z48/run128.py` runs the 128K build from a chosen stage, for
+  comparing screens with the 48K's.
+
+### 10.8 Known limitations
+
+* The keep lists rest on the recorded runs and the static pass: a branch
+  neither took can still be missing, and reaching it stops the game at the
+  trap, which shows where it came from.  Stage 8 has 83 bytes left for such
+  fixes, stage 5 281.
+* The ending's code and tables, and Konami's menu blink and cursor, are
+  still kept though nothing runs them.

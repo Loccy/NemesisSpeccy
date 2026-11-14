@@ -27,9 +27,11 @@ dirty_all:
     ld b,96
 .l:
     ld (hl),0xff
+    ifndef Z48                  ; (the 48K: dirty1 holds the sprites' cells for the next picture)
     set 7,l
     ld (hl),0xff
     res 7,l
+    endif
     inc l
     djnz .l
     ret
@@ -60,14 +62,83 @@ dirty_cell:
     push af
     or (hl)
     ld (hl),a
+    ifndef Z48
     set 7,l
     pop af
     or (hl)
     ld (hl),a
+    else
+    pop af
+    endif
     pop hl
     ret
 
     ifndef NEXT                 ; (the 128K's renderer: not in the Next build, NX_AT)
+    ifdef Z48
+; The 48K: one screen, drawn as it is shown.  Konami's title states (0-3)
+; show the demo's own title instead (z48_title); play clears it.
+z48_t:      db 0                ; the title is on the screen
+render_frame:
+    ld a,(0xE000+KRAM)
+    cp 4
+    jr nc,.play
+    ld a,(z48_t)
+    or a
+    ret nz
+    inc a
+    ld (z48_t),a
+    jp z48_title
+.play:
+    ld a,(z48_t)
+    or a
+    jr z,.draw
+    xor a
+    ld (z48_t),a
+    call z48_cls
+    call dirty_all
+.draw:
+    xor a
+    ld (r_dirty),a
+    ld a,0x40
+    ld (r_scr_hi),a
+    ifdef Z48_CHEAT
+    call z48_cheat7             ; (the test build: z48_cheat.asm)
+    else
+    call z48_cheat              ; (a bare ret)
+    endif
+    ifdef Z48_TWOPASS           ; (for comparison: preview 3's order)
+    call draw_cells
+    call z48_stars
+    push ix
+    call draw_sprites
+    pop ix
+    jp z48_dnext
+    else
+    ifdef Z48_ROWS              ; (trial, 1.3: in screen order; slower, and no better)
+    ifdef Z48_VSYNC
+    call z48_vsync
+    endif
+    call z48_stars
+    call z48_draw               ; down the screen: each row's sprites (and their cells), then its cells
+    call z48_dnext
+    ifdef Z48_SYNC_LOGIC        ; (trial: the next tick starts at an interrupt, so that
+    ei                          ; this render begins about one tick's logic into a frame)
+    halt
+    endif
+    ret
+    else
+    ifdef Z48_VSYNC             ; (trial: start as the beam leaves the screen's foot)
+    call z48_vsync
+    endif
+    call z48_stars
+    push ix
+    call draw_sprites           ; each sprite's dirty cells drawn just before it (z48_box)
+    pop ix
+    call draw_cells             ; then the rest: where sprites were, and the map's changes
+    jp z48_dnext
+    endif
+    endif
+    else
 render_frame:
     ld a,(cur_page)
     push af
@@ -96,6 +167,7 @@ rf_cells:
 rf_sprites:
     pop af
     jp set_page
+    endif
 
 ; Redraw every marked cell of the hidden screen.  For each bitmap byte (8
 ; cells of one third) the page bases are patched into the loop; a tile whose
@@ -120,11 +192,18 @@ draw_cells:
     add a,a
     add a,a
     ld e,a                      ; 8 * third
+    ifdef Z48
+    ld a,d
+    add a,a
+    add a,IDX48
+    ld (.ix+1),a                ; the third's index page (tiles stored once)
+    else
     add a,d
     add a,TILE_PAGES
     ld (.src+1),a
     add a,8
     ld (.srca+1),a
+    endif
     ld a,(r_scr_hi)
     add a,e
     ld (.dst+1),a
@@ -190,6 +269,22 @@ draw_cells:
 .nm:
     ld h,0
     ld l,(hl)                   ; its tile
+    ifdef Z48
+.ix:
+    ld h,0                      ; the third's index: the tile's number,
+    ld a,(hl)
+    inc h
+    ld h,(hl)                   ; then its group's attribute page
+    ld l,a
+    ld a,(hl)                   ; attribute
+.att:
+    ld d,0
+    ld (de),a
+    ld a,l
+    cp KBLANK48
+    jr c,.blank                 ; a tile with no pixels
+    inc h                       ; row 0
+    else
 .srca:
     ld h,0
     ld a,(hl)                   ; attribute
@@ -203,6 +298,7 @@ draw_cells:
     jr z,.blank                 ; character 0
 .src:
     ld h,0
+    endif
 .dst:
     ld d,0
     ld a,(hl)
@@ -299,6 +395,7 @@ star_stale: db 1                ; a tile changed or was converted: check again
 star_off:   db 0                ; a star list overflowed once: stars are plain cells from then on
 
     ifndef NEXT                 ; (the 128K's renderer, to the end of this file: not in the Next build)
+    ifndef Z48                  ; (the 48K's stars: z48_stars.asm)
 ; From render_frame (page 7, after erase_sprites): bring this screen's stars
 ; up to date if the star lists changed since it was last drawn.
 draw_stars:
@@ -612,6 +709,7 @@ draw_stars:
 .cnt:   db 0
 .dstart: db 0
     assert (star_n >> 8) == ((star_n + 5) >> 8) && (star_l >> 8) == (star_base >> 8)
+    endif
 
 dc_third:   db 0
 
@@ -941,6 +1039,9 @@ draw_sprite16:
     sub h
     inc a
     ld (sp_rows),a
+    ifdef Z48
+    call z48_box
+    endif
     ld a,d                      ; the pattern's bytes, from its first row with pixels
     cp 24
     jr nc,.kpat
@@ -1010,9 +1111,17 @@ draw_sprite16:
 .erows:
     ld (sp_rows),a
     ld ixl,16
+    ifdef Z48
+    call z48_box
+    endif
 .c0:
     SPR_ADDR
     jp .row0
+    ifdef Z48                   ; (the 48K's layout moves: the shift chains' jumps
+    if ($ & 0xff) > 0x98        ; patch a low byte alone, so they keep to one page)
+    align 256
+    endif
+    endif
 .row:
     ld b,(hl)
     set 4,l
@@ -1059,6 +1168,9 @@ draw_sprite16:
     ld a,d
     and 7
     jr nz,.line_ok
+    ifdef Z48
+    call z48_next_row            ; into the next cell row: its dirty cells first
+    endif
     ld a,e
     add a,32
     ld e,a
@@ -1111,6 +1223,9 @@ draw_sprite16:
     ld a,d
     and 7
     jr nz,.lline_ok
+    ifdef Z48
+    call z48_next_row            ; into the next cell row: its dirty cells first
+    endif
     ld a,e
     add a,32
     ld e,a
@@ -1144,6 +1259,9 @@ draw_sprite16:
     ld a,d
     and 7
     jr nz,.ok0
+    ifdef Z48
+    call z48_next_row            ; into the next cell row: its dirty cells first
+    endif
     ld a,e
     add a,32
     ld e,a
@@ -1250,6 +1368,9 @@ draw_sprite16:
     ld a,(r_dirty)
     or l
     ld l,a
+    ifdef Z48                   ; the 48K: for the next picture (dirty1), not this one
+    set 7,l
+    endif
     ld h,dirty0>>8
     ld a,(sp_rows)
     ld b,a

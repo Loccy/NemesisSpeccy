@@ -26,6 +26,9 @@ from listing import parse
 
 # 'sim': layout simulator (MSX hardware stubs).  'spec': the real Spectrum build.
 TARGET = os.environ.get('NEM_TARGET', 'sim')
+# The 48K demo (stage 1 only): one memory map, no paging, only the items in
+# z48_keep.txt (the rest become the trap), no sound driver.
+Z48 = TARGET == 'spec' and os.environ.get('NEM_Z48') == '1'
 
 RAM_LO, RAM_HI = 0xE000, 0xF0FF
 RAM_DELTA = -0x3100
@@ -99,6 +102,13 @@ if TARGET == 'spec':
                        (0xA428, 0xA578, 'E', 0xF8A2),  # stage 10's
                        (0xB2E4, 0xB64C, 'E', 0xFC13)]  # tabla_de_finales and its records
     DATA_ALIAS[(12, 0xB2D2)] = 0xB2E4
+Z48_SHAPES = 0xD9EE                 # bank 5's object shapes (91D1-92E2) in the 48K demo
+if Z48:
+    DATA_PLACE[5] = ('Z', Z48_SHAPES - (0x91D1 - 0x8000), 0x8000)
+    DATA_RANGE[5] = (0x91D1, 0x92E3)
+    NO_EMIT = {4, 8, 9, 10, 11, 12}
+    DATA_PIECES = {}
+    DATA_SKIP = {}
 
 def place_data(bank, v):
     """Spectrum address of MSX address v of data bank `bank`."""
@@ -341,8 +351,14 @@ ITEM_PATCH = {
     (0, 0x584D): ['    db 0x00,0x23,0x00,0xFF'],
 }
 BANK_SECTION = {0: 'fixed', 1: 'A', 2: 'A', 3: 'C', 7: 'D'}
+if Z48:
+    BANK_SECTION[2] = 'A2'          # the 48K demo: bank 2 placed apart from bank 1
+    # and parts of a bank in sections of their own: (bank, first item, section),
+    # from NEM_Z48_SPLIT ("2:9000:A3,..."); the bank's items from there on
+    Z48_SPLIT = [(int(b), int(a, 16), sec) for b, a, sec in
+                 (x.split(':') for x in os.environ.get('NEM_Z48_SPLIT', '').split(',') if x)]
 # (bank, first, last) -> section, emitted right after bank `after`'s own items
-ITEM_MOVES = [((1, 0x6000, 0x6007), 'fixed', 0), ((3, 0xA000, 0xA021), 'A', 2)]
+ITEM_MOVES = [((1, 0x6000, 0x6007), 'fixed', 0)] + ([] if Z48 else [((3, 0xA000, 0xA021), 'A', 2)])   # (the 48K: no pages; bank 1 is cut, fit48.py)
 if TARGET == 'spec':      # the boss pieces' drawing and turrets, with bank 10 in page E
     ITEM_MOVES.append(((2, 0x8290, 0x839E), 'E', 2))
 DATA_MOVES = [(1, 0x7EE6, 88)]          # -> fixed2
@@ -399,8 +415,137 @@ HOT_CLONES += [(0, 0x405D, 0x4070),     # suma_a_a_hl, suma_a_a_de, despachador
                (0, 0x5F66, 0x5FA4)]     # mira_si_el_objeto_se_ha_ido, suma_la_velocidad, suma_una_palabra
 if os.environ.get('NEM_HOT') == 'paged':    # (the paged banks' routines alone, as first built)
     HOT_CLONES = [r for r in HOT_CLONES if r[0] != 0]
-if not (TARGET == 'spec' and os.environ.get('NEM_NEXT') != '1' and os.environ.get('NEM_HOT') != '0'):
+if not (TARGET == 'spec' and os.environ.get('NEM_NEXT') != '1' and os.environ.get('NEM_HOT') != '0') or Z48:
     HOT_CLONES = []
+if Z48:
+    CLONES = {}
+    # the map pieces and scripts (bank 11) are the demo's own (map48.asm)
+    Z48_IMM = {0x46C3: 'map48_table', 0x46F2: 'map48_pieces', 0x4708: 'map48_pieces'}
+    # no sound driver: a request is noted by the platform (z48_snd)
+    SPEC_PATCH[(0, 0x4A22)] = ['    jp z48_snd']
+    # the pause without Konami's typed codes (13 November): its call to
+    # mira_lo_que_se_teclea (left out) gone
+    SPEC_PATCH[(0, 0x451C)] = []
+    # Stage 5 (13 November, the user's choice): the skeletons and the skulls
+    # are there already, not rising.  The skeletons (background types 1-4)
+    # keep Konami's rise timer, but start on their risen picture and the
+    # timer no longer changes it, so their rising pictures go (tools/z48/
+    # keepC.py); the skulls (the turrets of E880) start at the row their
+    # rise and slide would have taken them to, at step 2, with their first
+    # fan of shots when Konami's would come (15 frames out, 5 a step of the
+    # slide, 24 still), and the rise, the slide and the half-drawn skull go
+    SPEC_PATCH[(3, 0xB2F3)] = []                                  # inc (ix+6): the picture stays
+    SPEC_PATCH[(3, 0xB50F)] = ['    add a,4                     ; (48K: risen)', '    ld (hl),a']
+    SPEC_PATCH[(3, 0xB175)] = []                                  # jr z,paso_1_de_e880: no slide
+    SPEC_PATCH[(3, 0xB457)] = []                                  # jr z,la_torreta_asoma: never half out
+    SPEC_PATCH[(3, 0xB3B9)] = [
+        '    ld a,(ix+007h)              ; (48K: the skull is out already) the slide\'s steps',
+        '    ld c,a',
+        '    add a,a',
+        '    add a,a',
+        '    add a,c',
+        '    add a,027h                  ; its first fan when Konami\'s would come: 15 + 5 a step + 24 frames',
+        '    ld (hl),a                   ; byte 4',
+        '    inc l',
+        '    ld (hl),030h                ; byte 5, as the slide leaves it',
+        '    inc l',
+        '    ld (hl),000h                ; byte 6: shut',
+        '    inc l',
+        '    ld (hl),000h                ; byte 7',
+        '    ld a,l',
+        '    sub 006h',
+        '    ld l,a',
+        '    ld (hl),002h                ; byte 1: step 2',
+        '    inc l',
+        '    ld b,c                      ; the slide: steps - 1 moves of 8',
+        '    ld a,(hl)                   ; byte 2: the row',
+        '    bit 0,(ix+000h)',
+        '    jr z,z5t_d2',
+        '    sub 018h                    ; up: three rows out first',
+        '    jr z5t_u2',
+        'z5t_u1:',
+        '    sub 008h',
+        'z5t_u2:',
+        '    djnz z5t_u1',
+        '    jr z5t_st',
+        'z5t_d1:',
+        '    add a,008h',
+        'z5t_d2:',
+        '    djnz z5t_d1',
+        'z5t_st:',
+        '    ld (hl),a']
+    for _a in (0xB3BB, 0xB3BC, 0xB3BE, 0xB3BF, 0xB3C1, 0xB3C2, 0xB3C5):
+        SPEC_PATCH[(3, _a)] = []                                  # (the rest of Konami's set-up)
+    # Stage 5's split pieces (type 1F, from the triangle of type 1E) no
+    # longer chase the ship while the big flock is out (13 November, the
+    # user's choice): they fly on at the speed the split gave them.  The
+    # chase's acceleration routine and table (2:95EB-9856, stage 5's alone)
+    # go (tools/z48/keepC.py)
+    # Game over (13 November): Konami's screen waits for C (continue) or R
+    # (the title: rewind, or in stage 1 restart), z48_load.asm z48_go; its
+    # third line's word from the stage's header (z48_go_text)
+    ITEM_PATCH[(0, 0x584D)] = ['    db 0x00,0x23,0xFE,0xCB,0x39,0x32,0x25    ; " C", then "RE"',
+                               'z48_go_word:',
+                               '    db 0x37,0x29,0x2E,0x24,0x00,0x00,0x00,0x32,0xFF   ; "WIND  " (or the stage\'s word), "  R"']
+    SPEC_PATCH[(0, 0x549F)] = ['    call z48_go                 ; (48K: a key, not the tune)']
+    SPEC_PATCH[(0, 0x54A2)] = []
+    SPEC_PATCH[(0, 0x54E3)] = ['    call z48_go_text            ; (48K: the stage\'s word, then escribe_caracteres)']
+    # Stage 6's boss: its tables in MSX bank 10, which the 48K carries as a
+    # copy in stage 6's block (z48_data.py, z48_b10)
+    SPEC_PATCH[(2, 0x82CC)] = ['    ld hl,z48_b10               ; (48K: bank 10\'s A:AAA6, copied)']
+    SPEC_PATCH[(2, 0x82D1)] = ['    ld hl,z48_b10+10            ; (A:AAB0)']
+    SPEC_PATCH[(2, 0x831B)] = ['    ld hl,z48_b10               ; (48K: bank 10\'s A:AAA6, copied)']
+    SPEC_PATCH[(2, 0x834F)] = ['    ld hl,z48_b10+10            ; (A:AAB0)']
+    # The end (14 November, as agreed): no Konami ending after stage 8's
+    # boss (1:6F72 started it: the debris, the ship flying off, the message);
+    # the stage is over at once (1:6FD0), Konami's wrap to stage 1 follows
+    # (1:6FE6; E061 9 would be the first bonus stage), and the load from
+    # stage 8's block to stage 1 shows THE END (z48_other)
+    SPEC_PATCH[(1, 0x6F72)] = ['    jp m1_6FD0                  ; (48K: no ending sequence)']
+    # No cursor (14 November): when fire is pressed Konami shows its menu's
+    # cursor solid (0:5533, into 0:5BDD); our title has no menu, and the
+    # screen's copy kept the cursor, drawn in the wrong tiles as play began
+    SPEC_PATCH[(0, 0x5533)] = ['    ret                         ; (48K: no menu cursor)']
+    SPEC_PATCH[(3, 0xBD8C)] = ['    ret                         ; (48K: no chase)']
+    SPEC_PATCH[(3, 0xBD8F)] = []
+    SPEC_PATCH[(3, 0xBD92)] = []
+    Z48_KEEP = set()
+    Z48_STAGE_N = int(os.environ.get('NEM_Z48_STAGE', '1'))
+    # tables read by an index across what the core keeps and what it does
+    # not: whole into the core (the explosion's three frames, 13 November)
+    # (all of them: every split table was found read across the split, in
+    # some stage, 13 November, with scratch tools not kept)
+    Z48_WHOLE = 'all'
+    # the front end that no stage's play runs: stage 1's alone (tools/z48/keepC.py)
+    Z48_FEONLY = set()
+    if _os.path.exists(NEM_ROOT + '/reloc/z48_feonly.txt'):
+        for _l in open(NEM_ROOT + '/reloc/z48_feonly.txt'):
+            _b, _a = _l.split(); Z48_FEONLY.add((int(_b), int(_a, 16)))
+    # tables read on into the next one: 1:64C8, the trajectories' block 13,
+    # runs into 1:64D4
+    Z48_JOIN = {(1, 0x64D4)}
+    _st = int(os.environ.get('NEM_Z48_STAGE', '1'))
+    for _l in open(NEM_ROOT + '/reloc/z48_keepc_%d.txt' % _st):   # (tools/z48/keepC.py: from the census)
+        if _l.strip() and not _l.startswith('#'):
+            _b, _a = _l.split(); Z48_KEEP.add((int(_b), int(_a, 16)))
+    # The shared layout (NEM_Z48_SHARED=1): the core, what every stage keeps,
+    # at the same addresses in every stage's build; the rest of the stage's
+    # list in section OV (the stage's own block).  The core reaches the
+    # stage's code only through jump slots (section ZS, the same in every
+    # build: jp the item, or the trap where the stage lacks it); data the
+    # core reads is made core itself (z48_shared_home).
+    Z48_SHARED = os.environ.get('NEM_Z48_SHARED') == '1'
+    if Z48_SHARED:
+        Z48_LISTS = []
+        for _n in range(1, 9):
+            _s = set()
+            for _l in open(NEM_ROOT + '/reloc/z48_keepc_%d.txt' % _n):
+                if _l.strip() and not _l.startswith('#'):
+                    _b, _a = _l.split(); _s.add((int(_b), int(_a, 16)))
+            Z48_LISTS.append(_s)
+        Z48_UNION = set().union(*Z48_LISTS)
+else:
+    Z48_SHARED = False
 FIXED_SECTIONS = ('fixed', 'fixed2', 'hot')
 
 # Immediates that look like addresses but are numbers (BCD scores, X/Y positions, ...).
@@ -435,11 +580,12 @@ def default_bank(v):
 class Gen:
     def __init__(self, rom, identity=False):
         self.rom = rom; self.identity = identity
-        self.items = {}; self.labels = {}; self.raw = {}; self.starts = {}
+        self.items = {}; self.labels = {}; self.raw = {}; self.starts = {}; self.kinds = {}; self.z48_base = set(); self.z48_codedata = set(); self.z48_dataref = set(); self.z48_core = None
         for b in (0, 1, 2, 3, 7):
             it, lab, raw = parse(b, rom)
             self.items[b] = it; self.labels[b] = lab; self.raw[b] = raw
             self.starts[b] = [i[0] for i in it]
+            self.kinds.update(((b, i[0]), i[2]) for i in it)
         self.labelled = {b: set(v for v in self.labels[b].values() if v is not None) for b in self.labels}
         self.home = {}
         for b in self.items:
@@ -452,6 +598,13 @@ class Gen:
             for b, lo, ln in DATA_MOVES:
                 for it in self.items[b]:
                     if lo <= it[0] < lo + ln: self.home[(b, it[0])] = 'fixed2'
+            self.home_base = dict(self.home)
+            if Z48:
+                for b in self.items:
+                    for it in self.items[b]:
+                        sp = [(sa, ssec) for sb, sa, ssec in Z48_SPLIT if sb == b and it[0] >= sa]
+                        if sp and self.home[(b, it[0])] == BANK_SECTION[b]: self.home[(b, it[0])] = max(sp)[1]
+                        if b == 7 or ((b, it[0]) not in Z48_KEEP and not left_out(b, it[0])): self.home[(b, it[0])] = 'dropped'   # (an item left out is emitted as nothing anyway)
         self.stubs = {}; self.nstubs = {}; self.report = collections.Counter()
         self.reloc_words = set()      # (bank, addr) of data words given a relocated value
         self.code_ptrs = {}
@@ -467,9 +620,25 @@ class Gen:
         if bank in DATA_PLACE:
             return '0x%04X' % (v if self.identity else place_data(bank, v))
         a = self.item_of(bank, v)
+        if Z48_SHARED and self.z48_core is not None and getattr(self, 'cur_core', False) and bank in (0, 1, 2, 3) and (bank, a) not in self.z48_core and (bank, a) not in self.z48_ta and not left_out(bank, a):
+            if getattr(self, '_tgt', False) and a == v and self.kinds.get((bank, a)) == 'code':
+                self.z48_slots.add((bank, a)); return 'zs_%d_%04X' % (bank, a)
+            self.z48_need.add((bank, a))        # data the core reads: core too (z48_shared_home)
+        if Z48 and not getattr(self, '_tgt', False) and self.home.get((bank, a)) == 'dropped':
+            self.z48_dref.add((bank, a))        # (an address taken as data: see generate)
+        if Z48 and not getattr(self, '_tgt', False) and a != v and self.kinds.get((bank, a)) == 'code':
+            # an address inside a code item taken as data: a
+            # table based on it may lie after it (2:9DBD's ld hl,9DCD reads
+            # 9DCE on), so fit48.py must not cut bank 2 just after this item
+            self.z48_base.add((bank, a, v))
+        if Z48 and not getattr(self, '_tgt', False) and a == v and self.kinds.get((bank, a)) == 'code':
+            self.z48_codedata.add((bank, a))
+        if Z48 and not getattr(self, '_tgt', False) and a == v and self.kinds.get((bank, a)) != 'code':
+            self.z48_dataref.add((bank, a))      # (a table named by its first byte: one that may move)
         return 'm%d_%04X' % (bank, a) if a == v else 'm%d_%04X+%d' % (bank, a, v - a)
 
     def page_of(self, bank, v):
+        if Z48: return 'fixed'
         if bank in DATA_PLACE: return DATA_PLACE[bank][0]
         sec = self.home[(bank, self.item_of(bank, v))]
         return 'fixed' if sec in FIXED_SECTIONS else sec
@@ -491,7 +660,7 @@ class Gen:
         tb = SITE_BANK.get(site, bank)
         cl = self.clone_label(tb, v, cur_sec)
         if cl: self.report['clone call'] += 1; return cl
-        s = self.sym(tb, v)
+        self._tgt = True; s = self.sym(tb, v); self._tgt = False
         if self.identity: return s
         tp = self.page_of(tb, v)
         cp = 'fixed' if cur_sec in FIXED_SECTIONS else cur_sec
@@ -516,6 +685,7 @@ class Gen:
     def emit_item(self, b, it, sec, out):
         raw = self.raw[b]; org = ORG[b]; I = self.identity
         a, n = it[0], it[1]
+        if Z48_SHARED: self.cur_core = self.home.get((b, a)) not in ('OV', 'TA', 'TAX')
         if not I and left_out(b, a):
             self.report['left out'] += 1
             if TARGET == 'spec' and (b, a) in NEXT_KEEP:
@@ -638,6 +808,7 @@ class Gen:
             else: s = self.sym(SITE_BANK.get(a, default_bank(v)), v); self.report['abs rom'] += 1
         else:
             if not I and a in IMM_SYMBOL: s = IMM_SYMBOL[a]
+            elif not I and Z48 and b == 0 and a in Z48_IMM: s = Z48_IMM[a]
             elif a in CONST_IMM: s = '0x%04X' % v; self.report['imm const'] += 1
             elif RAM_LO <= v <= RAM_HI: s = self.ram(v); self.report['imm ram'] += 1
             elif 0x4000 <= v < 0xC000 and a not in CONST_IMM and a not in UNPLACED_IMM:
@@ -669,6 +840,8 @@ class Gen:
         another page go through a far stub: the table's reader jumps with
         whatever page is mapped, and the stub maps the right one."""
         if self.identity or not self.is_code(tb, v): return self.sym(tb, v)
+        if Z48:                                 # (a jump table's entry: a target)
+            self._tgt = True; s = self.sym(tb, v); self._tgt = False; return s
         cl = self.clone_label(tb, v, sec)
         if cl: return cl
         tp = self.page_of(tb, v)
@@ -729,6 +902,197 @@ class Gen:
                     if cfg.get(v & 0xE000) == b: fichas(b, v, cfg)
         return out
 
+    def z48_set_homes(self):
+        for b in self.items:
+            for it in self.items[b]:
+                k = (b, it[0]); base = self.home_base[k]
+                if b == 7: self.home[k] = 'dropped'
+                elif k in self.z48_core or left_out(b, it[0]):
+                    sp = [(sa, ssec) for sb, sa, ssec in Z48_SPLIT if sb == b and it[0] >= sa]
+                    self.home[k] = max(sp)[1] if sp and base == BANK_SECTION[b] else base
+                elif k in self.z48_ta: self.home[k] = 'TA' if Z48_STAGE_N in self.z48_ta_runs[self.z48_ta[k]][1] else 'TAX'
+                elif k in Z48_KEEP: self.home[k] = 'OV'
+                else: self.home[k] = 'dropped'
+
+    def z48_tables(self, core, named_of):
+        """The shared table area (13 November): a table the core reads that
+        not every stage keeps leaves the core for a fixed place at the start
+        of each stage's block (after the slots).  Each stage holds there only
+        the tables it keeps; tables no stage shares overlap, so the area is
+        about the largest stage's share, not the sum."""
+        inter = set.intersection(*Z48_LISTS)
+        runs = []
+        for b in (0, 1, 2, 3):
+            named = named_of(b); run = []
+            for it in self.items[b] + [(None, 0, 'code')]:
+                k = (b, it[0])
+                ok = it[2] != 'code' and k in core and not left_out(*k)
+                if ok and run and it[0] in named and k not in Z48_JOIN:
+                    runs.append(run); run = []
+                if ok: run.append(k); continue
+                if run: runs.append(run)
+                run = []
+        # a table's stages: those whose list keeps any of it beyond what all
+        # eight keep, and those whose test runs read any of it (tools/z48/
+        # tabread.py: every list keeps the first entry of a table that code
+        # in every list names, read or not).  None: it stays in the core, as
+        # does a table the platform names
+        reads = collections.defaultdict(set)
+        for l in open(NEM_ROOT + '/reloc/z48_reads.txt'):
+            b, a, st = l.split(); reads[(int(b), int(a, 16))] = {int(x) for x in st.split(',')}
+        out = []
+        for run in runs:
+            if any(x in self.z48_plat for x in run): continue
+            if all(x in inter for x in run): continue       # (every list keeps it whole)
+            st = {n + 1 for n, L in enumerate(Z48_LISTS) if any(x in L and x not in inter for x in run)}
+            for x in run: st |= reads.get(x, set())
+            st = frozenset(st)
+            if not st or len(st) == 8: continue
+            b, a0 = run[0]; last = run[-1][1]
+            size = last + next(it[1] for it in self.items[b] if it[0] == last) - a0
+            out.append([run, st, size, 0])
+        place = []
+        for r in sorted(out, key=lambda r: (-r[2], r[0][0])):
+            o = 0
+            while True:
+                clash = [p for p in place if p[1] & r[1] and p[3] < o + r[2] and o < p[3] + p[2]]
+                if not clash: break
+                o = max(p[3] + p[2] for p in clash)
+            r[3] = o; place.append(r)
+        self.z48_ta_runs = sorted(place, key=lambda r: r[3])
+        self.z48_ta = {x: i for i, r in enumerate(self.z48_ta_runs) for x in r[0]}
+        self.z48_ta_size = max((r[3] + r[2] for r in place), default=0)
+        return set(self.z48_ta)
+
+    def z48_shared_home(self):
+        """The core: what every stage's list keeps, and every item the core
+        takes as data (a table, a table's base) that some stage keeps; for a
+        base no stage keeps, the item after it that one does.  The same in
+        every stage's build."""
+        core = set.intersection(*Z48_LISTS); core0 = len(core); self.z48_plat = set()
+        self.z48_ta = {}; self.z48_ta_runs = []; self.z48_ta_size = 0
+        # and every item the platform names (its calls into Konami's code)
+        import glob as _glob, re as _re2
+        for fn in _glob.glob(NEM_ROOT + '/spec/*.asm'):
+            if _os.path.basename(fn).startswith(('konami_spec', 'z48_slots', 'z48_tables', 'z48_ovhigh', 'z48_hplace', 'z48_layout', 'z48_ovhead', 'z48_data', 'nx_', 'fullcmp')): continue
+            for m in _re2.finditer(r'\bm([0-3])_([0-9A-F]{4})\b', open(fn).read()):
+                k = (int(m.group(1)), int(m.group(2), 16))
+                if k in Z48_UNION: core.add(k); self.z48_plat.add(k)
+        self.z48_core = core; self.z48_splits = set()
+        while True:
+            self.z48_set_homes()
+            self.z48_need = set(); self.z48_slots = set()
+            for b in (0, 1, 2, 3):
+                for it in self.items[b]:
+                    if self.home[(b, it[0])] in ('dropped', 'OV') or left_out(b, it[0]): continue
+                    self.emit_item(b, it, self.home[(b, it[0])], [])
+            self.cur_core = False
+            new = set()
+            for b, a in self.z48_need:
+                if (b, a) in Z48_UNION: new.add((b, a)); continue
+                its = self.items[b]; k = self.starts[b].index(a)
+                n = next(((b, it[0]) for it in its[k + 1:] if (b, it[0]) in Z48_UNION or (b, it[0]) in core), None)
+                if n and n not in core and n[1] - a <= 256: new.add(n)
+            # a table split between the core and a stage's block is read
+            # wrongly by an index (1:633A, the explosion's frames, 13
+            # November): a run of data items, one after another, that some
+            # stage keeps goes whole into the core if any of it is there
+            for b in (0, 1, 2, 3):
+                run = []
+                named = {a for n, a in self.labels[b].items() if a is not None and not n.startswith('L_')}
+                for it in self.items[b] + [(None, 0, 'code')]:
+                    k = (b, it[0])
+                    if it[2] != 'code' and k in Z48_UNION and not left_out(*k):
+                        if it[0] in named and run and k not in Z48_JOIN:      # (a table's own name starts a new run)
+                            self.z48_split(run, core, new); run = []
+                        run.append(k); continue
+                    if run: self.z48_split(run, core, new)
+                    run = []
+            # a table of addresses after `call 0x4067` goes where its call goes
+            # (the dispatcher reads it through the return address)
+            for b in (0, 1, 2, 3):
+                its = self.items[b]
+                for j, it in enumerate(its):
+                    if it[2] == 'code' and (b, it[0]) in core and self.raw[b][it[0] - ORG[b]:it[0] - ORG[b] + 3] == bytes((0xCD, 0x67, 0x40)):
+                        j2 = j + 1
+                        while j2 < len(its) and its[j2][2] != 'code':
+                            if (b, its[j2][0]) in Z48_UNION or not left_out(b, its[j2][0]): new.add((b, its[j2][0]))
+                            j2 += 1
+            new -= core
+            if not new: break
+            core |= new
+        # the tables not every stage keeps: out to the shared table area
+        named_of = lambda b: {a for n, a in self.labels[b].items() if a is not None and not n.startswith('L_')}
+        ta = self.z48_tables(core, named_of)
+        core -= ta
+        self.z48_set_homes(); self.z48_need = set(); self.z48_slots = set()
+        for b in (0, 1, 2, 3):
+            for it in self.items[b]:
+                if self.home[(b, it[0])] in ('dropped', 'OV', 'TA', 'TAX') or left_out(b, it[0]): continue
+                self.emit_item(b, it, self.home[(b, it[0])], [])
+        self.cur_core = False
+        miss = {k for k in self.z48_need if k in Z48_UNION} - core - ta
+        assert not miss, 'the core takes items neither it nor the table area holds: %s' % sorted(miss)[:8]
+        # every stage's own code read for what it takes as data, so that the
+        # places fit48.py must not cut (z48_nocut.txt) are the same in every
+        # stage's build, and with them the core (13 November: stage 8's
+        # differed from stage 5's)
+        keep = (set(self.z48_need), set(self.z48_slots), set(self.z48_dref), dict(self.home))
+        for b in (0, 1, 2, 3):
+            for it in self.items[b]:
+                k = (b, it[0])
+                if k in Z48_UNION and k not in core and not left_out(*k):
+                    self.home[k] = 'OV'; self.emit_item(b, it, 'OV', [])
+        self.cur_core = False
+        self.z48_need, self.z48_slots, self.z48_dref, self.home = keep
+        self.report['z48 table area'] = self.z48_ta_size; self.report['z48 table area tables'] = len(self.z48_ta_runs)
+        self.report['z48 core items'] = len(core); self.report['z48 core forced'] = len(core) - core0
+        with open(NEM_ROOT + '/reloc/z48_splits.txt', 'w') as f:
+            for run in sorted(self.z48_splits):
+                f.write(' '.join('%d:%04X%s' % (b, a, '*' if (b, a) in core else '') for b, a in run) + '\n')
+        open(NEM_ROOT + '/reloc/z48_core.txt', 'w').write(''.join('%d %04X\n' % x for x in sorted(core)))
+
+    def z48_split(self, run, core, new):
+        """A table part in the core and part not: whole into the core where
+        it is known to be read by an index across the parts (Z48_WHOLE),
+        else noted in reloc/z48_splits.txt to be looked at."""
+        inc = [x for x in run if x in core]
+        if not inc or len(inc) == len(run): return
+        self.z48_splits.add(tuple(run))
+        if Z48_WHOLE == 'all' or any(x in Z48_WHOLE for x in run): new.update(run)
+
+    def z48_slot(self, k):
+        self.z48_slots.add(k); return 'zs_%d_%04X' % k
+
+    def z48_emit(self, b, k, sec, sections):
+        """Item k of bank b, and a jump on to the next item where this one
+        runs on into it and it is not emitted next."""
+        its = self.items[b]; it = its[k]
+        self.emit_item(b, it, sec, sections[sec])
+        if not Z48 or it[2] != 'code': return
+        bs = self.raw[b][it[0] - ORG[b]:it[0] - ORG[b] + it[1]]
+        if bs[0] in (0xC9, 0xC3, 0x18, 0xE9) or (bs[0] in (0xDD, 0xFD) and bs[1] == 0xE9) or (bs[0] == 0xED and bs[1] in (0x4D, 0x45)): return
+        j = k + 1
+        while j < len(its) and left_out(b, its[j][0]): j += 1      # (emitted as nothing)
+        if j == len(its):
+            # the bank's last instruction runs on into the next bank (2:9FFx into 3:A000)
+            if b in (0, 1, 2):
+                sections[sec].append('    jp ' + self.z48_name(b + 1, ORG[b + 1])); self.report['z48 bank run-on'] += 1
+            return
+        nk = (b, its[j][0]); nh = self.home[nk]
+        if nh == sec: return
+        if Z48_SHARED and sec != 'OV' and nh in ('OV', 'dropped'):
+            sections[sec].append('    jp ' + self.z48_slot(nk)); self.report['z48 slot run-on'] += 1
+        elif nh == 'dropped':
+            sections[sec].append('    jp z48_trap'); self.report['z48 fall-through trap'] += 1
+        else:
+            sections[sec].append('    jp ' + self.z48_name(*nk)); self.report['z48 split jump'] += 1
+
+    def z48_name(self, b, a):
+        """A jump to item (b, a) from the item being emitted."""
+        self._tgt = True; s = self.sym(b, a); self._tgt = False
+        return s
+
     def generate(self, path):
         I = self.identity
         if I:
@@ -739,19 +1103,28 @@ class Gen:
                 for it in self.items[b]:
                     self.emit_item(b, it, BANK_SECTION[b], out)
             open(path, 'w').write('\n'.join(out) + '\n'); return
-        sections = collections.OrderedDict((k, []) for k in ('fixed', 'A', 'C', 'D', 'fixed2', 'E', 'hot'))
+        sections = collections.OrderedDict((k, []) for k in ('fixed', 'A', 'C', 'D', 'fixed2', 'E', 'hot') + (('A2',) + tuple(x[2] for x in Z48_SPLIT) if Z48 else ()) + (('OV',) if Z48_SHARED else ()))
+        self.z48_dref = set()
+        if Z48_SHARED: self.z48_shared_home()
         self.check_hot()
+        drops = []; self.z48_dref = set()   # (the dry pass's are not kept)
         for b in (0, 1, 2, 3, 7):
-            for it in self.items[b]:
+            its = self.items[b]
+            for k, it in enumerate(its):
                 sec = self.home[(b, it[0])]
-                if sec != BANK_SECTION[b]: continue
-                self.emit_item(b, it, sec, sections[sec])
+                if sec == 'dropped':
+                    if not left_out(b, it[0]): drops.append((b, k))
+                    continue
+                if sec != BANK_SECTION[b] and not (Z48 and any(sb == b and sec == ssec for sb, sa, ssec in Z48_SPLIT)): continue
+                self.z48_emit(b, k, sec, sections)
             for (mb, lo, hi), sec, after in ITEM_MOVES:
                 if after == b:
                     for it in self.items[mb]:
+                        if self.home[(mb, it[0])] in ('dropped', 'OV'): continue      # (its trap: the bank loop's)
                         if lo <= it[0] <= hi: self.emit_item(mb, it, sec, sections[sec])
         for b, lo, ln in DATA_MOVES:
             for it in self.items[b]:
+                if self.home[(b, it[0])] in ('dropped', 'OV'): continue
                 if lo <= it[0] < lo + ln: self.emit_item(b, it, 'fixed2', sections['fixed2'])
         import re as _re
         for (cb, lo, hi), secs in CLONES.items():
@@ -782,6 +1155,141 @@ class Gen:
         open(path.replace('.asm', '_hot.asm'), 'w').write('\n'.join(
             ['; ===== section hot: copies of routines in uncontended fixed memory (gen.py HOT_CLONES) =====']
             + hot + ['section_hot_end:']) + '\n')
+        if Z48_SHARED:
+            # the stage's own tables that fit the high areas' leftovers
+            # (build48.py, Z48_HIGH_FREE): there, each whole, best fit,
+            # largest first (z48_ovhigh.asm)
+            free = [[int(x, 16) for x in r.split('-')] for r in os.environ.get('Z48_HIGH_FREE', '').split(',') if r]
+            moved = {}; oh = ['; generated by gen.py: stage %d\'s own tables in the high areas\' leftovers' % Z48_STAGE_N]
+            if free:
+                runs = []
+                for b in (0, 1, 2, 3):
+                    named = {a for n, a in self.labels[b].items() if a is not None and not n.startswith('L_')}
+                    bases = [(x, v) for bb, x, v in self.z48_base if bb == b]
+                    run = []; prev = None
+                    for it in self.items[b] + [(None, 0, 'code')]:
+                        k = (b, it[0])
+                        ok = it[0] is not None and self.home.get(k) == 'OV' and it[2] != 'code' and not left_out(*k)
+                        if ok and run and it[0] in named and k not in Z48_JOIN:
+                            runs.append(run); run = []
+                        if ok and not run:
+                            # a table moves only if code names its first byte, and
+                            # nothing just before it is code taken as data (an inline
+                            # dispatch table after `call 0x4067`, 1:7C93, is neither)
+                            if k not in self.z48_dataref: ok = False
+                            elif any(x < it[0] <= v + 64 for x, v in bases): ok = False
+                            elif any(bb == b and 0 < it[0] - a <= 64 for bb, a in self.z48_codedata): ok = False
+                        if ok: run.append((b, it)); continue
+                        if run: runs.append(run)
+                        run = []
+                for run in sorted(runs, key=lambda r: -sum(it[1] for _, it in r)):
+                    n = sum(it[1] for _, it in run)
+                    r = min((r for r in free if r[1] - r[0] >= n), key=lambda r: r[1] - r[0], default=None)
+                    if r is None: continue
+                    b0, it0 = run[0]
+                    oh.append('    org 0x%04X          ; %d:%04X, %d bytes' % (r[0], b0, it0[0], n))
+                    for b, it in run:
+                        self.emit_item(b, it, 'OV', oh); moved[(b, it[0])] = r[0]
+                    r[0] += n
+            # then the stage's own code: runs of whole instructions from just
+            # after a return or jump to one (nothing runs into them or out of
+            # them), with no relative jump into or out of the run and nothing
+            # in it taken as data
+            if free:
+                def term(b, a):
+                    bs = self.raw[b][a - ORG[b]:a - ORG[b] + 2]
+                    return bs[0] in (0xC9, 0xC3, 0x18, 0xE9) or (bs[0] in (0xDD, 0xFD) and bs[1] == 0xE9) or (bs[0] == 0xED and bs[1] in (0x4D, 0x45))
+                def jr_t(b, a):
+                    bs = self.raw[b][a - ORG[b]:a - ORG[b] + 2]
+                    if bs[0] not in (0x10, 0x18, 0x20, 0x28, 0x30, 0x38): return None
+                    return a + 2 + (bs[1] - 256 if bs[1] > 127 else bs[1])
+                taken = {(b, a) for b, a in self.z48_codedata} | {(b, x) for b, x, v in self.z48_base}
+                blocks = []
+                for b in (0, 1, 2, 3):
+                    its = self.items[b]; jrs = {}
+                    for it in its:
+                        if it[2] == 'code' and self.home.get((b, it[0])) == 'OV':
+                            t = jr_t(b, it[0])
+                            if t is not None: jrs[it[0]] = t
+                    cur = []; ok_start = False
+                    for j, it in enumerate(its):
+                        k = (b, it[0])
+                        good = self.home.get(k) == 'OV' and k not in moved and it[2] == 'code' and k not in taken and not left_out(*k)
+                        if not good:
+                            cur = []; ok_start = j > 0 and its[j - 1][2] == 'code' and term(b, its[j - 1][0]) and False
+                            ok_start = False; continue
+                        if not cur:
+                            pv = its[j - 1] if j else None
+                            if not (pv and pv[2] == 'code' and term(b, pv[0])): continue      # (something may run into it)
+                        cur.append(it)
+                        if term(b, it[0]):
+                            lo, hi = cur[0][0], it[0] + it[1]
+                            inside = lambda x: lo <= x < hi
+                            if all(inside(jrs[i[0]]) for i in cur if i[0] in jrs) and not any(inside(t) for a, t in jrs.items() if not inside(a)):
+                                blocks.append((b, list(cur)))
+                            cur = []
+                ncode = 0
+                for b, blk in sorted(blocks, key=lambda x: -sum(i[1] for i in x[1])):
+                    n = sum(i[1] for i in blk)
+                    r = min((r for r in free if r[1] - r[0] >= n), key=lambda r: r[1] - r[0], default=None)
+                    if r is None: continue
+                    oh.append('    org 0x%04X          ; %d:%04X, %d bytes (code)' % (r[0], b, blk[0][0], n))
+                    for it in blk:
+                        self.emit_item(b, it, 'OV', oh); moved[(b, it[0])] = r[0]
+                    r[0] += n; ncode += n
+                self.report['z48 own code in the high areas'] = ncode
+            self.report['z48 own tables in the high areas'] = len(moved)
+            open(NEM_ROOT + '/spec/z48_ovhigh.asm', 'w').write('\n'.join(oh) + '\n')
+            for b in (0, 1, 2, 3):
+                for k, it in enumerate(self.items[b]):
+                    if self.home[(b, it[0])] == 'OV' and (b, it[0]) not in moved: self.z48_emit(b, k, 'OV', sections)
+            zs = ['; generated by gen.py: the jump slots of the shared layout (the same', '; in every stage\'s build; each jumps to the stage\'s item or the trap)']
+            for k in sorted(self.z48_slots):
+                zs.append('zs_%d_%04X:' % k)
+                if self.home[k] != 'dropped': t = 'm%d_%04X' % k
+                elif k in Z48_FEONLY: t = 'z48_fe'         # (the front end: stage 1's, loaded for it)
+                else: t = 'z48_trap'
+                zs.append('    jp ' + t)
+            zs.append('zs_end:')
+            open(NEM_ROOT + '/spec/z48_slots.asm', 'w').write('\n'.join(zs) + '\n')
+            # the shared table area, after the slots: the same place for a
+            # table in every stage's build; this stage's own tables in it
+            ta = ['; generated by gen.py: the shared table area (the tables the core', '; reads that not every stage keeps; stage %d\'s own here)' % Z48_STAGE_N, 'z48_ta:']
+            for run, st, size, off in self.z48_ta_runs:
+                b, a0 = run[0]
+                if Z48_STAGE_N in st:
+                    ta.append('    org z48_ta + %d          ; %d:%04X, %d bytes (stages %s)' % (off, b, a0, size, ','.join(map(str, sorted(st)))))
+                    for it in self.items[b]:
+                        if (b, it[0]) in run: self.emit_item(b, it, 'OV', ta)
+                else:
+                    for b2, a in run: ta.append('m%d_%04X equ z48_ta + %d' % (b2, a, off + a - a0))
+            ta += ['    org z48_ta + %d' % self.z48_ta_size, 'z48_ta_end:']
+            open(NEM_ROOT + '/spec/z48_tables.asm', 'w').write('\n'.join(ta) + '\n')
+            self.report['z48 slots'] = len(self.z48_slots)
+        if drops:
+            # A left-out item is z48_trap, which shows a jump or call to it;
+            # but one whose address a kept item takes as data (a table's
+            # base, from which it reads further on: 3:A5AF, the stage list
+            # from 1) is placed where it would be, before the next kept item.
+            out.append('\n; ===== items the 48K demo leaves out (gen.py Z48) =====')
+            for b, k in drops:
+                its = self.items[b]; a = its[k][0]
+                if (b, a) in self.z48_dref:
+                    n = next((it[0] for it in its[k + 1:] if self.home[(b, it[0])] not in (('dropped', 'OV') if Z48_SHARED else ('dropped',))), None)
+                    if n is not None and n - a <= 256:
+                        out.append('m%d_%04X equ m%d_%04X-%d' % (b, a, b, n, n - a)); self.report['z48 data base'] += 1
+                        continue
+                    self.report['z48 data ref trapped'] += 1
+                    print('z48: %d:%04X, left out, is taken as data (a trap)' % (b, a))
+                out.append('m%d_%04X equ z48_trap' % (b, a))
+            self.report['z48 dropped'] = len(drops)
+        if Z48:
+            open(NEM_ROOT + '/reloc/z48_codedata.txt', 'w').write(''.join('%d %04X\n' % x for x in sorted(self.z48_codedata)))
+            for b, a in self.z48_codedata:      # a code item's own address as a base, data just after (2:90D4's 9262)
+                k = self.starts[b].index(a)
+                if any(it[2] != 'code' for it in self.items[b][k + 1:k + 4] if it[0] <= a + 8):
+                    self.z48_base.add((b, a, a))
+            open(NEM_ROOT + '/reloc/z48_nocut.txt', 'w').write(''.join('%d %04X %04X\n' % x for x in sorted(self.z48_base)))
         for sec, body in sections.items():
             out.append('\n; ===== section %s =====' % sec)
             out.append('    section_%s' % sec)
@@ -851,4 +1359,4 @@ if __name__ == '__main__':
     for k, v in sorted(g.report.items()): print(k, v)
     print('far stubs:', len(g.stubs))
     if TARGET == 'spec':
-        assert g.report['next patched'] == len([k for k in NEXT_PATCH if not left_out(*k) or k in NEXT_KEEP]), 'a Next hook site is not an item start'
+        assert Z48 or g.report['next patched'] == len([k for k in NEXT_PATCH if not left_out(*k) or k in NEXT_KEEP]), 'a Next hook site is not an item start'   # (the 48K leaves some sites out)

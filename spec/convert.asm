@@ -118,10 +118,14 @@ tick_tiles:
     jr .done1
 .other:
     ld a,c
+    ifdef Z48
+    call dirty_all              ; (the 48K: every cell, should a row ever change)
+    else
     ifndef NEXT
     call redraw_tile_row
     else
     call 0x0112                 ; Next: lo_rowmark (Layer 2 cells marked)
+    endif
     endif
     jr .done1
 .whole:
@@ -134,6 +138,7 @@ tick_tiles:
     ret                         ; the star rows are drawn by render_frame (star_update)
 
     ifndef NEXT                 ; (the 128K's renderer: not in the Next build, NX_AT)
+    ifndef Z48                  ; (the 48K's stars: z48_stars.asm)
 ; From render_frame, with the hidden screen chosen: bring its star cells up to
 ; date (rows that changed this tick, or last tick for the other screen).
 star_update:
@@ -145,6 +150,7 @@ star_update:
     or a
     call nz,star_rebuild
     jp redraw_star_rows
+    endif
     endif
     NX_AT 0x89CF
 
@@ -174,6 +180,7 @@ star_dirty: db 1                ; star_cells changed since the lists were made
 star_ovf:   db 0                ; a list overflowed: scan star_cells instead
 
     ifndef NEXT                 ; (the 128K's renderer: not in the Next build, NX_AT)
+    ifndef Z48                  ; (the 48K's stars: z48_stars.asm)
 ; Lists of the star cells' screen low bytes, one list per (third, F6/F7),
 ; made from star_cells when it changes (the map scrolled).
 star_rebuild:
@@ -447,8 +454,10 @@ redraw_star_rows:
     pop hl
     pop bc
     jr .next
+    endif
 
 
+    ifndef Z48                  ; (the 48K's stars: z48_stars.asm)
 ; Only row A of tile E (third D) changed (a star twinkling): copy that row
 ; into every cell showing the tile, on both screens.
 rtr_row:    db 0
@@ -508,6 +517,7 @@ redraw_tile_row:
     pop af
     jp set_page
 
+    endif                       ; (Z48)
     endif
     NX_AT 0x8BEF
 
@@ -660,6 +670,9 @@ blink_native:
     ld de,0x0800
     ret
     else
+    ifdef Z48
+    include "z48_stars.asm"
+    else
 blink_native:
     ifdef DRAW_EVERY
     ifndef TEST                 ; (test builds keep the rows in step with the
@@ -716,6 +729,7 @@ blink_native:
     dec hl
     ld de,0x0800
     ret
+    endif
     endif
 
 ; A stage's load: the star tiles are blank again.

@@ -36,6 +36,11 @@ spr_patsel:
     add hl,de                   ; (no carry: at most FFE0)
     ret
 
+    ifdef Z48                   ; (the 48K's layout moves: ship_pat must not cross a page)
+    if ($ & 0xff) > 0xA0
+    align 256
+    endif
+    endif
     align 32                    ; draw_sprite16 and spr_edge step rows by L
 ship_pat:
 ; level (pattern 0)

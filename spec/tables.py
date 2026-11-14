@@ -12,8 +12,9 @@ def tables():
     # (the native build converts no tiles at run time: the colour fit's
     # tables are gone; nl_buf, the unpacker's input buffer, takes their place)
     out.append('    align 256')
-    out.append('nl_buf:           ; native.asm: the unpacker reads its input through here (256 bytes, page-aligned)')
-    out.append('    ds 256')
+    if _os.environ.get('NEM_Z48') != '1':        # (the 48K demo unpacks without it)
+        out.append('nl_buf:           ; native.asm: the unpacker reads its input through here (256 bytes, page-aligned)')
+        out.append('    ds 256')
     out.append('lsb_index:        ; index of the lowest set bit')
     v = [0] + [(x & -x).bit_length() - 1 for x in range(1, 256)]
     for i in range(0, 256, 16):
@@ -62,6 +63,9 @@ JOY = [  # PSG register 14 bits 0-5: up, down, left, right, trigger A, trigger B
     ['Q', '9'], ['A', '8'], ['O', '6'], ['P', '7'], ['SP', '0'], ['M'],
 ]
 
+if _os.environ.get('NEM_Z48') == '1':      # the 48K demo: no cheats, so of the MSX keys
+    MSX_MATRIX = [[k if k in ('H', 'C', 'SP') else None for k in row] for row in MSX_MATRIX]   # pause, continue, space
+
 def keymaps():
     """kb_compute: kb_rows (8 half-rows, bit 0 = pressed) -> kb_cache, the
     nine MSX matrix rows then the joystick byte, all active low.  Grouped by
@@ -74,6 +78,20 @@ def keymaps():
     for bit, ks in enumerate(JOY):
         for k in ks:
             h, kb = KEY[k]; maps.setdefault(h, []).append((kb, 9, bit))
+    if _os.environ.get('NEM_Z48') == '1':     # the 48K: a table walked by a loop (a third of the size)
+        ents = sorted((h << 3 | kb, n << 3 | bit) for h in maps for kb, n, bit in maps[h])
+        return ['kb_compute:',
+                '    ld hl,kb_cache', '    ld b,9', '    ld a,0xff', '.f:', '    ld (hl),a', '    inc hl', '    djnz .f',
+                '    ld (hl),0x3f', '    ld de,kb_tab',
+                '.e:', '    ld a,(de)', '    inc de', '    cp 0xff', '    ret z',
+                '    ld c,a', '    rrca', '    rrca', '    rrca', '    and 7', '    ld hl,kb_rows', '    add a,l', '    ld l,a',
+                '    ld a,c', '    and 7', '    ld b,a', '    inc b', '    ld a,(hl)', '.sh:', '    rrca', '    djnz .sh',
+                '.t2:', '    ld a,(de)', '    inc de', '    jr c,.e',          # (bit 0 of the half-row in carry: 1, not pressed)
+                '    ld c,a', '    rrca', '    rrca', '    rrca', '    and 15', '    ld hl,kb_cache', '    add a,l', '    ld l,a',
+                '    ld a,c', '    and 7', '    ld b,a', '    inc b', '    ld a,0x7f', '.m:', '    rlca', '    djnz .m',
+                '    and (hl)', '    ld (hl),a', '    jr .e',
+                'kb_tab:          ; (half-row * 8 + bit, kb_cache index * 8 + bit)'] + \
+               ['    db 0x%02X,0x%02X' % e for e in ents] + ['    db 0xff']
     out = ['kb_compute:', '    push ix', '    ld ix,kb_cache', '    ld a,0xff']
     out += ['    ld (ix+%d),a' % n for n in range(9)]
     out += ['    ld (ix+9),0x3f']

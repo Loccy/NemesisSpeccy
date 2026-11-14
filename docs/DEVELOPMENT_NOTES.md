@@ -2131,6 +2131,148 @@ script took, are gone too (both in the history at commit f84e317).  The
 rest gave the same output as before the move, or, for the Next's drivers in
 ZEsarUX, ran with their checks passing.
 
+## 1.3: the 48K version (12 to 14 November 2026)
+
+### Could it fit?
+
+In October the answer had been no, not even as a multiload.  1.1 changed
+that: with no MSX graphics there were no copies of the MSX's video memory,
+and a stage turned out to use about half of Konami's code.  A census on 12
+November ran the MSX original in `msxsim` over two routes (every hidden
+target with the cheat; a death in each stage, then game over) and recorded
+every instruction run and every cartridge byte read, by Konami's state and
+stage.  A stage of the eight ran routines and read tables of 13,300 to
+16,800 bytes; all eight together used 10,150.  A static pass over the
+relocator's items (what a stage's object types, bosses and ending could
+reach) gave 20,000 to 22,500, which would not fit, so the selection had to
+come from the runs, with a trap where a stage reaches something it left
+out.  The budget on paper: about 18,200 bytes for Konami's code in a stage,
+with stage 5 (the boneyard) the tight one.
+
+Decided along the way: one player, no AY (beeper effects instead), tape
+only (TAP, no snapshot), no bonus stages, the ending as text (THE END,
+PLEASE REWIND THE TAPE, then stage 1 for the second loop), and at game
+over a choice of continuing or going back to stage 1.  Keeping the
+lockstep with the MSX was not a goal for the 48K, which left changes to
+Konami's code open where a stage would not otherwise fit.
+
+### Stage 1, then stages 1 and 2
+
+Previews 1 to 7 (13 November) were stage 1 alone as a 48K image: the
+census's selection plus what kept code reaches directly and ran in two or
+more stages or never, the Big Core whole, and the power-up dispatch table.
+It fitted with about 1.4K free.  Drawing on one screen: each sprite's
+changed cells are drawn just before the sprite, a row of cells at a time,
+the rest after; sprite rows caught missing by the beam fell from 17.8% to
+3.9% in the simulator.  Racing the beam (drawing in step with it, started
+by the floating bus) was tried in preview 5 and declined: slower, and no
+better to the eye.  The stars became plain tiles.  It ran at about 34 game
+ticks a second in normal play (the MSX at 50 Hz runs 25 to 27).  Sound:
+a beeper effect for each of Konami's event codes, played a frame at a time
+by the interrupt, about 3% of the speed.
+
+Preview 8 made it a multiload of two whole images, and found the
+mechanics that stayed: Konami's request for a stage's graphics (0:422A)
+checks the stage against the image's own, and if they differ the old image
+loads the new one, which comes in at a fixed address (`z48_enter`) and runs
+the tick again.  Konami's RAM is never loaded over, so the score, lives and
+weapons carry across.  Two bugs in preview 8 came from `fit48.py` cutting
+bank 2 between code and a table Konami reads relative to it (the laser's
+length, the ship's sprite entries); gen.py now lists such places
+(`z48_nocut.txt`).  Preview 10's rock rain started at once because E107
+was still set from stage 1's end.
+
+### The shared layout
+
+Whole images would not fit stage 5: a stage needs the core plus its own,
+and the largest sets the size.  From preview 12 the core of Konami's code
+(what all eight lists keep, 13.7K) sits at fixed addresses, the same in
+every image, and each stage loads only C400-FFFF: its header, jump slots
+for the core's calls into stage code, the map's pieces, its own code and
+data, its tiles and sprites.  Tiles are stored once with a two-byte index
+(preview 11), which freed about 2K a stage.  Then, stage by stage (previews
+13 to 17): every table the core keeps part of goes into the core whole
+(eleven were found read across the split); tables the core reads but not
+every stage keeps go to a shared area where each stage holds only its own;
+the front end lives only in stage 1's block, stages 2 to 8 loading stage 1
+for it; and each stage's leftovers fill the high areas and the tile store's
+unused numbers.
+
+That left stage 5 635 bytes short.  The user chose cuts to the game for it
+(13 November): the skeletons start risen and the skulls start where their
+rise and slide would have put them, ready to fire on Konami's timing, so
+the rising code and pictures go; and the pieces the triangles split into
+fly straight on, so the steering routine and its 512-byte table go.  Stage
+5 then fitted with room to spare.
+
+### Running the whole game
+
+With all eight stages on one tape (previews 18 to 21), the simulator played
+the tape (`z48tap.py`, which answers the ROM loader from the `.tap`) through
+four loops at a time.  What that found:
+
+* Stage 5's scenery had been built from the wrong set of map pieces in
+  every preview: Konami takes stages 5, 9, 10 and 12's from 11:8FF0.
+* Stage 6's boss reads its pieces from MSX bank 10, which the 48K did not
+  carry; stage 6's block now holds a copy.
+* The dissolve at the end of stages 7 and 8 still hit the demo's trap; it
+  is now left out.
+* Branches no run took: a background explosion's set-up in stage 8's third
+  round, and tables named by kept code that no run read.  The lists now
+  keep whole every routine they keep any of, every kept `call 0x4067` keeps
+  its table, and a stage keeps the tables its own kept code names.
+* The ending still played (with its pictures missing) and bounced straight
+  back to stage 1.  gen.py now jumps from stage 8's boss to the stage's end,
+  and the load from stage 8 to stage 1 shows THE END.
+* The border went blue at start-up: Konami's MSX border colour write is now
+  a `ret`.
+
+The 48K's build had grown to about 40 seconds an image, most of it a
+search for a layout of the core that let every stage fit.  The search's
+answer is now kept by a key made of what the layout depends on, so a full
+build of both tapes went back to about 40 seconds.  On the way, a misplaced
+`endif` from the 48K work had moved the Next's code by 502 bytes; with it
+fixed the 128K and Next builds are byte for byte 1.2.1's again, and they
+were compared after every later preview.
+
+### The finish (previews 22 to 28)
+
+* No flash of stray tiles as play begins: two pieces of Konami's menu (the
+  "1PLAYER" blink and the ship cursor) still wrote into the screen's copy
+  while our title was up (preview 22).
+* Fire to play in 0.8 seconds instead of 3: the title does the game start's
+  own step at once (preview 27).  Preview 23 did it by changing Konami's
+  wipe count at 0:539F, which game over also uses, so GAME OVER was printed
+  over the playfield until preview 27.  The lesson: a patch to Konami's code
+  is shared by every path that runs it.
+* The title's logo in block characters (preview 24), the 128K's loading
+  screen (preview 26), the game over screen's word chosen by the stage
+  ("RESTART" in stage 1, "REWIND" elsewhere), and two glitches after a
+  rewind fixed (preview 25).
+* The tape packed with ZX0, as the 128K's is (preview 28): from 156,971
+  bytes to 90,602.  Each stage block is padded to the longest so the loader
+  can load any stage at one address and unpack it in place.
+
+Preview 28 passed the full checks: both tapes four loops, each stage's game
+over with C (over 50 game overs a stage, each continued), R in stage 2, and
+pause.  These are now `tools/z48/test48.sh`.
+
+### Into the repository
+
+The scripts that make the keep lists, the census files they work from (cA
+and cB, maps of addresses run and read, no ROM bytes), the tape simulator
+and the 128K comparison runner moved from the chat's workspace into
+`tools/z48/`, finding the repository from their own place.  Remade from the
+census in the repository, the lists are identical to those the previews
+were built with.  The lists had been made with gen.py's shared patches
+only; made again with the 48K's own patches too, they keep 35 items less
+in each stage and nothing more, so `keep48.sh` checks both: the lists must
+be what the census gives, and the 48K's patches must not need anything they
+leave out.  `release48.sh` builds both tapes and runs the check when its
+inputs have changed.  Built from a copy of the repository with only these
+files added, both tapes are byte for byte preview 28's, and the 128K and
+Next byte for byte 1.2.1's (but for the version on the title).
+
 ## How releases are checked
 
 Since 0.98, each release has been checked the same way before it went out:
@@ -2163,7 +2305,7 @@ replay from.  They compare memory, not the picture, so a wrong scroll
 split, palette or hardware sprite passes them, and the Next build is also
 played (1.1's flash was found that way).
 
-## Where it stands (1.2.1)
+## Where it stands (1.3.0)
 
 * The 128K build has no MSX graphics.  Every graphics load is a load of
   tiles and sprite patterns converted when the game is built, and
@@ -2205,3 +2347,12 @@ played (1.1's flash was found that way).
   frame (1.3 before, in stage 1's opening in ZEsarUX), so it shows nearly
   every tick, and it keeps its
   speed and its music's tempo at 60 Hz.
+* The 48K version (1.3) is a multiload tape of about 90K: a core the same
+  in every stage, and a block for each of stages 1 to 8 holding only what
+  that stage needs of Konami's code.  Its changes to the game are listed in
+  the README.  It has passed `tools/z48/test48.sh` in the simulator and
+  been played in emulators; it has not yet been run on a real 48K.  Room
+  left in the stage blocks: 83 bytes in stage 8, 217 in stage 6, 281 in
+  stage 5, 644 to 1,985 in the rest.
+* The 128K and Next builds of 1.3.0 are 1.2.1's but for the version on the
+  title.
