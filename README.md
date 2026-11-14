@@ -70,7 +70,7 @@ Each stage is packed on the tape and unpacked as it loads, so the whole tape is 
 ### What you need
 
 * A ZX Spectrum 128K, +2, +2A, +2B or +3. It needs the 128K's extra memory, so it won't run on a 48K. I have tested on a real 128K and a real +3 (from tape, through a Retroleum SmartCard and through a DivMMC Future), and in emulators as a 128K, +2A and +3.
-* For the 48K tape (`nemesis48_1.3.0.tap`): any 48K Spectrum, or a 128K model in 48K mode or from 128 BASIC.
+* For the 48K tape (`nemesis48-1.3.0.tap`): any 48K Spectrum, or a 128K model in 48K mode or from 128 BASIC.
 * For the `.nex` file: a ZX Spectrum Next, or an emulator of one. I have tested on a KS2 Next and an N-Go (KS1 clone). It requires 1MB of RAM and the full ~~one point twenty-one jiggawatts~~ 28MHz so won't run on the early pre-release boards.
 
 ### Loading
@@ -127,7 +127,7 @@ It was last built with Python 3.13, SkoolKit 10.1, Pillow 12.3, sjasmplus 1.21.0
 ```
 python3 build.py              # nemesis.sna
 python3 make_tap.py           # nemesis.tap from it
-sh release.sh 1.3.0           # the release: tape, snapshot and .nex, in release/
+sh release.sh 1.3.0           # release/nemesis128-1.3.0.tap and .sna, nemesisNext-1.3.0.nex
 sh release48.sh 1.3.0         # the 48K tape, in release/
 sh verify.sh                  # the regression checks
 ```
@@ -149,7 +149,7 @@ Its graphics are in `spec/nxgfx/`: the character pool (`pool.bin`, every stage's
 The 48K tape needs the same tools as the 128K build. In `spec/`:
 
 ```
-sh release48.sh 1.3.0         # release/nemesis48_1.3.0.tap, and the test tape nemesis48hc.tap
+sh release48.sh 1.3.0         # release/nemesis48-1.3.0.tap, and the test tape nemesis48hc.tap
 sh ../tools/z48/test48.sh     # the 48K checks in a simulator: about 4 minutes
 ```
 

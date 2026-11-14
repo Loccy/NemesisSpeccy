@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the 48K multiload tapes: release/nemesis48_VERSION.tap, and the
+# Build the 48K multiload tapes: release/nemesis48-VERSION.tap, and the
 # test tape nemesis48hc.tap (here in spec/: ours only, not released; the
 # ship is safe and powered up each life).  Each tape holds the core and
 # eight stage blocks, one image of the game per stage (build48.py with
@@ -35,5 +35,5 @@ for C in "" c; do
         nemesis48_s6h$C.sna nemesis48_s7h$C.sna nemesis48_s8h$C.sna
 done
 mkdir -p release
-cp nemesis48h.tap release/nemesis48_${V}.tap
-ls -l release/nemesis48_${V}.tap nemesis48hc.tap
+cp nemesis48h.tap release/nemesis48-${V}.tap
+ls -l release/nemesis48-${V}.tap nemesis48hc.tap
