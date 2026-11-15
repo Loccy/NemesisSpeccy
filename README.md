@@ -1,4 +1,4 @@
-# Nemesis for the ZX Spectrum 128K
+# Nemesis MSX ported to the ZX Spectrum
 
 Nemesis, aka Gradius, was a seminal shmup. I first played it on a friend's C64, but we Spectrum owners were really shortchanged with the conversion we got. It didn't help that the mags of the era ran reviews featuring "screenshots" that were obviously mock-ups created by graphic artists. The game we got was a pale shadow of the game we were promised.
 
@@ -8,17 +8,16 @@ Architecturally, the MSX wasn't THAT different to the Spectrum. Hardware sprites
 
 So, this project is an attempt to tap into that alternate universe where that happened.
 
-What we have here is a port of Konami's MSX cartridge Nemesis (RC-742, 1986) for running on a standard 128K Spectrum using Konami's own game code (tested on a real 128K and +3, loading from tape, and in emulation on the 128K, +2A and +3). It is mostly the same code that sits on top of a platform layer which stands in for the MSX hardware, apart from the graphics: those are converted for the Spectrum when the game is built, and loaded in place of Konami's own graphics loads.
+What we have here is a port of Konami's MSX cartridge Nemesis (RC-742, 1986) for running on a standard ZX Spectrum using Konami's own game code. It is mostly the same code that sits on top of a platform layer which stands in for the MSX hardware, apart from the graphics: those are converted for the Spectrum when the game is built, and loaded in place of Konami's own graphics loads.
 
-The Z80 code of the cartridge is relocated to the Spectrum's memory by a generator (`reloc/gen.py`), and a platform layer (`spec/`) stands in for the hardware the code talks to: the memory mapper, the BIOS routines it calls, the video chip (TMS9918: the screen layout and the sprites), the sound chip (AY-3-8910, the same family as the 128K's) and the keyboard and joystick.
+The Z80 code of the cartridge is relocated to the Spectrum's memory by a generator (`reloc/gen.py`), and a platform layer (`spec/`) stands in for the hardware the code talks to: the memory mapper, the BIOS routines it calls, the video chip (TMS9918: the screen layout and the sprites), the sound chip (AY-3-8910, the same family as the 128K's) and the keyboard and joystick. On the 48K where there is no AY, the best we can do generate some period appropriate bloops and farts from the beeper.
 
 The game logic is Konami's, unchanged except where it meets the hardware. A test build matches the MSX original byte for byte in Konami's RAM, tick by tick (see [the technical description](docs/TECHNICAL.md), section 4).
 
 Departures from the MSX original are all deliberate:
 
 * The front end goes straight to the title screen: no Konami logo, no attract cycle (demo play and the illustration).  The title carries the controls and a credit line. This is to save on space - it was a tight fit!
-* Colours are chosen for the Spectrum's attribute cells: tiles are fitted to two colours per cell when the game is built, sprites take one ink in each cell their pixels reach, and a few objects get colours of their own (technical description, sections 6.6 and 6.7). Where the automatic fit made a mess of the scenery (the bricks of stage 2 and the bonus stages, the Moai of stage 3, the brains of stages 6 and 8, the band and formations of stage 7 and the pipework of stage 8), the colours were picked by hand instead, stage by stage, against the MSX.
-* The ship keeps the MSX's shape, but on the MSX it is two sprites one over the other: white, with a red canopy, and a light blue belly when it climbs. A Spectrum cell has one colour, so the canopy is drawn as a black line inside the white outline, and the belly as a stippled pattern.
+* Colours are chosen for the Spectrum's attribute cells: tiles are fitted to two colours per cell when the game is built, sprites take one ink in each cell their pixels reach, and a few objects get colours of their own (technical description, sections 6.6 and 6.7). Where the automatic fit made a mess of the scenery (the bricks of stage 2 and the bonus stages, the Moai of stage 3, the brains of stages 6 and 8, the band and formations of stage 7 and the pipework of stage 8), the colours were picked by hand instead, stage by stage, against the MSX (or in the case of the Moai, the arcade original).
 
 Everything Konami made is still Konami's: see [LEGAL-NOTICE.md](LEGAL-NOTICE.md) for who owns what.
 
@@ -63,7 +62,7 @@ Since 1.3 the game also comes on a tape for the 48K Spectrum. A 48K has a third 
 * The title is the Nemesis logo in block characters, over NEMESIS 48 - BY PAUL AND CLAUDE and PRESS FIRE TO START.
 * At a game over the game waits for a key: C to continue in the same stage, or R to start again from stage 1 (in stages 2 to 8 that means rewinding the tape).
 
-Each stage is packed on the tape and unpacked as it loads, so the whole tape is about 90K. So far it has been tested in emulators.
+Each stage is packed on the tape and unpacked as it loads, so the whole tape is about 90K.
 
 ## Playing it
 
